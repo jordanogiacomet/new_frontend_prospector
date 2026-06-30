@@ -2,7 +2,7 @@
 
 **Gathered:** 2026-06-30  
 **Spec:** `.specs/features/read-only-lead-browser/spec.md`  
-**Status:** Draft — decisions and evidence below require approval before implementation
+**Status:** RLB-T001 scope wording approved — remaining decisions and evidence require RLB-T002–RLB-T005 approval before implementation
 
 ## Feature Boundary
 

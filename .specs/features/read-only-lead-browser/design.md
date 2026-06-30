@@ -3,7 +3,7 @@
 **Spec:** `.specs/features/read-only-lead-browser/spec.md`  
 **Context:** `.specs/features/read-only-lead-browser/context.md`  
 **Phase:** Design  
-**Status:** Draft — not approved for implementation
+**Status:** RLB-T001 scope boundary approved — design remains blocked by RLB-T002–RLB-T005
 
 ## Architecture Overview
 

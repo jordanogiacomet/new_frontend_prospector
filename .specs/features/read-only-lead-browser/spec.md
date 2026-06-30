@@ -2,7 +2,7 @@
 
 **Project:** `read-only-lead-browser`  
 **Phase:** Specify  
-**Status:** Draft — review required before implementation  
+**Status:** RLB-T001 scope wording approved — implementation remains blocked by RLB-T002–RLB-T005
 **Confidence:** Medium — architecture is credible; production contract evidence is incomplete  
 **Evidence reviewed:** `AGENTS.md`, `docs/db/schema.sql`, `docs/db/tables.txt`, `docs/db/views.txt`, `docs/db/functions.txt`  
 **Evidence unavailable:** no `docs/db/columns.csv`, `constraints.csv`, or `indexes.csv`; no sanitized `docs/n8n/` files; no database profile or sample rows
