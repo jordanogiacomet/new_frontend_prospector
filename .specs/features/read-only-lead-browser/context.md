@@ -1,0 +1,154 @@
+# Read-only Lead Browser Context
+
+**Gathered:** 2026-06-30  
+**Spec:** `.specs/features/read-only-lead-browser/spec.md`  
+**Status:** Draft — decisions and evidence below require approval before implementation
+
+## Feature Boundary
+
+This feature delivers **a browser for eligible, readable, retained decisions** already stored in PostgreSQL. It is not an authoritative inventory of every analysis ever produced. It includes a bounded lead list and detail view, plus retained-analysis history when its limitations are approved. A limited batch/source view is optional and defaults to deferred. It excludes all producer behavior, n8n integration or changes, CSV handling, imports, retry/idempotency flows, reprocessing, exports, lead writes, and production migrations.
+
+## Locked Product Decisions
+
+### Product language and audience
+
+- The primary user is a business manager, not a workflow operator.
+- Labels use business Portuguese; technical identifiers appear only in audit/advanced sections.
+- The application presents stored decisions and provenance. It does not explain or reproduce producer algorithms.
+- Absence from the browser means no eligible/readable/retained decision was returned; it does not prove that no analysis ever occurred.
+- The experience should resemble an internal CRM/lead intelligence browser, not n8n monitoring.
+
+### Read-only system boundary
+
+- The only allowed runtime data path is `Frontend → App API → PostgreSQL`.
+- Browser code never connects directly to PostgreSQL.
+- There is no n8n URL, webhook, credential, SDK, or call in the application.
+- There are no write operations against lead, batch, report, CRM, processing, or producer tables.
+- There are no production migrations in this feature.
+- Missing or inconsistent producer data is displayed honestly; the application does not repair it.
+- All application data routes are authenticated, server-only, GET-only PostgreSQL reads.
+
+### Lead identity and current decision
+
+- CNPJ is the business route identity.
+- `decision_id` and `lead_run_id` are the audit identities.
+- Subject to the contract gate, the default lead list and detail use the latest eligible, readable, retained completed decision per normalized CNPJ, ordered by `created_at DESC, decision_id DESC`.
+- A detail view may accept `leadRunId` only to select a run already associated with the requested CNPJ; it must not create a run.
+- Distinct decision/run identifiers are never collapsed by CNPJ, source hash, batch, or row.
+
+### Missing and low-confidence data
+
+- `null` remains `null`; the UI does not convert it to numeric zero.
+- An absent array is different from a present empty array.
+- Missing report copy is “Relatório ainda não disponível”.
+- Unavailable history is stated directly; no operational event log is substituted.
+- When retained history is enabled without proof of complete retention, use “Histórico disponível” or “Análises retidas encontradas” and state that older analyses may not be present.
+- Unknown action, priority, verdict, or trust values remain visible as safely escaped “unknown/unmapped” values.
+- Low-confidence styling is applied only after the stored-value mapping is approved.
+
+### Batch/source behavior
+
+- Any batch/source capability is GET-only and informational.
+- It remains deferred unless reviewers establish that its labels, metrics, navigation, and context cannot reasonably be mistaken for import progress or operational monitoring.
+- Expected row count is metadata, not proof of progress.
+- Saved-decision counts are labeled as persisted decisions, not processed or completed import rows.
+- Replay counters and legacy workflow-flow views are not shown as import progress.
+
+## Evidence-Based Design Decisions
+
+### Authoritative read source
+
+- `lead_decisions` is the structurally strongest candidate read model because it preserves native final fields and audit identity.
+- It is not yet approved as a trustworthy production read contract. Approval requires time/version/mode-stratified aggregate evidence for path presence, JSON types, nulls, domains, eligibility, and unreadable/unclassified coverage.
+- `company_latest_validation` is useful evidence for latest-row ordering but is not a DTO source because it omits `final_action` and masks some missing JSON values with defaults.
+- `company_validations` and `vw_dashboard_empresaqui` are mutable projections and are not history sources.
+- `company_validation_runs`, processing events/state, dead letters, and integrity errors are operational producer records and remain outside the business UI.
+
+### History availability
+
+- History is considered structurally available from distinct `lead_decisions` rows.
+- The UI must label superseded rows and disclose that retention/deletion policy is not evidenced.
+- History remains conditional until production data scope and retention limitations are approved.
+- Unless completeness is proven, the product shows retained analyses currently found, not a complete audit trail.
+
+### Strategic report selection
+
+- Prefer a report whose `company_strategic_research_reports.lead_run_id` exactly matches the selected decision.
+- Do not join by CNPJ alone because that could attach a report from another run.
+- If multiple exact-run reports exist, do not silently choose one until multiplicity is profiled. The provisional deterministic choice is latest `created_at DESC, id DESC`, accompanied by provenance.
+- A report with non-`OK` integrity is unavailable by default; its internal `integrity_error` is not exposed.
+- `lead_decisions.report_json` may be a fallback only after its shape and provenance are validated.
+- Structural validation, Markdown sanitization, and URL validation are necessary but insufficient for privacy. Reports and evidence remain omitted until semantic PII and confidential-content handling, redaction, access, and logging rules are approved.
+
+### Query behavior and production safety
+
+- Pagination is a response bound, not proof that ranking, filtering, sorting, JSON extraction, or exact counts are safe.
+- The MVP exposes only query shapes supported by realistic production or production-like evidence.
+- Approval must review data and count plans, JSON extraction cost, filter/index compatibility, statement timeouts, expected concurrency, and representative selective/unselective parameters.
+- Broad text search, broad date ranges, computed JSON filters, expensive sorts, and exact totals default to omitted or narrowed until evidence supports them.
+
+### CRM/contact selection
+
+- Contact data is not required for the initial vertical slice.
+- If approved, it comes from CRM snapshot tables through the exact stored `crmCompanyKey` relationship, is nullable, and is labeled with snapshot freshness.
+- CRM contact values are sensitive and mutable and must not be logged or used in tests/screenshots.
+
+## Approval Decisions Still Required
+
+These are not invitations to expand scope. They are prerequisites that prevent the implementation from guessing.
+
+| Decision | Why it matters | Proposed default |
+| --- | --- | --- |
+| Authentication provider and organization claim | The repository contains no identity provider configuration. | Use the organization’s existing OIDC provider with server sessions; do not invent local users. |
+| Authorized organization rule | A single-organization model still needs an exact claim/domain/allowlist. | Explicit server-side organization identifier, not email-domain-only authorization. |
+| Eligible `execution_mode` values | The schema has a free-text mode and no row inventory. Test/eval data may coexist. | Allowlist confirmed production modes; exclude unknown modes from default business results. |
+| Current-decision eligibility | `COMPLETED` and supersession fields exist, but manual supersession behavior needs confirmation. | Include only `decision_status = 'COMPLETED'` and `cnpj_normalizado IS NOT NULL`. |
+| Contract readability threshold | DDL does not prove stable JSON paths/types across time, versions, or modes. | Quantify eligible, readable, unreadable, and unclassified percentages; do not approve meaningful coverage without an explicit accepted threshold. |
+| Priority/action/verdict/trust value sets | Columns are free text; UI labels and low-confidence mapping cannot be inferred safely. | Profile distinct values read-only, approve mappings, preserve unknown values. |
+| PII/contact display | CRM tables hold names, email addresses, and phone numbers. | Defer contact fields until access and masking policy is approved. |
+| Report/evidence content policy | Structurally valid content can still contain semantic PII or confidential material. | Omit by default until policy approves allowed fields, redaction/omission, URL handling, logging, and access. |
+| Report multiplicity and fallback | `lead_run_id` is indexed but not unique; report JSON shapes are unprofiled. | Exact-run, integrity-OK report only after content policy approval; no CNPJ-only fallback. |
+| Query/performance envelope | Existing indexes do not prove proposed filters/counts are safe under realistic load. | Approve a measured capability matrix; omit unsupported filters, sorts, exact totals, and broad search. |
+| History retention semantics | DDL has no complete retention/deletion policy. | Treat rows as retained analyses; always caveat older analyses may be absent unless completeness is proven. |
+| Batch/source screen | Metadata is structurally available but can be mistaken for import progress. | Defer unless semantics are explicitly approved as non-operational and cannot reasonably imply progress. |
+| Test database strategy | No test infrastructure exists and no heavy dependency is preapproved. | Dedicated non-production PostgreSQL with synthetic fixtures; unit-test mappers/routes independently. |
+| Database grants | Schema dump does not include the deployed application role. | A separately provisioned role with `CONNECT`, `USAGE`, and `SELECT` only on approved objects. |
+
+## Agent’s Discretion After Approval
+
+- Exact visual composition within the required screen hierarchy and states.
+- Component boundaries that keep business logic out of React components.
+- The typed PostgreSQL driver, provided it is server-only, parameterized, and does not introduce migrations.
+- The exact synthetic company names and values used in fixtures.
+- Copy refinements that preserve the specified business meanings.
+- Whether list filters use a drawer or an inline responsive panel.
+
+## Specific References
+
+- Repository guidance in `AGENTS.md`.
+- DDL evidence in `docs/db/schema.sql`.
+- `docs/db/tables.txt`, `docs/db/views.txt`, and `docs/db/functions.txt` exist but are empty.
+- No sanitized n8n documentation was present, so no workflow behavior beyond repository and schema evidence is assumed.
+
+## Deferred Features
+
+- Batch/source browser activation after data-quality approval.
+- CRM contact snapshot display after PII authorization.
+- Full dashboard metrics.
+- Export.
+- Human review decisions or any write workflow.
+- Multi-tenant authorization.
+- Producer operational monitoring.
+- Any new database view/index/migration.
+- n8n integration of any kind.
+
+## Implementation Hold
+
+No implementation may start until:
+
+1. Read-only scope and the “eligible, readable, retained decisions” MVP wording are approved.
+2. An authorized production/production-like `lead_decisions` contract audit quantifies JSON-path presence, JSON value types, null rates, domain values, time/workflow-version/execution-mode variation, eligibility coverage, and unreadable/unclassified row percentages. No raw payload is committed.
+3. Production scope, eligible modes, authentication provider, and exact organization authorization rule are approved.
+4. History retention limitations, semantic report/evidence privacy policy, and batch/source inclusion or explicit deferral are approved.
+5. Realistic query/performance evidence approves the enabled filter, sort, search, pagination, and count capability matrix.
+6. The design and task plan are approved after those findings are incorporated.
