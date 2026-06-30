@@ -2,12 +2,12 @@
 
 **Design:** `.specs/features/read-only-lead-browser/design.md`  
 **Phase:** Tasks  
-**Status:** Draft — execution explicitly blocked pending review and approval  
+**Status:** RLB-T001 approved — RLB-T002–RLB-T005 and implementation remain blocked pending separate review and approval
 **Plan origin:** Fresh plan created for `read-only-lead-browser`; it does not continue or reuse any prior T01/T02 plan.
 
 ## Execution Rules
 
-- Do not execute any task in this document yet.
+- Execute only tasks explicitly authorized by the user. `RLB-T001` is approved; no later task is authorized by that approval.
 - `RLB-T001` through `RLB-T005` are mandatory approval/evidence gates. Code bootstrap begins only after all five pass.
 - Every implementation task includes its tests; there are no deferred “write tests later” tasks.
 - Use one atomic commit per task when execution is eventually approved.
@@ -147,11 +147,13 @@ RLB-T025 + RLB-T032 + RLB-T035
 **Gate:** Structural/scope review  
 **Done when:**
 
-- [ ] Reviewer accepts that `lead_decisions` is only a provisional candidate until evidence gates pass.
-- [ ] Reviewer accepts that absence from the browser does not prove absence of producer analysis.
-- [ ] Reviewer accepts projection/event/batch-progress exclusions.
-- [ ] The scope remains authenticated, server-only, GET-only PostgreSQL reads.
-- [ ] CSV upload, n8n calls/changes, import creation, retry/idempotency behavior, reprocessing, export, human-review writes, migrations, and producer changes remain excluded.
+- [x] Reviewer accepts that `lead_decisions` is only a provisional candidate until evidence gates pass.
+- [x] Reviewer accepts that absence from the browser does not prove absence of producer analysis.
+- [x] Reviewer accepts projection/event/batch-progress exclusions.
+- [x] The scope remains authenticated, server-only, GET-only PostgreSQL reads.
+- [x] CSV upload, n8n calls/changes, import creation, retry/idempotency behavior, reprocessing, export, human-review writes, migrations, and producer changes remain excluded.
+
+**Approval:** Approved on 2026-06-30. The MVP wording is “a browser for eligible, readable, retained decisions”; authoritative-inventory and complete-audit-trail claims remain prohibited.
 
 **Verify:** `rg -n "eligible, readable, retained|authoritative inventory|GET-only|Can implementation start" .specs/features/read-only-lead-browser/{spec,context,design}.md`  
 **Commit:** `docs(read-only-leads): approve bounded read-only MVP`
@@ -1168,4 +1170,4 @@ All three mandatory pre-approval checks pass: task granularity, dependency-diagr
 
 ## Stop Condition
 
-This document completes the Tasks phase only. No implementation, page, route, dependency installation, database connection, n8n action, write, or migration is authorized. The next action is human review and approval beginning with `RLB-T001`.
+This document completes the Tasks phase only. No implementation, page, route, dependency installation, database connection, n8n action, write, or migration is authorized. `RLB-T001` is approved; the next task is `RLB-T002`, which requires separate authorization and the approved `DB-READ` profile.
