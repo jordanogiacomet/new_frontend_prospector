@@ -2,7 +2,7 @@
 
 **Gathered:** 2026-06-30  
 **Spec:** `.specs/features/read-only-lead-browser/spec.md`  
-**Status:** RLB-T001 scope wording approved — remaining decisions and evidence require RLB-T002–RLB-T005 approval before implementation
+**Status:** RLB-T002 FAIL — authorized audit ran, but the target contained zero retained rows
 
 ## Feature Boundary
 
@@ -55,6 +55,51 @@ This feature delivers **a browser for eligible, readable, retained decisions** a
 - Replay counters and legacy workflow-flow views are not shown as import progress.
 
 ## Evidence-Based Design Decisions
+
+### RLB-T002 contract audit status
+
+**FAIL as of 2026-06-30.** The authorized audit ran successfully, but the
+`prospecting.public.lead_decisions` target contained zero retained rows.
+Consequently, the audit cannot approve a readable production contract or an
+eligibility coverage threshold.
+
+#### Preflight
+
+- The approved local DB-READ profile loaded without exposing or persisting its DSN.
+- Connection target: database `prospecting`; current role: `rlb_readonly`.
+- `SELECT` on `public.lead_decisions`: allowed.
+- `INSERT`, `UPDATE`, and `DELETE` table privileges: absent.
+- Forced `transaction_read_only`: `on`.
+- Aggregate retained-row count: `0`.
+
+#### Aggregate findings
+
+The audit used retained rows as the denominator. A zero denominator is reported
+as undefined, never as `0%`.
+
+- Native-field null/empty profiling covered 27 proposed list, detail, history, audit, and report columns. Every count had denominator `0`; null rates are undefined.
+- JSON-path profiling covered all 21 proposed `decision_payload` paths for company identity, fiscal/commercial detail, scores, summary, risks, positive signals, evidence, and fallbacks. Presence, JSON type, and incompatible-shape counts were all `0` of `0`; percentages are undefined.
+- Effective fallback checks for company name, risks, and evidence returned `0` of `0`.
+- Priority, action, verdict, trust, research-status, execution-mode, workflow-version, ruleset-version, and prompt-model-version domains had no observed values. Their distinct counts were all `0`.
+- No time period, workflow/ruleset/prompt-model version, or execution-mode stratum existed.
+- Structural eligibility produced `0` retained, completed, valid-CNPJ, mode-classified, eligible, readable, unreadable, and unclassified rows. Readable, unreadable, and unclassified percentages are undefined.
+- `report_json` presence, type, multiplicity, array/object size, and object-signature variation were measured as `0` observations; minimum, maximum, and average multiplicity are undefined.
+- Risk, signal, and evidence arrays had `0` observations. Array lengths, element types, and object-signature variation are therefore unobservable.
+- Domain and version outputs used rare/long-value redaction even though the empty target produced no values.
+- No raw row, JSON payload, report, evidence, contact data, strategic content, identifying value, or credential was printed, persisted, or committed.
+
+#### Coverage decision
+
+**Rejected.** Zero retained rows provide no empirical support for JSON-path
+stability, null rates, domain mappings, mode eligibility, time/version
+compatibility, readability, or report/evidence structure. The observed counts
+must not be interpreted as `0%` missing, `100%` compatible, or proof that the
+table has no structural variation.
+
+`RLB-T002` does not pass. Rerun the same aggregate audit against an authorized
+production or production-like target containing representative retained
+`lead_decisions` rows. `RLB-T003` remains blocked until that rerun produces an
+accepted coverage decision.
 
 ### Authoritative read source
 

@@ -2,7 +2,7 @@
 
 **Design:** `.specs/features/read-only-lead-browser/design.md`  
 **Phase:** Tasks  
-**Status:** RLB-T001 approved — RLB-T002–RLB-T005 and implementation remain blocked pending separate review and approval
+**Status:** RLB-T002 FAIL — preflight passed, but zero retained rows cannot establish the contract
 **Plan origin:** Fresh plan created for `read-only-lead-browser`; it does not continue or reuse any prior T01/T02 plan.
 
 ## Execution Rules
@@ -20,7 +20,10 @@
 
 ## Tool Profiles for Future Execution
 
-The user must authorize `DB-READ` before either evidence audit and approve future implementation profiles before `RLB-T006`.
+The user authorized `DB-READ` for `RLB-T002` on 2026-06-30 through the local
+DB-READ profile. The audit ran with forced read-only transactions and aggregate
+`SELECT` queries only. This authorization does not extend to `RLB-T005` or
+implementation profiles.
 
 | Profile | Tools and skills | Intended use |
 | --- | --- | --- |
@@ -168,16 +171,23 @@ RLB-T025 + RLB-T032 + RLB-T035
 **Tools:** `DB-READ`, `DOCS`  
 **Tests:** None — evidence gate  
 **Gate:** All database activity uses authorized read-only credentials and aggregate `SELECT` queries; no raw payload or business record is committed  
+**Execution status:** **FAIL (2026-06-30).** Preflight passed for database
+`prospecting` and role `rlb_readonly`: `SELECT` is allowed, table write
+privileges are absent, and `transaction_read_only` was forced `on`. The audit
+ran, but `public.lead_decisions` contained zero retained rows. Aggregate counts
+are recorded in `context.md`; rates and structural coverage are undefined, so
+the contract and coverage threshold are rejected. Rerun against an authorized
+representative target before starting `RLB-T003`.
 **Done when:**
 
-- [ ] JSON-path presence is measured for every proposed list/detail/report/evidence field.
-- [ ] JSON value types and incompatible/malformed shapes are measured per proposed path.
-- [ ] Null rates and domain values are summarized for native and proposed mapped fields.
-- [ ] Results are stratified by relevant time periods, `workflow_version`, `ruleset_version`, `prompt_model_version`, and `execution_mode`.
-- [ ] Eligibility coverage is quantified against retained rows, including CNPJ/status/mode/readability exclusions.
-- [ ] Readable, unreadable, and unclassified row counts and percentages are reported with an explicit accepted/rejected coverage decision.
-- [ ] Report/evidence multiplicity and structural variation are measured without committing content.
-- [ ] No raw lead, contact, report, evidence, input snapshot, strategic content, or identifying sample is committed.
+- [x] JSON-path presence is measured for every proposed list/detail/report/evidence field.
+- [x] JSON value types and incompatible/malformed shapes are measured per proposed path.
+- [x] Null rates and domain values are summarized for native and proposed mapped fields.
+- [x] Time, `workflow_version`, `ruleset_version`, `prompt_model_version`, and `execution_mode` strata were queried; no strata existed.
+- [x] Eligibility coverage is quantified against retained rows, including CNPJ/status/mode/readability exclusions.
+- [x] Readable, unreadable, and unclassified counts are reported as `0`; percentages are explicitly undefined and coverage is rejected.
+- [x] Report/evidence multiplicity and structural variation are measured without committing content.
+- [x] No raw lead, contact, report, evidence, input snapshot, strategic content, or identifying sample is committed.
 
 **Verify:** Review authorization, DB role/transaction mode, aggregate-query inventory, redaction, denominator definitions, stratification, and coverage calculations; `git diff --check`  
 **Commit:** `docs(read-only-leads): record aggregate contract evidence`
