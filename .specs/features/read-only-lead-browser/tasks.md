@@ -331,11 +331,11 @@ representative target before starting `RLB-T003`.
 **Gate:** Focused unit + typecheck  
 **Done when:**
 
-- [ ] Client cannot be imported into a client bundle.
-- [ ] Query values remain separate from SQL text.
-- [ ] Statement timeout and safe connection errors are configured.
-- [ ] No migration/write helper is exposed.
-- [ ] At least 4 unit tests pass; optional synthetic DB smoke never uses production.
+- [x] Client cannot be imported into a client bundle.
+- [x] Query values remain separate from SQL text.
+- [x] Statement timeout and safe connection errors are configured.
+- [x] No migration/write helper is exposed.
+- [x] At least 4 unit tests pass; optional synthetic DB smoke never uses production.
 
 **Verify:** `pnpm vitest run src/server/db/client.test.ts && pnpm typecheck`; at least `4` tests pass  
 **Commit:** `feat(read-only-leads): add server-only database client`
