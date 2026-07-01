@@ -372,11 +372,11 @@ representative target before starting `RLB-T003`.
 **Gate:** Focused unit + typecheck  
 **Done when:**
 
-- [ ] Valid defaults and all approved bounds are implemented.
-- [ ] Invalid/repeated/unknown sort inputs fail before repositories.
-- [ ] CNPJ/date/score/range rules match the contract.
-- [ ] Deferred filters/sorts are absent rather than accepted and ignored.
-- [ ] At least 25 focused tests pass with no previous test-count reduction.
+- [x] Valid defaults and all approved bounds are implemented.
+- [x] Invalid/repeated/unknown sort inputs fail before repositories.
+- [x] CNPJ/date/score/range rules match the contract.
+- [x] Deferred filters/sorts are absent rather than accepted and ignored.
+- [x] At least 25 focused tests pass with no previous test-count reduction.
 
 **Verify:** `pnpm vitest run src/lib/validators/lead-query.test.ts && pnpm typecheck`; at least `25` tests pass  
 **Commit:** `feat(read-only-leads): validate read query inputs`
