@@ -311,10 +311,10 @@ representative target before starting `RLB-T003`.
 **Gate:** Focused unit + typecheck  
 **Done when:**
 
-- [ ] `DATABASE_URL` and approved auth variables validate server-side.
-- [ ] `.env.example` contains placeholders only and no n8n setting.
-- [ ] Client environment exports contain no database/auth secrets.
-- [ ] At least 4 tests cover missing, malformed, valid, and client-safe cases.
+- [x] `DATABASE_URL` and approved auth variables validate server-side.
+- [x] `.env.example` contains placeholders only and no n8n setting.
+- [x] Client environment exports contain no database/auth secrets.
+- [x] At least 4 tests cover missing, malformed, valid, and client-safe cases.
 
 **Verify:** `pnpm vitest run src/server/env.test.ts && pnpm typecheck`; at least `4` tests pass  
 **Commit:** `feat(read-only-leads): validate server environment`
