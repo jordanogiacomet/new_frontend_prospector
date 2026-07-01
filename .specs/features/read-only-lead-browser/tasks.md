@@ -516,10 +516,10 @@ representative target before starting `RLB-T003`.
 **Gate:** Focused component + typecheck  
 **Done when:**
 
-- [ ] Login triggers only the approved provider flow.
-- [ ] Authenticated users redirect to `/leads`.
-- [ ] Errors disclose no provider/internal details.
-- [ ] At least 4 component states pass.
+- [x] Login triggers only the approved provider flow.
+- [x] Authenticated users redirect to `/leads`.
+- [x] Errors disclose no provider/internal details.
+- [x] At least 4 component states pass.
 
 **Verify:** `pnpm vitest run src/app/login && pnpm typecheck`; at least `4` tests pass  
 **Commit:** `feat(read-only-leads): build private login screen`

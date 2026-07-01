@@ -169,6 +169,10 @@ describe("server authentication and authorization", () => {
       strategy: "jwt",
       maxAge: AUTH_SESSION_MAX_AGE_SECONDS,
     });
+    expect(config.pages).toEqual({
+      signIn: "/login",
+      error: "/login",
+    });
   });
 
   it("accepts sign-in only for verified exact identity claims", async () => {

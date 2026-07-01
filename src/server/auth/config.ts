@@ -85,6 +85,10 @@ export function createAuthConfig(
       strategy: "jwt",
       maxAge: AUTH_SESSION_MAX_AGE_SECONDS,
     },
+    pages: {
+      signIn: "/login",
+      error: "/login",
+    },
     providers: [
       {
         id: OIDC_PROVIDER_ID,
