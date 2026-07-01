@@ -291,10 +291,10 @@ representative target before starting `RLB-T003`.
 **Gate:** Full baseline  
 **Done when:**
 
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test`, and `pnpm build` scripts exist.
-- [ ] One synthetic smoke test proves the runner/configuration.
-- [ ] Test discovery excludes production dumps, real data, and build output.
-- [ ] All four commands pass; at least 1 smoke test passes.
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test`, and `pnpm build` scripts exist.
+- [x] One synthetic smoke test proves the runner/configuration.
+- [x] Test discovery excludes production dumps, real data, and build output.
+- [x] All four commands pass; at least 1 smoke test passes.
 
 **Verify:** `pnpm lint && pnpm typecheck && pnpm test && pnpm build`; expected at least `1` passing test  
 **Commit:** `test(read-only-leads): establish quality toolchain`
