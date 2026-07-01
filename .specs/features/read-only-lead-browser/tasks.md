@@ -352,10 +352,10 @@ representative target before starting `RLB-T003`.
 **Gate:** Typecheck  
 **Done when:**
 
-- [ ] DTOs contain no `any` and preserve explicit nulls.
-- [ ] No raw payload/input/CRM/report JSON type is browser-facing.
-- [ ] Audit identifiers retain stable names.
-- [ ] `pnpm typecheck` passes.
+- [x] DTOs contain no `any` and preserve explicit nulls.
+- [x] No raw payload/input/CRM/report JSON type is browser-facing.
+- [x] Audit identifiers retain stable names.
+- [x] `pnpm typecheck` passes.
 
 **Verify:** `pnpm typecheck`; expected exit code `0`  
 **Commit:** `feat(read-only-leads): define read-only DTO contracts`
