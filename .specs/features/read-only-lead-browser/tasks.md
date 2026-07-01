@@ -434,10 +434,10 @@ representative target before starting `RLB-T003`.
 **Gate:** Focused unit + typecheck  
 **Done when:**
 
-- [ ] Required audit fields are preserved exactly.
-- [ ] Missing names/status/score remain null/unknown.
-- [ ] No default-zero or raw payload pass-through occurs.
-- [ ] At least 10 complete/null/unknown tests pass.
+- [x] Required audit fields are preserved exactly.
+- [x] Missing names/status/score remain null/unknown.
+- [x] No default-zero or raw payload pass-through occurs.
+- [x] At least 10 complete/null/unknown tests pass.
 
 **Verify:** `pnpm vitest run src/server/mappers/lead-summary-mapper.test.ts && pnpm typecheck`; at least `10` tests pass  
 **Commit:** `feat(read-only-leads): map lead summaries safely`
