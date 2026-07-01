@@ -393,11 +393,11 @@ representative target before starting `RLB-T003`.
 **Gate:** Focused unit + typecheck  
 **Done when:**
 
-- [ ] Dates use `pt-BR` and `America/Sao_Paulo`.
-- [ ] Currency formatting is called only for numeric contracts.
-- [ ] Null/unknown values use neutral labels.
-- [ ] Low confidence is derived only from approved stored values.
-- [ ] At least 20 tests pass with no previous test-count reduction.
+- [x] Dates use `pt-BR` and `America/Sao_Paulo`.
+- [x] Currency formatting is called only for numeric contracts.
+- [x] Null/unknown values use neutral labels.
+- [x] Low confidence is derived only from approved stored values.
+- [x] At least 20 tests pass with no previous test-count reduction.
 
 **Verify:** `pnpm vitest run src/lib/formatters src/lib/lead-labels.test.ts && pnpm typecheck`; at least `20` tests pass  
 **Commit:** `feat(read-only-leads): add business formatters and labels`
