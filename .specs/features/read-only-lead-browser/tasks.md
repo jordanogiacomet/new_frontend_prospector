@@ -536,10 +536,10 @@ representative target before starting `RLB-T003`.
 **Gate:** Focused component + typecheck  
 **Done when:**
 
-- [ ] Unauthenticated rendering returns no child/private content.
-- [ ] Unauthorized organization receives access denied.
-- [ ] Private pages opt out of shared caching.
-- [ ] At least 4 session-state tests pass.
+- [x] Unauthenticated rendering returns no child/private content.
+- [x] Unauthorized organization receives access denied.
+- [x] Private pages opt out of shared caching.
+- [x] At least 4 session-state tests pass.
 
 **Verify:** `pnpm vitest run 'src/app/(private)/layout.test.tsx' && pnpm typecheck`; at least `4` tests pass  
 **Commit:** `feat(read-only-leads): add authenticated application shell`
