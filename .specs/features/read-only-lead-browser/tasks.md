@@ -939,14 +939,18 @@ content, nullable, and populated states.
 **Tools:** `CORE`, optional `DB-READ` for approved synthetic integration  
 **Tests:** Repository unit plus approved non-production integration  
 **Gate:** Focused repository tests + typecheck  
+**Execution status:** **COMPLETE (2026-07-02).** The server-only repository
+returns exact-CNPJ retained terminal rows in deterministic pages, marks the
+current item by the exact terminal decision ID, and fails closed above the
+six-row history ceiling without event, processing-view, or JSON fallback.
 **Done when:**
 
-- [ ] Exact decision/run rows remain distinct.
-- [ ] Superseded rows remain visible and current item is exact.
-- [ ] Count/pagination are deterministic.
-- [ ] No processing table/view is queried.
-- [ ] Metadata identifies retained-only history unless completeness was proven.
-- [ ] At least 10 repository tests pass.
+- [x] Exact decision/run rows remain distinct.
+- [x] Superseded rows remain visible and current item is exact.
+- [x] Count/pagination are deterministic.
+- [x] No processing table/view is queried.
+- [x] Metadata identifies retained-only history unless completeness was proven.
+- [x] At least 10 repository tests pass.
 
 **Verify:** `pnpm vitest run src/server/repositories/lead-history-repository.test.ts && pnpm typecheck`; at least `10` tests pass  
 **Commit:** `feat(read-only-leads): query lead history read-only`
