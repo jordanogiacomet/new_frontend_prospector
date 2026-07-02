@@ -19,6 +19,10 @@ interface InsightStateProps {
   kind: "risks" | "signals";
 }
 
+interface EvidenceStateProps {
+  evidence: LeadDetail["evidences"];
+}
+
 const branchCountFormatter = new Intl.NumberFormat("pt-BR", {
   maximumFractionDigits: 0,
 });
@@ -102,6 +106,42 @@ function InsightState({ collection, kind }: InsightStateProps) {
       role={collection.status === "unavailable" ? "alert" : "status"}
       aria-label={copy.label}
       className={`mt-5 border px-5 py-5 ${stateAppearance[collection.status]}`}
+    >
+      <p className="text-xs font-bold tracking-[0.12em] uppercase">
+        {copy.label}
+      </p>
+      <p className="mt-2 max-w-xl text-sm leading-6">
+        {copy.description}
+      </p>
+    </div>
+  );
+}
+
+function EvidenceState({ evidence }: EvidenceStateProps) {
+  const copy =
+    evidence.status === "missing"
+      ? {
+          label: "Evidências ausentes",
+          description:
+            "Nenhuma evidência foi armazenada para esta análise.",
+        }
+      : evidence.status === "unavailable"
+        ? {
+            label: "Evidências indisponíveis",
+            description:
+              "Não foi possível consultar as evidências desta análise.",
+          }
+        : {
+            label: "Retido por política",
+            description:
+              "As evidências desta análise não foram aprovadas para exibição.",
+          };
+
+  return (
+    <div
+      role={evidence.status === "unavailable" ? "alert" : "status"}
+      aria-label={copy.label}
+      className={`mt-5 border px-5 py-5 ${stateAppearance[evidence.status]}`}
     >
       <p className="text-xs font-bold tracking-[0.12em] uppercase">
         {copy.label}
@@ -263,19 +303,7 @@ export function LeadInsights({ lead }: LeadInsightsProps) {
           >
             Evidências
           </h3>
-          <div
-            role="status"
-            aria-label="Retido por política"
-            className={`mt-5 border px-5 py-5 ${stateAppearance.omitted_by_policy}`}
-          >
-            <p className="text-xs font-bold tracking-[0.12em] uppercase">
-              Retido por política
-            </p>
-            <p className="mt-2 max-w-xl text-sm leading-6">
-              As evidências desta análise não foram aprovadas para
-              exibição.
-            </p>
-          </div>
+          <EvidenceState evidence={lead.evidences} />
         </section>
       </section>
     </div>

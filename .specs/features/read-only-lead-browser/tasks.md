@@ -835,12 +835,16 @@ while the semantic allowlist remains empty.
 **Tools:** `UI`  
 **Tests:** Page/component  
 **Gate:** Focused page tests + lint + typecheck  
+**Execution status:** **COMPLETE (2026-07-02).** The authenticated detail page
+preserves exact CNPJ/run selection through the application API and safely
+assembles loading, not-found, unavailable, error, stale, missing/withheld
+content, nullable, and populated states.
 **Done when:**
 
-- [ ] CNPJ and optional run stay in the request contract.
-- [ ] Loading, not-found, error, missing/withheld report/evidence, stale, and complete states render safely.
-- [ ] No raw payload or client database access exists.
-- [ ] At least 9 page-state tests pass.
+- [x] CNPJ and optional run stay in the request contract.
+- [x] Loading, not-found, error, missing/withheld report/evidence, stale, and complete states render safely.
+- [x] No raw payload or client database access exists.
+- [x] At least 9 page-state tests pass.
 
 **Verify:** `pnpm vitest run 'src/app/(private)/leads/[cnpj]' && pnpm lint && pnpm typecheck`; at least `9` tests pass  
 **Commit:** `feat(read-only-leads): assemble lead detail experience`

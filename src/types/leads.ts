@@ -51,6 +51,21 @@ export interface PolicyOmittedContent {
   content: null;
 }
 
+export interface MissingContent {
+  status: "missing";
+  content: null;
+}
+
+export interface UnavailableContent {
+  status: "unavailable";
+  content: null;
+}
+
+export type LeadSensitiveContent =
+  | MissingContent
+  | UnavailableContent
+  | PolicyOmittedContent;
+
 export type DataQualityNoticeCode =
   | "MISSING_VALUE"
   | "UNKNOWN_DOMAIN_VALUE"
@@ -94,8 +109,8 @@ export interface LeadDetail extends LeadSummary {
   strategicTier: Nullable<string>;
   riskFlags: LeadInsightCollection;
   positiveSignals: LeadInsightCollection;
-  evidences: PolicyOmittedContent;
-  strategicReport: PolicyOmittedContent;
+  evidences: LeadSensitiveContent;
+  strategicReport: LeadSensitiveContent;
   audit: LeadAudit;
   dataQuality: DataQualityNotice[];
 }
