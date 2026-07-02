@@ -2,7 +2,7 @@
 
 **Gathered:** 2026-06-30  
 **Spec:** `.specs/features/read-only-lead-browser/spec.md`  
-**Status:** RLB-T002 FAIL — authorized audit ran, but the target contained zero retained rows
+**Status:** RLB-T005 COMPLETE — bounded query capability envelope approved; bootstrap not started
 
 ## Feature Boundary
 
@@ -32,7 +32,9 @@ This feature delivers **a browser for eligible, readable, retained decisions** a
 
 - CNPJ is the business route identity.
 - `decision_id` and `lead_run_id` are the audit identities.
-- Subject to the contract gate, the default lead list and detail use the latest eligible, readable, retained completed decision per normalized CNPJ, ordered by `created_at DESC, decision_id DESC`.
+- The default list/detail reads the one-row-per-CNPJ current projection,
+  requires its exact eligible/readable terminal run, and orders list results by
+  `company_validations.validated_at DESC, company_validations.id DESC`.
 - A detail view may accept `leadRunId` only to select a run already associated with the requested CNPJ; it must not create a run.
 - Distinct decision/run identifiers are never collapsed by CNPJ, source hash, batch, or row.
 
@@ -43,94 +45,193 @@ This feature delivers **a browser for eligible, readable, retained decisions** a
 - Missing report copy is “Relatório ainda não disponível”.
 - Unavailable history is stated directly; no operational event log is substituted.
 - When retained history is enabled without proof of complete retention, use “Histórico disponível” or “Análises retidas encontradas” and state that older analyses may not be present.
-- Unknown action, priority, verdict, or trust values remain visible as safely escaped “unknown/unmapped” values.
-- Low-confidence styling is applied only after the stored-value mapping is approved.
+- Unknown action, priority, verdict, or trust values use a neutral “Não
+  mapeado” presentation; the safely escaped stored value may appear only in the
+  audit/advanced section.
+- The initial low-confidence token set is intentionally empty because the
+  aggregate evidence did not record an exact stored token with that proven
+  meaning. No score, priority, action, or unknown value may be used to infer
+  confidence.
 
 ### Batch/source behavior
 
-- Any batch/source capability is GET-only and informational.
-- It remains deferred unless reviewers establish that its labels, metrics, navigation, and context cannot reasonably be mistaken for import progress or operational monitoring.
+- Batch/source screens and routes are deferred by RLB-T004.
+- A future approval may consider a GET-only informational capability only after
+  reviewers establish that its lineage, labels, metrics, navigation, and
+  context cannot reasonably be mistaken for import progress or operational
+  monitoring.
 - Expected row count is metadata, not proof of progress.
 - Saved-decision counts are labeled as persisted decisions, not processed or completed import rows.
 - Replay counters and legacy workflow-flow views are not shown as import progress.
 
 ## Evidence-Based Design Decisions
 
+### Read-only source discovery status
+
+**Completed on 2026-06-30.** After the DB-READ grants were corrected, the
+approved profile connected to database `prospecting` as role `rlb_readonly`.
+The role had `SELECT` on all six revised targets and no `INSERT`, `UPDATE`, or
+`DELETE` privilege on any of them. Every audit query ran inside an explicit
+read-only transaction.
+
+Exact aggregate counts:
+
+| Object | Exact rows |
+| --- | ---: |
+| `public.company_validations` | 20 |
+| `public.company_validation_runs` | 240 |
+| `public.company_strategic_research_reports` | 32 |
+| `public.lead_import_batches` | 1 |
+| `public.vw_dashboard_empresaqui` | 20 |
+| `public.vw_company_validation_runs_latest_per_company` | 120 |
+
+No raw row, payload, report, evidence, contact data, strategic content,
+identifier value, identifying sample, or credential was selected, printed, or
+committed. Categorical outputs were limited to bounded business/technical
+domains with unsafe values redacted.
+
 ### RLB-T002 contract audit status
 
-**FAIL as of 2026-06-30.** The authorized audit ran successfully, but the
-`prospecting.public.lead_decisions` target contained zero retained rows.
-Consequently, the audit cannot approve a readable production contract or an
-eligibility coverage threshold.
+**COMPLETE with bounded approval as of 2026-06-30.** The audit approves a
+production-like structural read contract for current lead browsing. It does not
+prove authoritative inventory coverage, real-production coverage, retention
+completeness, report-content safety, batch lineage, or query performance.
 
 #### Preflight
 
 - The approved local DB-READ profile loaded without exposing or persisting its DSN.
 - Connection target: database `prospecting`; current role: `rlb_readonly`.
-- `SELECT` on `public.lead_decisions`: allowed.
-- `INSERT`, `UPDATE`, and `DELETE` table privileges: absent.
+- `SELECT` on all six revised audit targets: available.
+- `INSERT`, `UPDATE`, and `DELETE` privileges on all six revised targets: unavailable.
 - Forced `transaction_read_only`: `on`.
-- Aggregate retained-row count: `0`.
+- `default_transaction_read_only`: `off`; the audit explicitly opened a
+  read-only transaction before checking privileges.
+- Revised aggregate audit queries executed: aggregate `SELECT` only.
 
 #### Aggregate findings
 
-The audit used retained rows as the denominator. A zero denominator is reported
-as undefined, never as `0%`.
-
-- Native-field null/empty profiling covered 27 proposed list, detail, history, audit, and report columns. Every count had denominator `0`; null rates are undefined.
-- JSON-path profiling covered all 21 proposed `decision_payload` paths for company identity, fiscal/commercial detail, scores, summary, risks, positive signals, evidence, and fallbacks. Presence, JSON type, and incompatible-shape counts were all `0` of `0`; percentages are undefined.
-- Effective fallback checks for company name, risks, and evidence returned `0` of `0`.
-- Priority, action, verdict, trust, research-status, execution-mode, workflow-version, ruleset-version, and prompt-model-version domains had no observed values. Their distinct counts were all `0`.
-- No time period, workflow/ruleset/prompt-model version, or execution-mode stratum existed.
-- Structural eligibility produced `0` retained, completed, valid-CNPJ, mode-classified, eligible, readable, unreadable, and unclassified rows. Readable, unreadable, and unclassified percentages are undefined.
-- `report_json` presence, type, multiplicity, array/object size, and object-signature variation were measured as `0` observations; minimum, maximum, and average multiplicity are undefined.
-- Risk, signal, and evidence arrays had `0` observations. Array lengths, element types, and object-signature variation are therefore unobservable.
-- Domain and version outputs used rare/long-value redaction even though the empty target produced no values.
-- No raw row, JSON payload, report, evidence, contact data, strategic content, identifying value, or credential was printed, persisted, or committed.
+- `company_validations` has 20 rows and 20 distinct valid CNPJs. All 20 have
+  normalized CNPJ, company name, city, UF, CNAE, bounded scores, priority,
+  verdict, trust status, agent version, integrity `OK`, and complete current
+  audit references. No audited score uses the table's zero default.
+- All 20 projection rows changed after creation, confirming mutable current-row
+  semantics. The table is suitable only as a current projection, never as
+  immutable history.
+- Arrays retained their expected JSON array type. Risks were explicitly empty
+  for 5/20 rows; evidence and positive signals were present arrays for all 20.
+  Empty remains distinct from missing.
+- `company_validation_runs` has 240 rows, 120 distinct `lead_run_id` values,
+  120 distinct batch/source positions, and 20 CNPJs across two aggregate date
+  strata. Every run key has exactly two operational rows: one `RECEBIDO` row
+  and one `INSERIDO_VALIDATION` row. Every terminal row has a stored
+  `final_action`; no run has multiple terminal rows or action variation within
+  the same run.
+- Every current projection's `last_lead_run_id` matches two operational rows
+  and exactly one terminal `INSERIDO_VALIDATION` row. For all 20 projections,
+  that terminal row matches CNPJ and source position, contains a stored action,
+  and is the latest terminal run for the CNPJ.
+- Retained terminal history contains six distinct run IDs per CNPJ. Actions
+  vary across retained runs for 5/20 CNPJs. All 240 run rows are test-tagged,
+  so this proves a production-like structure, not real-production coverage.
+- Observed current priority values are `B`, `C`, `E`, and `R`. Observed
+  terminal actions are `NAO_ABORDAR`, `NUTRIR`, `PROSPECTAR`,
+  `PROSPECTAR_COM_CAUTELA`, and `REVISAO_HUMANA`. Exact label and
+  low-confidence mappings are approved in the RLB-T003 record below.
+- `company_strategic_research_reports` has 32 rows for 11 CNPJs and 32 run IDs.
+  Every report matches exactly one validation, two rows for the exact run, and
+  exactly one terminal row, with no CNPJ or source mismatch. There is exactly
+  one report per represented run. Current-run structural report coverage is
+  11/20 projections; 9/20 have no current-run report.
+- All 32 reports are test-tagged and integrity `OK`; report JSON is structurally
+  object-shaped, evidence is array-shaped, 5/32 evidence arrays are explicitly
+  empty, and Markdown is structurally present. No content was inspected.
+  Research status is `COMPLETED` for 6/32 and `COMPLETED_WITH_FALLBACK` for
+  26/32. RLB-T004 therefore leaves the semantic allowlist empty and content
+  exposure disabled.
+- `lead_import_batches` has one `PRODUCTION_E2E` row with expected-row and
+  received counters both equal to 20. Its identifier matches none of the 20
+  projections, 240 run rows, or 32 reports. Those counters therefore cannot be
+  used as progress or lineage for the audited lead data.
+- `vw_dashboard_empresaqui` returns one row per current projection and matches
+  the direct-table result in this dataset, but it selects runs by latest numeric
+  ID/raw CNPJ and does not expose the selected run ID. It is not the primary
+  read model.
+- `vw_company_validation_runs_latest_per_company` returns 120 rows: six per
+  CNPJ. It is actually latest-per-batch/source-position, not latest-per-company.
+  Its observed ordering selects the same terminal row as chronological ordering,
+  but its cardinality makes it unsuitable for the current lead list.
 
 #### Coverage decision
 
-**Rejected.** Zero retained rows provide no empirical support for JSON-path
-stability, null rates, domain mappings, mode eligibility, time/version
-compatibility, readability, or report/evidence structure. The observed counts
-must not be interpreted as `0%` missing, `100%` compatible, or proof that the
-table has no structural variation.
+**Accepted for the bounded production-like structural contract; rejected for
+authoritative or real-production coverage.** The current model is structurally
+readable for 20/20 projections (100%): each row satisfies the audited identity,
+score, domain-presence, integrity, exact terminal-run, stored-action, CNPJ, and
+source-position checks. That percentage must not be generalized beyond this
+small, entirely test-tagged dataset.
 
-`RLB-T002` does not pass. Rerun the same aggregate audit against an authorized
-production or production-like target containing representative retained
-`lead_decisions` rows. `RLB-T003` remains blocked until that rerun produces an
-accepted coverage decision.
+`RLB-T002` passes. RLB-T003 accepts its 20/20 bounded structural result only as
+production-like contract evidence. It does not treat that result as
+real-production coverage. Batch/source remains disabled.
 
-### Authoritative read source
+### Recommended primary read model
 
-- `lead_decisions` is the structurally strongest candidate read model because it preserves native final fields and audit identity.
-- It is not yet approved as a trustworthy production read contract. Approval requires time/version/mode-stratified aggregate evidence for path presence, JSON types, nulls, domains, eligibility, and unreadable/unclassified coverage.
+- `lead_decisions` should no longer remain the primary read-model candidate for
+  this connected target: its prior exact row count was zero.
+- Use `company_validations` as the current list/detail projection. Preserve its
+  stored values exactly and present it explicitly as mutable current state.
+- Join the current stored action/provenance through
+  `company_validations.last_lead_run_id` to exactly one terminal
+  `company_validation_runs` row. The observed terminal contract is
+  `processing_result = 'INSERIDO_VALIDATION'`; unknown or ambiguous terminal
+  shapes must be treated as unreadable until approved, not guessed.
+- Read current reports only by exact selected `lead_run_id`, with CNPJ and
+  validation relationship checks. Report content remains withheld pending
+  policy approval.
 - `company_latest_validation` is useful evidence for latest-row ordering but is not a DTO source because it omits `final_action` and masks some missing JSON values with defaults.
-- `company_validations` and `vw_dashboard_empresaqui` are mutable projections and are not history sources.
-- `company_validation_runs`, processing events/state, dead letters, and integrity errors are operational producer records and remain outside the business UI.
+- Do not use either comparison view as the primary DTO source.
+- Do not expose operational `RECEBIDO` rows, processing state/events, dead
+  letters, or integrity-error payloads.
 
 ### History availability
 
-- History is considered structurally available from distinct `lead_decisions` rows.
-- The UI must label superseded rows and disclose that retention/deletion policy is not evidenced.
-- History remains conditional until production data scope and retention limitations are approved.
-- Unless completeness is proven, the product shows retained analyses currently found, not a complete audit trail.
+- Retained-only history is structurally reconstructable from the single terminal
+  `INSERIDO_VALIDATION` row per distinct `lead_run_id` in the audited dataset.
+- Operational `RECEBIDO` rows are excluded. Distinct run IDs are never
+  collapsed by CNPJ, batch, source row, or action.
+- Completeness and deletion/retention policy are not evidenced, and all audited
+  rows are test-tagged. RLB-T004 therefore classifies completeness as
+  **incomplete/unknown**, not proven complete.
+- Retained-only history is semantically approved, subject to the production
+  activation and RLB-T005 query-safety gates.
+- The product uses “Histórico disponível” or “Análises retidas encontradas”
+  and states “Análises mais antigas podem não estar presentes.” It never
+  describes the returned rows as a complete audit trail or every analysis ever
+  produced.
 
 ### Strategic report selection
 
-- Prefer a report whose `company_strategic_research_reports.lead_run_id` exactly matches the selected decision.
+- Prefer a report whose `company_strategic_research_reports.lead_run_id` exactly matches the selected terminal run.
 - Do not join by CNPJ alone because that could attach a report from another run.
-- If multiple exact-run reports exist, do not silently choose one until multiplicity is profiled. The provisional deterministic choice is latest `created_at DESC, id DESC`, accompanied by provenance.
+- The audited data has one report per represented run. Future zero/multiple
+  matches remain explicit missing/ambiguous states; do not silently choose one.
 - A report with non-`OK` integrity is unavailable by default; its internal `integrity_error` is not exposed.
-- `lead_decisions.report_json` may be a fallback only after its shape and provenance are validated.
-- Structural validation, Markdown sanitization, and URL validation are necessary but insufficient for privacy. Reports and evidence remain omitted until semantic PII and confidential-content handling, redaction, access, and logging rules are approved.
+- There is no `lead_decisions.report_json` fallback for this target.
+- RLB-T004 approves the deny-by-default privacy policy below but no current
+  report/evidence field or content class for exposure. Reports and evidence
+  therefore remain omitted until a separate content-owner approval establishes
+  a semantic allowlist.
 
 ### Query behavior and production safety
 
 - Pagination is a response bound, not proof that ranking, filtering, sorting, JSON extraction, or exact counts are safe.
-- The MVP exposes only query shapes supported by realistic production or production-like evidence.
-- Approval must review data and count plans, JSON extraction cost, filter/index compatibility, statement timeouts, expected concurrency, and representative selective/unselective parameters.
-- Broad text search, broad date ranges, computed JSON filters, expensive sorts, and exact totals default to omitted or narrowed until evidence supports them.
+- The MVP exposes only the controls in the RLB-T005 capability matrix below.
+- The approved list envelope is valid only while the unfiltered current
+  projection contains at most 20 rows. The list count/guard must fail closed
+  with `DATA_SOURCE_UNAVAILABLE` if that ceiling is exceeded; it must not
+  silently return a partial list.
+- Broad text search, date ranges, computed JSON filters, user-selectable sorts,
+  and every unlisted filter remain deferred.
 
 ### CRM/contact selection
 
@@ -138,22 +239,52 @@ accepted coverage decision.
 - If approved, it comes from CRM snapshot tables through the exact stored `crmCompanyKey` relationship, is nullable, and is labeled with snapshot freshness.
 - CRM contact values are sensitive and mutable and must not be logged or used in tests/screenshots.
 
-## Approval Decisions Still Required
+## RLB-T003 Approval Record
 
-These are not invitations to expand scope. They are prerequisites that prevent the implementation from guessing.
+**Approved on 2026-07-01.** These decisions close only RLB-T003. They do not
+approve implementation, report/evidence content, contact data, batch/source,
+retention claims, or unmeasured query shapes.
 
-| Decision | Why it matters | Proposed default |
+| Decision | Approved contract | Evidence / boundary |
 | --- | --- | --- |
-| Authentication provider and organization claim | The repository contains no identity provider configuration. | Use the organization’s existing OIDC provider with server sessions; do not invent local users. |
-| Authorized organization rule | A single-organization model still needs an exact claim/domain/allowlist. | Explicit server-side organization identifier, not email-domain-only authorization. |
-| Eligible `execution_mode` values | The schema has a free-text mode and no row inventory. Test/eval data may coexist. | Allowlist confirmed production modes; exclude unknown modes from default business results. |
-| Current-decision eligibility | `COMPLETED` and supersession fields exist, but manual supersession behavior needs confirmation. | Include only `decision_status = 'COMPLETED'` and `cnpj_normalizado IS NOT NULL`. |
-| Contract readability threshold | DDL does not prove stable JSON paths/types across time, versions, or modes. | Quantify eligible, readable, unreadable, and unclassified percentages; do not approve meaningful coverage without an explicit accepted threshold. |
-| Priority/action/verdict/trust value sets | Columns are free text; UI labels and low-confidence mapping cannot be inferred safely. | Profile distinct values read-only, approve mappings, preserve unknown values. |
-| Report multiplicity and fallback | `lead_run_id` is indexed but not unique; report JSON shapes are unprofiled. | Exact-run, integrity-OK report only after content policy approval; no CNPJ-only fallback. |
-| Query/performance envelope | Existing indexes do not prove proposed filters/counts are safe under realistic load. | Approve a measured capability matrix; omit unsupported filters, sorts, exact totals, and broad search. |
-| Test database strategy | No test infrastructure exists and no heavy dependency is preapproved. | Dedicated non-production PostgreSQL with synthetic fixtures; unit-test mappers/routes independently. |
-| Database grants | Schema dump does not include the deployed application role. | A separately provisioned role with `CONNECT`, `USAGE`, and `SELECT` only on approved objects. |
+| Authentication provider | The application uses the organization-managed OpenID Connect provider through a server-only Auth.js integration and server-validated sessions. The exact issuer, client ID, and client secret are deployment configuration; local users and password authentication are prohibited. | The repository has no existing identity implementation. OIDC preserves external identity ownership without inventing an account store. Auth implementation remains RLB-T017. |
+| Organization authorization | Access is single-organization and fail-closed. A session is authorized only when the verified token issuer exactly equals configured `AUTH_OIDC_ISSUER`, `sub` is non-empty, and the exact string `org_id` claim equals configured `AUTH_ALLOWED_ORG_ID`. Email address/domain, display name, and client-supplied claims never authorize. Missing or multi-valued `org_id` is `403`. | Satisfies the single-organization rule without treating an email domain as membership. Every private page and API revalidates the server session. |
+| Production/test scope | For the selected current source, production means an exact terminal run with `test_case_id IS NULL`. Any non-null test marker is excluded. No `execution_mode` value is inferred from `PRODUCTION_E2E`, batch metadata, filenames, IDs, or versions; the selected source does not store a trustworthy execution-mode field. | All RLB-T002 run/report rows were test-tagged and the only `PRODUCTION_E2E` batch had no lineage to them. Therefore the audited rows are not production rows. |
+| Time/version scope | No historical lower date or producer-version allowlist applies. Require non-empty `agent_version`, non-future `validated_at` and terminal `run_created_at`, and preserve the exact version for audit. Expiry does not remove a retained row; an expired value is presented as stale. Unknown future versions remain eligible only if the same structural/readability contract passes. | Prevents an unevidenced version cutoff and does not silently hide retained stale data. |
+| Eligibility and readability | Use one `company_validations` projection with `integrity_status = 'OK'`, a 14-digit normalized CNPJ matching its CNPJ, and non-empty `last_lead_run_id`. That ID must resolve to exactly one `company_validation_runs` row with `processing_result = 'INSERIDO_VALIDATION'`, `integrity_status = 'OK'`, `test_case_id IS NULL`, matching normalized CNPJ and null-safe exact batch/source position, non-future time, and a non-empty stored `final_action`. Zero/multiple matches, an unknown terminal result, identity/provenance mismatch, or failed required scalar bounds is unreadable. Optional nulls remain null; a malformed optional collection is omitted with a data-quality notice and does not become zero or an empty array. | RLB-T002 found this relationship structurally readable for 20/20 test-tagged projections and proved that operational `RECEBIDO` rows must be excluded. |
+| Coverage threshold | Accept the RLB-T002 result as **20/20 (100%) bounded production-like structural coverage only**. Initial production activation requires a non-zero production denominator, 100% readable eligible production candidates, and zero unclassified candidates under the predicate above. A zero denominator is “not measured,” never 100%. | This preserves the accepted T002 result without generalizing its entirely test-tagged sample. A lower threshold requires a later explicit approval. |
+| Action domain | Recognized exact tokens are `PROSPECTAR` → “Prospectar”, `PROSPECTAR_COM_CAUTELA` → “Prospectar com cautela”, `NUTRIR` → “Nutrir”, `NAO_ABORDAR` → “Não abordar”, and `REVISAO_HUMANA` → “Revisão humana”. | These are the terminal actions recorded by RLB-T002. Mapping changes presentation only and never recomputes the action. |
+| Priority domain | Recognized exact tokens are `B`, `C`, `E`, and `R`, presented as “Prioridade B/C/E/R”. No rank, severity, or confidence order is inferred. | These are the priority tokens recorded by RLB-T002; their business ordering was not evidenced. |
+| Verdict/trust domain | The only exact evidenced default mappings approved by the checked-in DDL are verdict `REVISAO_HUMANA` and trust status `Revisão Humana`, both presented as “Revisão humana”. Other bounded safe strings are readable but unmapped. | RLB-T002 states that these free-text domains were bounded but does not record the other exact tokens, so this approval does not fabricate them. |
+| Confidence handling | The initial explicit low-confidence set is empty. “Revisão humana,” null, and every unmapped value are neutral/unknown, never low confidence. Low/unknown values do not alter eligibility, score, sorting, priority, or action. Any future low-confidence token requires evidence and approval before receiving a warning badge. | Meets the no-recalculation rule and prevents unknown values from being silently classified. |
+| Runtime database grants | Provision a dedicated application role with `CONNECT` on the application database, `USAGE` (not `CREATE`) on `public`, and column-level `SELECT` only on the approved fields of `company_validations` and `company_validation_runs`. It has no table-wide grants, `TEMP`, DDL, sequence, function-execution, ownership, membership, bypass-RLS, `INSERT`, `UPDATE`, `DELETE`, `TRUNCATE`, or n8n/producer-table privileges. Set role-level read-only transactions and a bounded statement timeout. Reports, evidence collections, CRM, batch, raw payload, search-query, integrity-error, and operational/cost columns receive no runtime grant unless a later gate explicitly approves them. | The audit role demonstrated read-only access, but it is not the deployed runtime role. Column grants enforce the readable-field boundary below. |
+| Secret ownership | The platform/identity administrator owns the OIDC registration, issuer/client values, client-secret rotation, and session-secret rotation. The database administrator owns the runtime role and credential rotation. Deployment injects secrets server-side; only placeholders/names may be committed. Secrets never enter browser bundles, fixtures, screenshots, logs, or error responses. | Separates identity and database authority and keeps application code from owning production values. |
+| Test database and tools | Unit tests use synthetic in-memory objects/mocks. Repository and E2E database tests use a dedicated disposable PostgreSQL database and dedicated test-only role/DSN, reset from test schema/fixtures. No production snapshot, dump, row, CNPJ, contact, report, evidence, credential, or production URL may be copied or used. OIDC tests use synthetic signed claims or provider mocks, never the live provider. Use `pnpm` and the repository-selected test runner; database tests run only under a `TEST_DATABASE_URL` guard that rejects equality with `DATABASE_URL`. `DB-READ` remains separately authorized for evidence gates only. | Satisfies RLB-15 without requiring production data or a production clone. No package installation or test infrastructure is implemented by this task. |
+
+### Approved readable-field grant contract
+
+The future runtime role may read only these columns for the initial
+list/detail/authenticated contract:
+
+- `company_validations`: `cnpj`, `cnpj_normalizado`, `razao_social`,
+  `nome_fantasia`, `cidade`, `uf`, `cnae_principal`, `cnae_descricao`,
+  `porte_empresa`, `regime_tributario`, `faturamento_estimado`,
+  `quadro_funcionarios`, `quantidade_filiais`, `source_hash`, `trust_score`,
+  `trust_verdict`, `trust_status`, `validated_at`, `expires_at`,
+  `agent_version`, `icp_score`, `priority`, `strategic_asset_score`,
+  `strategic_tier`, `used_cache`, `created_at`, `updated_at`,
+  `last_lead_run_id`, `last_idempotency_key`, `last_import_batch_id`,
+  `last_source_row`, and `integrity_status`.
+- `company_validation_runs`: `id`, `import_batch_id`, `source_row`, `cnpj`,
+  `final_action`, `reason`, `processing_result`, `created_at`,
+  `test_case_id`, `run_created_at`, `lead_run_id`, `idempotency_key`,
+  `cnpj_normalizado`, and `integrity_status`.
+
+The role receives no grant on `raw_payload`, `search_queries`,
+`integrity_error`, CRM fields, LLM inputs/usage/costs, strategic report content,
+`positive_signals`, `risk_flags`, or `evidences` at this gate. Later gates may
+approve a smaller content-specific column list; they may not silently widen
+this contract.
 
 ## RLB-T004 Approval Record
 
@@ -174,6 +305,111 @@ replace the RLB-T005 query/performance gate.
 | Logging and diagnostics | Logs, traces, analytics, error details, fixtures, screenshots, and test artifacts must not contain report/evidence bodies, raw Markdown/JSON, evidence URLs, URL query/fragment values, contacts, CRM history, prompts, or redacted originals. Record only bounded event type, policy outcome, non-content correlation ID, and approved pseudonymous audit identifiers needed for access auditing. | SQL parameters and payload fragments remain excluded even on failures. |
 | Contact snapshots | CRM company/contact snapshots remain deferred. They require a separate explicit approval under this same semantic PII, allowlist, omission, authorization, URL, and logging boundary; RLB-T004 does not approve them. | Snapshot freshness does not make contact PII safe to expose. |
 | Batch/source | Batch/source list/detail screens, `/api/imports` routes, aggregates, filters, and navigation are deferred. The sole audited batch has no lineage to the audited projections/runs/reports, and its expected/received counters can be mistaken for import progress. Exact batch/source identifiers may remain only in the collapsed audit provenance of an already authorized lead decision, without status, percentage, aggregate, link, or progress wording. | A future task must supply linked lineage and complete wording/metric examples that reviewers confirm cannot reasonably imply import progress before any screen or route is reconsidered. |
+
+## RLB-T005 Approval Record
+
+**Approved on 2026-07-01.** The audit used the authorized `rlb_readonly`
+profile against the same production-like target as RLB-T002. Every statement
+ran in an explicit read-only transaction with a 2-second local statement
+timeout. The role had `SELECT` and no table write privilege on the two queried
+tables. No parameter value, row, payload, report/evidence content, credential,
+or identifying sample was selected, printed into this record, or committed.
+
+### Sanitized evidence
+
+- Cardinality remained 20 mutable current projections for 20 distinct CNPJs,
+  240 run/event rows, and 120 terminal rows. All terminal rows remained
+  test-tagged, so the real production-eligible denominator was zero. The audit
+  used the exact production predicate to verify fail-closed behavior and the
+  test-tagged rows only as a production-like plan surrogate.
+- The actual production-predicate list returned zero rows in 0.486 ms after
+  17.555 ms planning, touched 32 shared buffers, and used no temporary I/O.
+  The 20-row surrogate current-list plan returned all 20 rows in 1.353 ms after
+  0.318 ms warm planning, touched 69 shared buffers, and used a 30 kB in-memory
+  quicksort with no temporary I/O.
+- The independent 20-row exact list count took 1.141 ms and 69 shared-buffer
+  hits. It performs essentially the same full current-relation work as the
+  data query; it is approved only because it also enforces the 20-row
+  activation ceiling.
+- Exact CNPJ detail used the unique CNPJ index plus the `lead_run_id` index,
+  returned one surrogate row in 0.743 ms, and touched 9 shared buffers.
+- Exact-CNPJ retained history used the CNPJ index, returned six terminal rows
+  in 0.384 ms, touched 21 shared buffers, and sorted in 26 kB without temporary
+  I/O. Its independent exact count took 0.208 ms and 15 shared-buffer hits.
+  History is therefore capped at the six observed terminal rows per CNPJ; a
+  larger retained set fails closed pending reapproval.
+- Representative exact/selective and unselective filters completed in
+  1.622–2.015 ms at the approved cardinality. The most common observed UF
+  matched 8/20 projections, the most common priority matched 16/20, and the
+  most common terminal action matched 85/120 terminal rows. These distributions
+  show that pagination does not make those predicates selective.
+- The existing `(uf, cidade)` and `(priority, strategic_tier, trust_verdict)`
+  indexes are compatible with a single exact `uf` or exact approved `priority`
+  as leading-key predicates. CNPJ equality uses the unique CNPJ index. City
+  without UF, action, trust status, score, and validation date have no
+  compatible leading index for the proposed list shape.
+- Broad and prefix company-name probes, narrow and broad date probes, and all
+  candidate alternate sorts scanned/materialized the eligible relation and
+  sorted in memory at this small scale. The data covered a zero-day date span,
+  so it cannot establish either narrow- or broad-range behavior. No company
+  name index exists on this source.
+- A structural JSON projection over the three candidate collection columns
+  scanned the projection and took 0.649 ms with 41 shared-buffer hits. A
+  computed JSON-length filter used a sequential scan and took 0.202 ms with 12
+  shared-buffer hits. Payload-size and larger-cardinality behavior are not
+  established, and the readable-field/content gates do not grant those
+  columns. No JSON path is therefore approved for selection or filtering.
+- The server reported 10 observed sessions, 1 active, and
+  `max_connections = 100`. Two concurrent read-only sessions each executed 25
+  bounded list/count probes; all 50 statements succeeded in 173 ms wall time.
+  This is a concurrency-cap check, not a general load test.
+
+### Approved capability matrix
+
+| Capability | Decision | Bound and compatibility |
+| --- | --- | --- |
+| Current list relation | **Enabled** | `company_validations` plus exactly one matching terminal run; unfiltered source guard `<= 20` current rows; production activation still requires a non-zero eligible denominator and RLB-T003 readability coverage. |
+| Pagination | **Narrowed** | Server-side `page` plus exact total, `pageSize` default/max `20`; a page beyond the total is empty. No response may be returned when the 20-row source guard fails. |
+| Default ordering | **Narrowed** | Fixed `validated_at DESC, id DESC` only. The measured in-memory sort is accepted solely under the 20-row guard; no `sort` or `direction` parameter is exposed. |
+| CNPJ search/filter | **Enabled** | One normalized exact 14-digit CNPJ only; unique CNPJ index compatible. No partial/prefix mode. |
+| UF filter | **Narrowed** | Zero or one exact uppercase UF; leading key of `(uf, cidade)`. No multi-select, substring, or city-only query. |
+| Priority filter | **Narrowed** | Zero or one exact RLB-T003-approved priority token; leading key of the priority composite index. No inferred ordering or multi-select. |
+| List exact total | **Narrowed** | Enabled only as the exact eligible/readable/retained match count plus the unfiltered `<= 20` safety guard. Data and count predicates must match; count and data run sequentially, not in parallel. |
+| Exact detail | **Enabled** | Exact normalized CNPJ, optionally exact matching `leadRunId`; unique CNPJ and run-ID indexes compatible. |
+| Retained history | **Narrowed** | Exact CNPJ only, fixed `created_at DESC, id DESC`, `pageSize` default/max `20`, exact retained total, and at most six terminal rows per CNPJ. A larger retained set is unavailable pending reapproval. |
+| Name/company search | **Deferred** | No compatible name index; broad and prefix probes scanned the bounded relation. |
+| City filter | **Deferred** | City alone is not a leading index key; no safely populated UF+city control is approved in this gate. |
+| Action/trust/score/date filters | **Deferred** | Missing compatible leading indexes, unselective observed domains, or no representative date span. |
+| Batch/source filter | **Deferred** | Already deferred by RLB-T004; no matching lineage. |
+| Alternate sorts | **Deferred** | Company, score, priority, action, trust, and arbitrary direction require explicit sorts without realistic larger-cardinality evidence. |
+| JSON projection/filter | **Deferred** | Sequential work, no payload-size evidence, and no readable-field/content approval. Risk, signal, evidence, report, and raw JSON columns are not queried. |
+
+### Runtime envelope and reapproval triggers
+
+- Set the database role and each repository transaction to
+  `statement_timeout = 2s`; use `lock_timeout = 500ms`, an idle-in-transaction
+  timeout no greater than 5 seconds, and a pool acquisition timeout no greater
+  than 1 second.
+- The initial deployment has a global application budget of two database
+  connections: one instance with pool minimum 0 and maximum 2. If deployment
+  creates more instances, `instance_count × pool_max` must remain at most 2.
+  Requests do not run list data/count statements concurrently.
+- The expected supported concurrency is at most two in-flight database
+  statements. Queue or reject excess work through the pool timeout. The
+  producer and administration retain the rest of the server connection budget;
+  the application does not treat apparently free server connections as its
+  capacity.
+- At observed cardinality, all measured execution times were below 2.1 ms and
+  the highest observed fresh-connection planning time was 17.555 ms, leaving
+  substantial time/timeout headroom. There is **no approved cardinality
+  headroom** beyond 20 current projections or six retained terminal rows per
+  CNPJ.
+- Exceeding either cardinality ceiling, raising database concurrency above two,
+  changing the current/terminal predicate, selecting any JSON content, adding
+  a filter/sort/search mode, changing indexes, or materially changing payload
+  sizes requires a new read-only plan/cost review before that capability is
+  enabled. A timeout returns a safe unavailable response; it never relaxes the
+  predicate or returns a partial result.
 
 ## Agent’s Discretion After Approval
 
@@ -212,12 +448,25 @@ replace the RLB-T005 query/performance gate.
 No implementation may start until:
 
 1. Read-only scope and the “eligible, readable, retained decisions” MVP wording are approved.
-2. An authorized production/production-like `lead_decisions` contract audit quantifies JSON-path presence, JSON value types, null rates, domain values, time/workflow-version/execution-mode variation, eligibility coverage, and unreadable/unclassified row percentages. No raw payload is committed.
-3. Production scope, eligible modes, authentication provider, and exact organization authorization rule are approved.
+2. ~~An authorized production/production-like multi-source contract audit covers
+   `company_validations`, `company_validation_runs`,
+   `company_strategic_research_reports`, `lead_import_batches`, and the two
+   comparison views named above using exact aggregate counts and contract
+   profiling. The role must have `SELECT` on those objects. No raw payload or
+   business content is queried or committed.~~ Completed by RLB-T002 on
+   2026-06-30 with bounded structural approval.
+3. ~~Production scope, eligible modes, authentication provider, and exact
+   organization authorization rule are approved.~~ Completed by RLB-T003 on
+   2026-07-01.
 4. ~~History retention limitations, semantic report/evidence privacy policy,
    and batch/source inclusion or explicit deferral are approved.~~ Completed by
    RLB-T004 on 2026-07-01: history is retained-only with incomplete/unknown
    completeness; report/evidence and contacts are omitted pending separate
    allowlists; batch/source screens/routes are deferred.
-5. Realistic query/performance evidence approves the enabled filter, sort, search, pagination, and count capability matrix.
-6. The design and task plan are approved after those findings are incorporated.
+5. ~~Realistic query/performance evidence approves the enabled filter, sort,
+   search, pagination, and count capability matrix.~~ Completed by RLB-T005 on
+   2026-07-01 with hard cardinality/concurrency ceilings and deferred broad or
+   unindexed controls.
+6. ~~The design and task plan are approved after those findings are
+   incorporated.~~ Approved by RLB-T005. Bootstrap remains a separate task and
+   was not started.

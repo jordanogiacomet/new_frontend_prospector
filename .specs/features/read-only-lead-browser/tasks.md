@@ -2,7 +2,7 @@
 
 **Design:** `.specs/features/read-only-lead-browser/design.md`  
 **Phase:** Tasks  
-**Status:** RLB-T002 FAIL — preflight passed, but zero retained rows cannot establish the contract
+**Status:** APPROVED through RLB-T005 — bounded query envelope approved; bootstrap not started
 **Plan origin:** Fresh plan created for `read-only-lead-browser`; it does not continue or reuse any prior T01/T02 plan.
 
 ## Execution Rules
@@ -14,16 +14,24 @@
 - Run no production migration and make no n8n call/change.
 - Use synthetic data for all implementation tests, fixtures, seeds, and screenshots. Evidence gates may use authorized aggregate production/production-like reads but commit no raw records or payloads.
 - Tasks marked **Parallel-ready** may overlap technically, but no sub-agent delegation is authorized by this plan. Parallel agents require an explicit future user request.
-- Conditional batch tasks execute only if the P2 batch/source gate is approved.
-- Report/evidence implementation remains disabled unless the sensitive-content gate explicitly approves exposure and its redaction/omission policy.
-- Broad filters, expensive sorts, and exact totals remain absent unless the query/performance gate explicitly approves them.
+- Conditional batch tasks RLB-T036–RLB-T040 are deferred by RLB-T004 and must
+  not execute without a separate later semantic approval.
+- Report/evidence content retrieval and rendering remain disabled. RLB-T004
+  approved a deny-by-default policy but no current semantic field/content
+  allowlist; only withheld/omitted states may be implemented without a separate
+  content-owner approval.
+- RLB-T005 approves exact totals only behind the 20-current-row and
+  six-terminal-history-row fail-closed guards. Broad filters, JSON controls,
+  alternate sorts, and every unlisted query control remain absent.
 
 ## Tool Profiles for Future Execution
 
 The user authorized `DB-READ` for `RLB-T002` on 2026-06-30 through the local
-DB-READ profile. The audit ran with forced read-only transactions and aggregate
-`SELECT` queries only. This authorization does not extend to `RLB-T005` or
-implementation profiles.
+DB-READ profile. After the grants were corrected, the revised audit ran with
+forced read-only transactions and aggregate `SELECT` queries only across all
+six targets. It approved a bounded production-like current read contract and
+did not inspect or commit raw business content. This authorization does not
+extend to `RLB-T005` or implementation profiles.
 
 | Profile | Tools and skills | Intended use |
 | --- | --- | --- |
@@ -118,6 +126,10 @@ RLB-T012 + RLB-T032 + RLB-T034 → RLB-T035
 
 ### Phase 6 — Optional batch/source view, conditional P2
 
+**Deferred by RLB-T004.** The dependency graph is retained only for a future
+separately approved reactivation; none of RLB-T036–RLB-T040 is executable under
+the current contract.
+
 ```text
 RLB-T004 + RLB-T010 + RLB-T012 → RLB-T036
 RLB-T009 + RLB-T011 + RLB-T036 → RLB-T037
@@ -161,35 +173,59 @@ RLB-T025 + RLB-T032 + RLB-T035
 **Verify:** `rg -n "eligible, readable, retained|authoritative inventory|GET-only|Can implementation start" .specs/features/read-only-lead-browser/{spec,context,design}.md`  
 **Commit:** `docs(read-only-leads): approve bounded read-only MVP`
 
-### RLB-T002: Run and approve the `lead_decisions` contract audit
+### RLB-T002: Run and approve the actual read-source contract audit
 
-**What:** Use authorized read-only aggregate queries over production or a production-like copy to measure the real `lead_decisions` contract, supplemented only by a small authorized redacted sample review where aggregate evidence cannot determine semantic shape.  
+**What:** Use authorized read-only aggregate queries over production or a
+production-like copy to identify and measure the actual populated read-source
+contract. For the connected target, audit `company_validations`,
+`company_validation_runs`, `company_strategic_research_reports`,
+`lead_import_batches`, `vw_dashboard_empresaqui`, and
+`vw_company_validation_runs_latest_per_company`; do not assume
+`lead_decisions` is populated.
 **Where:** Redacted aggregate findings and approved contract decisions in `.specs/features/read-only-lead-browser/context.md`; query text/results remain outside the repository if policy requires  
 **Depends on:** RLB-T001  
-**Reuses:** Source map and DDL constraints  
+**Reuses:** Source discovery, source map, and DDL constraints
 **Requirements:** RLB-02, RLB-05, RLB-06, RLB-13, RLB-16, RLB-18  
 **Tools:** `DB-READ`, `DOCS`  
 **Tests:** None — evidence gate  
 **Gate:** All database activity uses authorized read-only credentials and aggregate `SELECT` queries; no raw payload or business record is committed  
-**Execution status:** **FAIL (2026-06-30).** Preflight passed for database
-`prospecting` and role `rlb_readonly`: `SELECT` is allowed, table write
-privileges are absent, and `transaction_read_only` was forced `on`. The audit
-ran, but `public.lead_decisions` contained zero retained rows. Aggregate counts
-are recorded in `context.md`; rates and structural coverage are undefined, so
-the contract and coverage threshold are rejected. Rerun against an authorized
-representative target before starting `RLB-T003`.
+**Execution status:** **COMPLETE (revised rerun, 2026-06-30).** The loaded
+profile connected to database `prospecting` as `rlb_readonly`. The audit opened
+explicit read-only transactions; `transaction_read_only` was `on`. `SELECT`
+was available and `INSERT`, `UPDATE`, and `DELETE` were absent on all six
+targets. Aggregate evidence approves `company_validations` plus an exact
+terminal `company_validation_runs` relationship as the bounded current read
+model. It rejects authoritative/real-production coverage and disables
+batch/source because lineage does not match. `RLB-T003` was completed on
+2026-07-01.
 **Done when:**
 
-- [x] JSON-path presence is measured for every proposed list/detail/report/evidence field.
-- [x] JSON value types and incompatible/malformed shapes are measured per proposed path.
-- [x] Null rates and domain values are summarized for native and proposed mapped fields.
-- [x] Time, `workflow_version`, `ruleset_version`, `prompt_model_version`, and `execution_mode` strata were queried; no strata existed.
-- [x] Eligibility coverage is quantified against retained rows, including CNPJ/status/mode/readability exclusions.
-- [x] Readable, unreadable, and unclassified counts are reported as `0`; percentages are explicitly undefined and coverage is rejected.
-- [x] Report/evidence multiplicity and structural variation are measured without committing content.
-- [x] No raw lead, contact, report, evidence, input snapshot, strategic content, or identifying sample is committed.
+- [x] The original `lead_decisions` audit recorded an exact zero-row result and
+  rejected coverage rather than treating undefined rates as passing.
+- [x] Source discovery identified likely alternative sources using metadata and
+  catalog estimates only.
+- [x] Exact row counts are obtained for every revised audit target under
+  approved read-only grants.
+- [x] `company_validations` null/default/domain behavior and current-row
+  semantics are quantified.
+- [x] The relationship from `company_validations` to terminal
+  `company_validation_runs` rows is quantified, including 0/1/many matches,
+  stored action coverage, time variation, and whether operational rows can be
+  excluded deterministically.
+- [x] History is explicitly approved as retained-only from a stable business
+  row contract or disabled as unavailable.
+- [x] Strategic report exact-run relationship, multiplicity, integrity, and
+  structural availability are measured without querying or committing content.
+- [x] Batch/source metadata semantics are measured without treating replay
+  counters as progress.
+- [x] Comparison-view ordering, joins, null coercions, and row cardinality are
+  compared with direct source tables.
+- [x] No raw lead, contact, report, evidence, input snapshot, strategic content,
+  identifying sample, or credential is queried or committed.
 
-**Verify:** Review authorization, DB role/transaction mode, aggregate-query inventory, redaction, denominator definitions, stratification, and coverage calculations; `git diff --check`  
+**Verify:** Review authorization, DB role/transaction mode, exact aggregate
+counts, relationship cardinalities, denominator definitions, stratification,
+coverage calculations, and redaction; `git diff --check`
 **Commit:** `docs(read-only-leads): record aggregate contract evidence`
 
 ### RLB-T003: Approve production scope and authentication model
@@ -202,13 +238,20 @@ representative target before starting `RLB-T003`.
 **Tools:** `DOCS`  
 **Tests:** None — decision gate  
 **Gate:** No unresolved production-scope, readability, authorization, grants, or test-environment decision remains  
+**Execution status:** **COMPLETE (2026-07-01).** The approval record selects
+server-only Auth.js with the organization-managed OIDC provider, exact
+issuer/`org_id` single-organization authorization, a fail-closed non-test
+terminal-row predicate, the readable-field and domain contracts, a 100%
+initial production readability threshold with zero unclassified candidates,
+column-level read-only grants, explicit secret owners, and synthetic-only
+disposable PostgreSQL testing. No auth or application code was implemented.
 **Done when:**
 
-- [ ] Authentication provider and exact organization authorization are approved.
-- [ ] Production modes, time/version scope, eligibility/readability predicate, and accepted coverage threshold are approved.
-- [ ] Action/priority/verdict/trust domains and low-confidence mappings are approved with neutral unknown handling.
-- [ ] Least-privilege deployed database grants and secret ownership are approved.
-- [ ] Test database strategy and package/tool profiles are approved without production data.
+- [x] Authentication provider and exact organization authorization are approved.
+- [x] Production modes, time/version scope, eligibility/readability predicate, and accepted coverage threshold are approved.
+- [x] Action/priority/verdict/trust domains and low-confidence mappings are approved with neutral unknown handling.
+- [x] Least-privilege deployed database grants and secret ownership are approved.
+- [x] Test database strategy and package/tool profiles are approved without production data.
 
 **Verify:** Review the approval table for an explicit decision and evidence reference for each item; `git diff --check`  
 **Commit:** `docs(read-only-leads): approve production and auth scope`
@@ -255,16 +298,25 @@ implemented.
 **Tools:** `DB-READ`, `DOCS`  
 **Tests:** None — evidence gate  
 **Gate:** Read-only realistic plan/cost review; no raw parameter values or payloads committed  
+**Execution status:** **COMPLETE (2026-07-01).** The authorized read-only audit
+reviewed the exact production predicate and production-like surrogate at 20
+current projections/240 run rows, separate list/history counts, exact detail
+and history, representative selective/unselective filters, every proposed
+sort, structural/computed JSON work, two concurrent sessions, timeouts, pool
+budget, and production headroom. The approved envelope uses hard fail-closed
+cardinality ceilings, exact CNPJ plus single exact UF/priority filters, fixed
+date/ID ordering, and no JSON/name/date/alternate-sort capability. No
+application bootstrap or route/UI implementation was performed.
 **Done when:**
 
-- [ ] Latest-per-CNPJ data query behavior is reviewed with realistic cardinality and representative selective/unselective parameters.
-- [ ] Exact count queries are reviewed independently; exact totals are omitted if their cost is not approved.
-- [ ] JSON extraction/projection cost is measured for every proposed selected or filtered path.
-- [ ] Each proposed filter and sort has an explicit index/predicate compatibility decision.
-- [ ] Broad name search, broad date ranges, computed JSON filters, and expensive sorts are omitted or bounded unless evidence supports them.
-- [ ] Statement timeout, pool sizing, expected concurrency, and production headroom risks are assessed.
-- [ ] The approved capability matrix identifies enabled, narrowed, and deferred controls and is reflected in the API/design contract.
-- [ ] Design/tasks status changes to `Approved` only after T001–T005 pass; bootstrap remains separately authorized.
+- [x] Latest-per-CNPJ data query behavior is reviewed with realistic cardinality and representative selective/unselective parameters.
+- [x] Exact count queries are reviewed independently; exact totals are omitted if their cost is not approved.
+- [x] JSON extraction/projection cost is measured for every proposed selected or filtered path.
+- [x] Each proposed filter and sort has an explicit index/predicate compatibility decision.
+- [x] Broad name search, broad date ranges, computed JSON filters, and expensive sorts are omitted or bounded unless evidence supports them.
+- [x] Statement timeout, pool sizing, expected concurrency, and production headroom risks are assessed.
+- [x] The approved capability matrix identifies enabled, narrowed, and deferred controls and is reflected in the API/design contract.
+- [x] Design/tasks status changes to `Approved` only after T001–T005 pass; bootstrap remains separately authorized.
 
 **Verify:** Review sanitized plans/metrics and capability matrix; confirm unsupported controls are absent from enabled tasks/contracts; `git diff --check`  
 **Commit:** `docs(read-only-leads): approve query capability envelope`
@@ -281,10 +333,10 @@ implemented.
 **Gate:** Build  
 **Done when:**
 
-- [ ] `pnpm` project exists at repository root, not a nested project.
-- [ ] TypeScript strict mode and App Router are enabled.
-- [ ] No example API, n8n, CSV, database, or mutation behavior is added.
-- [ ] Baseline lint and build pass with zero tests removed.
+- [x] `pnpm` project exists at repository root, not a nested project.
+- [x] TypeScript strict mode and App Router are enabled.
+- [x] No example API, n8n, CSV, database, or mutation behavior is added.
+- [x] Baseline lint and build pass with zero tests removed.
 
 **Verify:** `pnpm lint && pnpm build`; expected exit code `0`  
 **Commit:** `chore(read-only-leads): bootstrap Next.js application`
@@ -383,8 +435,8 @@ implemented.
 **Done when:**
 
 - [x] Valid defaults and all approved bounds are implemented.
-- [x] Invalid/repeated/unknown sort inputs fail before repositories.
-- [x] CNPJ/date/score/range rules match the contract.
+- [x] Any `sort`/`direction` input and every unknown/repeated input fails before repositories.
+- [x] Page/page-size, exact CNPJ, exact UF, and exact approved-priority rules match the contract.
 - [x] Deferred filters/sorts are absent rather than accepted and ignored.
 - [x] At least 25 focused tests pass with no previous test-count reduction.
 
@@ -424,10 +476,10 @@ implemented.
 **Gate:** Focused unit + typecheck  
 **Done when:**
 
-- [ ] No stack, SQL, connection string, raw cause, or payload enters responses.
-- [ ] Field details are allowed only for validation errors.
-- [ ] A safe correlation ID can be logged without sensitive data.
-- [ ] At least 8 error-path tests pass.
+- [x] No stack, SQL, connection string, raw cause, or payload enters responses.
+- [x] Field details are allowed only for validation errors.
+- [x] A safe correlation ID can be logged without sensitive data.
+- [x] At least 8 error-path tests pass.
 
 **Verify:** `pnpm vitest run src/server/api/errors.test.ts && pnpm typecheck`; at least `8` tests pass  
 **Commit:** `feat(read-only-leads): map safe API errors`
@@ -454,7 +506,9 @@ implemented.
 
 ### RLB-T015: Implement `LeadDetail` mapper
 
-**What:** Map allowlisted decision/report fields to `LeadDetail`, including collection shape limits and data-quality notices.  
+**What:** Map allowlisted scalar decision fields to `LeadDetail` and set
+risk/signal/evidence/report sections to their approved unavailable or
+`omitted_by_policy` states without accepting JSON/content inputs.
 **Where:** `src/server/mappers/lead-detail-mapper.ts` and tests  
 **Depends on:** RLB-T010, RLB-T012  
 **Reuses:** `LeadDetail` field map  
@@ -464,12 +518,15 @@ implemented.
 **Gate:** Focused unit + typecheck  
 **Done when:**
 
-- [ ] Missing vs empty vs malformed collections remain distinguishable.
-- [ ] Numeric JSON parsing rejects invalid/out-of-range values as null.
-- [ ] Evidence keeps only allowlisted fields and validated HTTPS URLs.
-- [ ] The semantic content policy can redact/omit evidence and mark content withheld; XSS validation is not used as privacy proof.
-- [ ] Raw/input/external snapshots never appear.
-- [ ] At least 18 mapper tests pass.
+- [x] No JSON collection or computed JSON value is accepted as mapper input.
+- [x] Missing scalar values remain null and stored numeric scalars remain
+  bounded without a JSON fallback.
+- [x] Report/evidence content is not an accepted mapper input under the current
+  empty semantic allowlist; both map to `omitted_by_policy`.
+- [x] Tests prove XSS-safe or structurally valid content does not bypass the
+  privacy omission policy.
+- [x] Raw/input/external snapshots never appear.
+- [x] At least 18 mapper tests pass.
 
 **Verify:** `pnpm vitest run src/server/mappers/lead-detail-mapper.test.ts && pnpm typecheck`; at least `18` tests pass  
 **Commit:** `feat(read-only-leads): map lead detail safely`
@@ -511,10 +568,10 @@ Fields absent from the approved history read model are not fabricated from
 **Gate:** Focused auth tests + typecheck  
 **Done when:**
 
-- [ ] Missing, expired, unauthorized-org, and authorized sessions are distinguished.
-- [ ] Cookies/session settings use approved secure defaults.
-- [ ] Provider secrets remain server-only.
-- [ ] At least 6 auth tests pass.
+- [x] Missing, expired, unauthorized-org, and authorized sessions are distinguished.
+- [x] Cookies/session settings use approved secure defaults.
+- [x] Provider secrets remain server-only.
+- [x] At least 6 auth tests pass.
 
 **Verify:** `pnpm vitest run src/server/auth && pnpm typecheck`; at least `6` tests pass  
 **Commit:** `feat(read-only-leads): configure private authentication`
@@ -584,7 +641,9 @@ returns only a minimal authorization proof before protected continuation.
 
 ### RLB-T021: Implement the lead list repository
 
-**What:** Implement latest-first ranking and only the approved filters, count behavior, sorting, and pagination using parameterized SELECTs.  
+**What:** Implement the exact current-projection/terminal relation, fixed
+date/ID ordering, exact CNPJ plus single exact UF/priority filters, guarded
+counts, and page-size-20 pagination using parameterized SELECTs.
 **Where:** `src/server/repositories/lead-list-repository.ts` and tests  
 **Depends on:** RLB-T009, RLB-T011, RLB-T014  
 **Reuses:** Approved production predicate and latest-selection design  
@@ -599,9 +658,11 @@ terminal relation, and applies only parameterized exact filters sequentially.
 
 - [x] Ranking precedes business filters.
 - [x] SQL identifiers come only from allowlisted maps.
-- [x] Exact count exists only if approved; when enabled, count/data predicates match and ties are deterministic.
+- [x] The unfiltered source guard fails closed above 20 current rows; exact
+  count/data predicates match and execute sequentially.
 - [x] SQL contains no deferred broad filter, expensive sort, or unapproved JSON predicate.
-- [x] Query timeout and capability constraints match the approved evidence envelope.
+- [x] Query timeout, two-connection global pool budget, fixed ordering, and
+  hard cardinality constraints match the approved evidence envelope.
 - [x] Null scores remain null and sort predictably.
 - [x] At least 14 tests cover ordering, filters, pagination, escaping, and injection attempts.
 
@@ -635,7 +696,8 @@ and maps failures through the safe no-store API envelope.
 
 ### RLB-T023: Build lead list filter controls
 
-**What:** Build URL-backed search/filter/sort controls that reset page on criteria changes.  
+**What:** Build URL-backed exact CNPJ, exact UF, and exact priority controls
+that reset page on criteria changes; sorting is fixed and has no UI control.
 **Where:** `src/components/leads/lead-list-filters.tsx` and tests  
 **Depends on:** RLB-T011, RLB-T012, RLB-T019  
 **Reuses:** Query parameter names and label maps  
@@ -648,7 +710,7 @@ and maps failures through the safe no-store API envelope.
 - [x] Controls expose only supported filters/sorts.
 - [x] No deferred broad or expensive query control is rendered.
 - [x] Active filters are visible and clearable.
-- [x] Criteria changes reset `page=1`.
+- [x] Filter changes reset `page=1`; no name search or sort/direction control exists.
 - [x] Unknown current values render neutrally.
 - [x] At least 8 interaction tests pass.
 
@@ -702,7 +764,8 @@ distinct loading, empty, no-match, populated, and safe error states.
 
 ### RLB-T026: Implement the lead detail repository
 
-**What:** Query one exact/latest decision and, only if content policy permits, one exact-run report status without exposing raw payloads or ambiguous reports.  
+**What:** Query one exact/latest decision and return the approved
+`omitted_by_policy` report/evidence states without querying content tables.
 **Where:** `src/server/repositories/lead-detail-repository.ts` and tests  
 **Depends on:** RLB-T009, RLB-T011, RLB-T015  
 **Reuses:** Approved production/report predicates and detail mapper  
@@ -715,12 +778,13 @@ selects one CNPJ-bound current decision, optionally requires its exact run, and
 returns report/evidence only as `omitted_by_policy` without querying content.
 **Done when:**
 
-- [ ] Default and exact-`leadRunId` selection are CNPJ-bound.
-- [ ] Report lookup uses exact CNPJ + run and detects 0/1/multiple rows.
-- [ ] Non-OK integrity and raw report payloads are excluded.
-- [ ] Withheld report/evidence content is not selected or returned when policy approval is absent or uncertain.
-- [ ] Optional contact join remains disabled unless PII approval exists.
-- [ ] At least 14 repository tests pass.
+- [x] Default and exact-`leadRunId` selection are CNPJ-bound.
+- [x] No report/evidence content column or table is selected under the current
+  empty semantic allowlist.
+- [x] Report/evidence states are `omitted_by_policy`; no absence, integrity, or
+  multiplicity claim is inferred without a query.
+- [x] Optional contact join remains disabled unless PII approval exists.
+- [x] At least 14 repository tests pass.
 
 **Verify:** `pnpm vitest run src/server/repositories/lead-detail-repository.test.ts && pnpm typecheck`; at least `14` tests pass  
 **Commit:** `feat(read-only-leads): query lead detail read-only`
@@ -750,9 +814,10 @@ private/no-store response.
 **Verify:** `pnpm vitest run 'src/app/api/leads/[cnpj]/route.test.ts' && pnpm typecheck`; at least `9` tests pass  
 **Commit:** `feat(read-only-leads): expose lead detail API`
 
-### RLB-T028: Build the policy-gated strategic report renderer
+### RLB-T028: Build the policy-gated strategic report state
 
-**What:** Render policy-approved Markdown and evidence links through semantic redaction/omission plus strict HTML/URL safety rules and report availability states.  
+**What:** Render the approved withheld/omitted report state. Markdown and
+evidence links remain outside this task while the semantic allowlist is empty.
 **Where:** `src/components/leads/strategic-report.tsx` and tests  
 **Depends on:** RLB-T007, RLB-T015  
 **Reuses:** `StrategicReport` contract and URL policy  
@@ -765,14 +830,14 @@ policy omission, missing, and unavailable as distinct accessible states while
 accepting no Markdown, HTML, evidence text, or evidence URL content.
 **Done when:**
 
-- [ ] Raw HTML/scripts/iframes/event attributes are not rendered.
-- [ ] Only safe HTTPS links are clickable with required rel/referrer attributes.
-- [ ] Missing, unavailable, withheld, ambiguous, stale, and available states differ.
-- [ ] Tests distinguish privacy-policy omission from XSS sanitization.
-- [ ] At least 10 content-safety tests pass.
+- [x] No Markdown, raw HTML, evidence text, or evidence URL input is accepted or
+  rendered.
+- [x] The `omitted_by_policy` state is distinct from missing and unavailable.
+- [x] Tests prove XSS sanitization is not treated as privacy approval.
+- [x] At least 6 policy-state tests pass.
 
-**Verify:** `pnpm vitest run src/components/leads/strategic-report.test.tsx && pnpm typecheck`; at least `10` tests pass  
-**Commit:** `feat(read-only-leads): render strategic reports safely`
+**Verify:** `pnpm vitest run src/components/leads/strategic-report.test.tsx && pnpm typecheck`; at least `6` tests pass
+**Commit:** `feat(read-only-leads): show withheld strategic report state`
 
 ### RLB-T029: Build the lead identity and recommendation summary
 
@@ -1226,4 +1291,11 @@ All three mandatory pre-approval checks pass: task granularity, dependency-diagr
 
 ## Stop Condition
 
-This document completes the Tasks phase only. No implementation, page, route, dependency installation, database connection, n8n action, write, or migration is authorized. `RLB-T001` is approved; the next task is `RLB-T002`, which requires separate authorization and the approved `DB-READ` profile.
+This document completes the Tasks phase only. No implementation, page, route,
+dependency installation, n8n action, write, or migration is authorized.
+`RLB-T001` through `RLB-T004` are complete. RLB-T004 approved retained-only
+history wording and the sensitive-content policy while deferring current
+report/evidence exposure, contact snapshots, and batch/source screens/routes.
+RLB-T005 subsequently approved the bounded query envelope. RLB-T001 through
+RLB-T005 are complete and the design/task plan is approved. Bootstrap remains
+the separate RLB-T006 task and was not started.

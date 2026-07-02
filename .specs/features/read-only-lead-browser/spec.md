@@ -2,8 +2,8 @@
 
 **Project:** `read-only-lead-browser`  
 **Phase:** Specify  
-**Status:** RLB-T001 scope wording approved — implementation remains blocked by RLB-T002–RLB-T005
-**Confidence:** Medium — architecture is credible; production contract evidence is incomplete  
+**Status:** APPROVED through RLB-T005 — bounded query envelope approved; bootstrap not started
+**Confidence:** Medium — all evidence gates passed, but production activation remains fail-closed and the approved cardinality has no growth headroom
 **Evidence reviewed:** `AGENTS.md`, `docs/db/schema.sql`, `docs/db/tables.txt`, `docs/db/views.txt`, `docs/db/functions.txt`  
 **Evidence unavailable:** no `docs/db/columns.csv`, `constraints.csv`, or `indexes.csv`; no sanitized `docs/n8n/` files; no database profile or sample rows
 
@@ -11,7 +11,10 @@
 
 `read-only-lead-browser` is a private business application for managers to review qualification decisions that are eligible for business display, readable under the approved contract, and still retained in PostgreSQL. The MVP is **a browser for eligible, readable, retained decisions**. It is not an authoritative inventory of every analysis ever produced.
 
-The architecture and planning framework are sound, but full implementation is unsafe until evidence gates validate the production data contract, realistic query behavior, retention limitations, sensitive-content policy, and batch/source semantics.
+The architecture and planning framework are sound. Production/readability,
+retention, sensitive-content, and batch/source semantic decisions are approved;
+the evidence gates are approved. The initial query envelope is intentionally
+small and fails closed if its observed-cardinality ceilings are exceeded.
 
 The application is a consumer only:
 
@@ -58,16 +61,19 @@ The absence of a company or analysis from this application does not prove that t
 2. A read-only lead list based on the latest eligible and readable retained decision per normalized CNPJ.
 3. Server-side search, filters, allowlisted sorting, counts, and pagination only to the extent supported by approved query evidence.
 4. A lead detail page using the selected decision identity, not an unqualified raw JSON payload.
-5. A read-only retained-analysis history section based on distinct `lead_decisions` rows, with an explicit incompleteness caveat unless retention completeness is proven.
+5. A read-only retained-analysis history section based on distinct approved terminal `lead_run_id` rows, with an explicit incompleteness caveat unless retention completeness is proven.
 6. Loading, empty, no-results, unavailable, low-confidence, and safe error states.
 7. Brazilian presentation formatting for dates, CNPJ, currency values when truly numeric, and scores.
 8. Server-only PostgreSQL access with a least-privilege read-only database role.
 
 ### P2 — Conditional
 
-1. A limited batch/source browser based on `lead_import_batches` plus persisted-decision aggregates.
+1. A limited batch/source browser only after future aggregate evidence proves
+   linked lineage; the audited contract keeps it disabled.
 2. Display of mutable CRM contact snapshots after explicit approval of the PII policy.
-3. Exact-run strategic report and evidence display after multiplicity, integrity, semantic PII, confidential-content, redaction, and URL behavior are approved.
+3. Exact-run strategic report and evidence display only after a separate
+   content-owner approval adds exact fields/content classes to the currently
+   empty semantic allowlist under the RLB-T004 privacy policy.
 
 ### Explicitly Out of Scope
 
@@ -89,19 +95,22 @@ The absence of a company or analysis from this application does not prove that t
 
 ## Database Source Map
 
-The map below is based only on DDL evidence. It does not prove production grants, row quality, value distributions, cardinality, or retention.
+The map combines DDL evidence with the aggregate RLB-T002 audit. It proves only
+the bounded production-like structure described in `context.md`; it does not
+prove real-production scope, retention completeness, or content safety. Query
+performance is approved only inside the RLB-T005 ceilings.
 
 | Product need | Proposed source | Evidence and use | Decision |
 | --- | --- | --- | --- |
-| Latest lead list | `public.lead_decisions` | Structurally strongest candidate: native decision fields, CNPJ, audit IDs, versions, source identity, payload, and timestamps. Production consistency, eligibility coverage, and query cost remain unproven. | Provisional primary source pending contract/query gates |
-| Lead detail | `public.lead_decisions` | Same exact decision used by list/detail; null-safe extraction from approved JSON paths only after path/type coverage is measured. | Provisional primary source pending contract/content gates |
+| Latest lead list | `public.company_validations` plus exact terminal `public.company_validation_runs` row by `last_lead_run_id` | The projection is one mutable row per CNPJ; 20/20 audited rows had exactly one matching terminal row with stored action and matching CNPJ/source. | Bounded primary source; query envelope approved, production activation pending |
+| Lead detail | Same current projection and terminal run | Preserve stored projection values and terminal action/provenance; ambiguous or unknown terminal shapes are unreadable. | Bounded primary source; scalar detail approved, JSON/content deferred |
 | Latest-row helper | `public.company_latest_validation` | Shows intended “latest completed per CNPJ” ordering, but omits `final_action` and coerces several absent JSON values to `0`/empty arrays. | Reference only; do not bind DTOs directly |
 | Strategic report | `public.company_strategic_research_reports` | Has `lead_run_id`, report JSON/Markdown, evidence, confidence, integrity, timestamps, and expiry. | Conditional exact-run enrichment |
-| Lead history | `public.lead_decisions` | `decision_id` PK, unique `idempotency_key`, required `lead_run_id`, source/batch fields, versions, and creation timestamp preserve distinct retained decisions. The DDL does not prove retention completeness. | Retained history only; incomplete unless proven otherwise |
-| Current mutable projection | `public.company_validations` | One unique row per CNPJ with defaults and `updated_at`; appears to be latest-state projection rather than immutable history. | Do not use for history; fallback only after explicit approval |
-| Legacy run/event log | `public.company_validation_runs` | Multiple operational rows/stages and no uniqueness by CNPJ/run; not a decision history contract. | Exclude from business history |
+| Lead history | Terminal `public.company_validation_runs` rows keyed by distinct `lead_run_id` | The audited sample had one `INSERIDO_VALIDATION` row per run and six retained runs per CNPJ; all rows are test-tagged and retention completeness is unknown. | Retained-only and conditional; exclude operational rows |
+| Current mutable projection | `public.company_validations` | One unique row per CNPJ with defaults and `updated_at`; all 20 audited rows changed after creation. | Primary current source only; never history |
+| Run/event log | `public.company_validation_runs` | Each audited run had one operational `RECEBIDO` row and one terminal `INSERIDO_VALIDATION` row. | Exact terminal row only; never expose operational rows |
 | Idempotent event view | `public.company_validation_runs_idempotent` | Joins processing events/state; reflects producer operations and retry/state semantics. | Exclude from MVP |
-| Input/source batch | `public.lead_import_batches` | Stable batch PK and source metadata; some counters/timestamps are mutable on replay. | Conditional batch metadata source |
+| Input/source batch | `public.lead_import_batches` | Its sole audited row matched none of the projection, run, or report batch references. | Disabled for this contract |
 | Source row | `public.lead_input_rows` | Stable input row identity and source-row relationship; raw payload is sensitive. | Audit join only; never expose raw payload |
 | CRM company/contact snapshots | `public.crm_company_history`, `public.crm_lead_contact_history` | Nullable contact and CRM history fields; rows can be refreshed and contain PII. | Conditional, mutable enrichment |
 | Dashboard view | `public.vw_dashboard_empresaqui` | Combines mutable `company_validations` with a latest legacy run chosen by numeric ID. | Do not use as authoritative read model |
@@ -112,13 +121,20 @@ The map below is based only on DDL evidence. It does not prove production grants
 
 ### Structurally strongest candidate for the MVP read model
 
-- `lead_decisions.decision_id`, `lead_run_id`, `import_batch_id`, `input_row_id`, `source_row`, hashes, version fields, and `created_at` are explicit audit fields.
-- `lead_decisions.final_score` is constrained to `0..100` when present.
-- The producer function shown in the schema inserts a decision with `ON CONFLICT DO NOTHING`, which supports append-only behavior for that write path.
-- Foreign keys connect decisions to processing state, batch, and input rows.
-- A retained history item can remain distinct by `decision_id` and `lead_run_id`; rows must never be collapsed merely because CNPJ or source hash matches.
+- `company_validations` is the current mutable projection and preserves CNPJ,
+  scores, verdict/trust fields, priority, signals, risks, evidence, current
+  run/source references, integrity, and timestamps.
+- `company_validations.last_lead_run_id` must resolve to exactly one approved
+  terminal `company_validation_runs` row with matching CNPJ/source and a stored
+  `final_action`.
+- Distinct terminal `lead_run_id` rows support the approved retained-only,
+  incomplete/unknown history semantics, subject to production activation and
+  the six-terminal-row RLB-T005 ceiling.
+- Reports use exact selected `lead_run_id` plus validation/CNPJ checks; report
+  content remains withheld.
 
-These structural properties do not prove that rows are consistently populated across workflow versions or execution modes. The production contract audit must quantify eligible, readable, unreadable, and unclassified coverage before the application claims meaningful breadth.
+The audited sample is structurally readable 20/20 but entirely test-tagged.
+That rate is not real-production coverage and cannot be generalized.
 
 ### Nullable or absent
 
@@ -137,13 +153,19 @@ These structural properties do not prove that rows are consistently populated ac
 
 ### Incomplete or unverified
 
-- No row profiling proves which `execution_mode` values are production data.
-- No distinct-value inventory proves the complete sets of `priority`, `final_action`, `final_verdict`, or `trust_status`.
+- All audited run/report rows are test-tagged, and the sole `PRODUCTION_E2E`
+  batch is not linked to them; the real-production predicate is unproven.
+- The audit observed bounded priority, action, verdict, and trust domains, but
+  does not prove that the sets are complete for production.
 - No sample establishes all JSON shapes or whether report evidence URLs use safe schemes.
 - Database roles/grants and row-level security are absent from the dump.
 - Retention behavior and whether old decisions can be deleted outside the shown functions are unknown.
-- Query performance cannot be confirmed without realistic parameter distributions, cardinalities, concurrency assumptions, and `EXPLAIN (ANALYZE, BUFFERS)` or an approved non-invasive equivalent.
-- Existing indexes support some identity/latest lookups but do not prove compatibility with JSON extraction, broad text search, every proposed filter/sort, or exact count queries.
+- Query performance is confirmed only for the RLB-T005 observed cardinality,
+  fixed query shapes, two-statement concurrency budget, and hard fail-closed
+  ceilings; it cannot be generalized to growth or other controls.
+- Existing indexes support the approved exact identity, UF, and priority
+  predicates. They do not support the deferred JSON, broad text, date, city,
+  action, trust, score, or alternate-sort controls.
 - Structural Markdown and URL sanitization does not establish that report/evidence content is free of personal, confidential, contractual, or commercially restricted information.
 
 ### Unsafe to present as business truth
@@ -171,7 +193,7 @@ These structural properties do not prove that rows are consistently populated ac
 **User story:** As a manager, I want a paginated list of eligible, readable, retained decisions so that I can identify available opportunities without loading every row or assuming complete inventory coverage.
 
 1. WHEN the lead list is requested THEN the system SHALL return at most the validated page size of latest eligible decisions, one per normalized CNPJ.
-2. WHEN a company has multiple decisions THEN the system SHALL select the latest eligible decision by `created_at DESC, decision_id DESC`.
+2. WHEN the list is requested THEN the system SHALL read the one-row-per-CNPJ current projection, require its exact eligible terminal run, and order the result by `validated_at DESC, id DESC`.
 3. WHEN no leads exist THEN the UI SHALL show a no-data state.
 4. WHEN valid filters match no leads THEN the UI SHALL show a no-matching-filters state and preserve the filters.
 5. WHEN a displayed value is null THEN the UI SHALL show “Não disponível” or an equivalent field-specific state rather than zero.
@@ -184,11 +206,11 @@ These structural properties do not prove that rows are consistently populated ac
 
 **User story:** As a manager, I want server-side controls so that I can narrow the business list efficiently.
 
-1. WHEN valid page, filter, and sort parameters are supplied THEN the API SHALL apply them in a parameterized server-side query.
+1. WHEN valid `page`, `pageSize`, exact CNPJ, exact UF, or exact approved priority parameters are supplied THEN the API SHALL apply them in a parameterized server-side query.
 2. WHEN parameters violate bounds or allowlists THEN the API SHALL return `400 VALIDATION_ERROR` without querying the database.
-3. WHEN sorting values tie THEN the query SHALL add deterministic audit-identity tie-breakers.
-4. WHEN the user changes filters or sorting THEN pagination SHALL return to page 1.
-5. WHEN a text filter contains wildcard characters THEN the API SHALL treat them as literal input unless wildcard search is explicitly approved.
+3. WHEN analysis timestamps tie THEN the fixed ordering SHALL use the current projection ID as the deterministic tie-breaker.
+4. WHEN the user changes an approved filter THEN pagination SHALL return to page 1.
+5. WHEN a client supplies name search, partial CNPJ, city, action, trust, score, date, batch, JSON, alternate sort, or direction parameters THEN validation SHALL reject them before database access.
 6. WHEN realistic query evidence does not support a filter, sort, exact total, or search mode THEN the MVP SHALL omit or narrow that capability rather than relying on pagination to contain database cost.
 7. WHEN list queries are approved THEN their data and count forms SHALL have reviewed JSON extraction cost, filter/index compatibility, timeout behavior, and expected concurrency impact.
 
@@ -218,12 +240,21 @@ These structural properties do not prove that rows are consistently populated ac
 4. WHEN history is returned THEN it SHALL be paginated and SHALL never merge runs by source hash, batch, or CNPJ.
 5. WHEN retention completeness is not proven THEN the section SHALL be labeled “Histórico disponível” or “Análises retidas encontradas” and SHALL state that older analyses may not be present.
 6. WHEN retained rows are shown THEN the UI SHALL not describe them as every analysis ever produced.
+7. The approved completeness classification is `incomplete/unknown`; a
+   `proven_complete` claim requires a later retention audit and explicit
+   approval.
 
 **Independent test:** Use synthetic current, superseded, and repeated-source decisions and verify all audit identities remain distinct.
 
 ### P2: Browse batch/source metadata
 
 **User story:** As a manager, I want limited source-batch context so that I can understand where analyses originated.
+
+**RLB-T004 decision:** Deferred. No batch/source screen or route is part of the
+approved contract because the audited batch lacks lineage to the selected lead
+records and its counters can reasonably be mistaken for import progress. Exact
+batch/source identifiers may remain only as non-clickable audit provenance for
+an already authorized decision.
 
 1. WHEN batch browsing is approved THEN the API SHALL return only source metadata and clearly named persisted-decision aggregates whose semantics cannot reasonably be mistaken for import progress.
 2. WHEN `row_count_expected` is null THEN the UI SHALL show unavailable rather than zero.
@@ -261,7 +292,7 @@ Every private screen must define:
 | RLB-03 | Provide only evidence-approved bounded server-side filtering, sorting, search, counts, and pagination. | P1 | Validators/repository/API | In Design |
 | RLB-04 | Map exact lead detail without exposing raw payloads. | P1 | Detail repository/mapper/API | In Design |
 | RLB-05 | Preserve null, empty, unavailable, stale, and malformed distinctions. | P1 | DTO mappers/UI states | In Design |
-| RLB-06 | Show distinct retained-decision history with a mandatory incompleteness caveat unless retention completeness is proven. | P1 conditional gate | History repository/API/UI | In Design |
+| RLB-06 | Show distinct retained-decision history with a mandatory incompleteness caveat unless retention completeness is proven. | P1 conditional gate | History repository/API/UI | Semantics Approved; Query Gate Pending |
 | RLB-07 | Sanitize Markdown and validate evidence URLs. | P1 | Content safety boundary | In Design |
 | RLB-08 | Use Brazilian CNPJ/date/currency/score presentation. | P1 | Formatters/UI | In Design |
 | RLB-09 | Return consistent safe success/error envelopes. | P1 | API response layer | In Design |
@@ -269,11 +300,11 @@ Every private screen must define:
 | RLB-11 | Do not call/change n8n, write lead data, or run production migrations. | P1 invariant | Whole system | In Design |
 | RLB-12 | Preserve decision, run, batch, source-row, hash, version, and timestamp audit identity. | P1 | DTOs/detail/history | In Design |
 | RLB-13 | Show a low-confidence warning only from an approved stored-value mapping. | P1 | Labels/UI | In Design |
-| RLB-14 | Optionally expose limited batch/source metadata without progress inference. | P2 conditional | Batch repository/API/UI | In Design |
+| RLB-14 | Optionally expose limited batch/source metadata without progress inference. | P2 conditional | Batch repository/API/UI | Deferred by RLB-T004 |
 | RLB-15 | Test validation, auth, mapping, formatting, content safety, errors, and null handling with synthetic data. | P1 | Test strategy | In Design |
-| RLB-16 | Audit production/production-like `lead_decisions` path presence, JSON types, null/domain values, version/mode variation, eligibility, and unreadable/unclassified coverage before implementation. | P1 evidence gate | Contract audit | Pending Evidence |
-| RLB-17 | Enable only query shapes supported by realistic plan/cost, count, JSON extraction, index compatibility, timeout, and concurrency evidence. | P1 evidence gate | Query/performance gate | Pending Evidence |
-| RLB-18 | Treat reports/evidence as potentially sensitive; require semantic PII/confidential-content policy, redaction/omission rules, and URL safety beyond XSS sanitization. | P1 conditional gate | Content policy/mapper/UI | Pending Approval |
+| RLB-16 | Audit the actual production/production-like current projection, terminal-run relationship, report relationship, batch semantics, comparison views, null/domain behavior, and bounded readability before implementation. | P1 evidence gate | Contract audit | Bounded Evidence Accepted |
+| RLB-17 | Enable only query shapes supported by realistic plan/cost, count, JSON extraction, index compatibility, timeout, and concurrency evidence. | P1 evidence gate | Query/performance gate | Bounded Evidence Approved |
+| RLB-18 | Treat reports/evidence as potentially sensitive; require semantic PII/confidential-content policy, redaction/omission rules, and URL safety beyond XSS sanitization. | P1 conditional gate | Content policy/mapper/UI | Policy Approved; Exposure Deferred |
 
 **Coverage:** 18 requirements; 18 mapped into design; task mapping is defined in `tasks.md`.
 
@@ -296,6 +327,10 @@ Every private screen must define:
 - **Does this project require changing n8n?** NO.
 - **Does this project require calling n8n?** NO.
 - **Does this project require production migrations?** NO, unless a future approved change explicitly says otherwise.
-- **Can implementation start now?** NO.
-- **What must pass first?** Read-only scope/MVP wording approval; the production or production-like `lead_decisions` contract audit; production scope/auth approval; retention/history plus report/evidence plus batch semantics decisions; and realistic query/performance approval.
+- **Can implementation start now?** NO in this execution. The design/tasks are
+  approved, but bootstrap is the separate RLB-T006 task and was not authorized
+  or started.
+- **What must pass first?** RLB-T001 through RLB-T005 are complete. Production
+  activation additionally remains fail-closed until the RLB-T003 denominator
+  and readability predicate pass without exceeding the RLB-T005 ceilings.
 - **Did the MVP remain read-only?** YES. It remains authenticated, server-only, GET-only, PostgreSQL-read-only, with no n8n call/change, CSV upload, import, retry/idempotency behavior, reprocess, export, lead write, or migration.

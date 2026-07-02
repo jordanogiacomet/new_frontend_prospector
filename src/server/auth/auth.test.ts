@@ -162,6 +162,12 @@ describe("server authentication and authorization", () => {
       issuer: environment.AUTH_OIDC_ISSUER,
       clientId: environment.AUTH_OIDC_CLIENT_ID,
       clientSecret: environment.AUTH_OIDC_CLIENT_SECRET,
+      authorization: {
+        params: {
+          scope: "openid",
+          organization: environment.AUTH_ALLOWED_ORG_ID,
+        },
+      },
     });
     expect(config.providers).toHaveLength(1);
     expect(config).not.toHaveProperty("adapter");

@@ -101,6 +101,7 @@ export function createAuthConfig(
         authorization: {
           params: {
             scope: "openid",
+            organization: environment.AUTH_ALLOWED_ORG_ID,
           },
         },
         profile(profile: Profile) {
