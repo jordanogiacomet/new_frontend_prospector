@@ -1,12 +1,13 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
+import type { LeadDetail } from "../../types/leads";
 import { StrategicReport } from "./strategic-report";
 
-const omittedReport = {
+const omittedReport: LeadDetail["strategicReport"] = {
   status: "omitted_by_policy",
   content: null,
-} as const;
+};
 
 describe("strategic report", () => {
   it("renders the policy-omitted state in clear business language", () => {
@@ -14,6 +15,9 @@ describe("strategic report", () => {
 
     expect(
       screen.getByRole("region", { name: "Relatório estratégico" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("status", { name: "Retido por política" }),
     ).toBeInTheDocument();
     expect(screen.getByText("Retido por política")).toBeInTheDocument();
     expect(screen.getByText("Conteúdo não exibido")).toBeInTheDocument();
@@ -25,6 +29,9 @@ describe("strategic report", () => {
   it("renders a missing report as distinct from policy omission", () => {
     render(<StrategicReport report={{ status: "missing" }} />);
 
+    expect(
+      screen.getByRole("status", { name: "Ausente" }),
+    ).toBeInTheDocument();
     expect(screen.getByText("Ausente")).toBeInTheDocument();
     expect(
       screen.getByText("Relatório ainda não disponível"),
@@ -38,7 +45,7 @@ describe("strategic report", () => {
   it("renders an unavailable report as an accessible error state", () => {
     render(<StrategicReport report={{ status: "unavailable" }} />);
 
-    const alert = screen.getByRole("alert");
+    const alert = screen.getByRole("alert", { name: "Indisponível" });
 
     expect(alert).toHaveTextContent("Indisponível");
     expect(alert).toHaveTextContent(
@@ -54,16 +61,23 @@ describe("strategic report", () => {
       ...omittedReport,
       markdown: "# MARKDOWN_CONTENT_CANARY",
       html: '<img src="x" onerror="RAW_HTML_CANARY">',
+      executableMarkup:
+        '<script>SCRIPT_CANARY</script><iframe srcdoc="IFRAME_CANARY"></iframe><button onclick="EVENT_HANDLER_CANARY">Executar</button>',
     };
     const { container } = render(
-      <StrategicReport
-        report={reportWithUnapprovedContent as typeof omittedReport}
-      />,
+      <StrategicReport report={reportWithUnapprovedContent} />,
     );
 
     expect(container).not.toHaveTextContent("MARKDOWN_CONTENT_CANARY");
     expect(container.innerHTML).not.toContain("RAW_HTML_CANARY");
+    expect(container.innerHTML).not.toContain("SCRIPT_CANARY");
+    expect(container.innerHTML).not.toContain("IFRAME_CANARY");
+    expect(container.innerHTML).not.toContain("EVENT_HANDLER_CANARY");
     expect(container.querySelector("img")).toBeNull();
+    expect(container.querySelector("script")).toBeNull();
+    expect(container.querySelector("iframe")).toBeNull();
+    expect(container.querySelector("[onclick]")).toBeNull();
+    expect(container.querySelector("[onerror]")).toBeNull();
   });
 
   it("does not render evidence text or evidence URLs supplied at runtime", () => {
@@ -73,9 +87,7 @@ describe("strategic report", () => {
       evidenceUrl: "https://evidence.invalid/EVIDENCE_URL_CANARY",
     };
     const { container } = render(
-      <StrategicReport
-        report={reportWithUnapprovedEvidence as typeof omittedReport}
-      />,
+      <StrategicReport report={reportWithUnapprovedEvidence} />,
     );
 
     expect(container).not.toHaveTextContent("EVIDENCE_TEXT_CANARY");
@@ -90,9 +102,7 @@ describe("strategic report", () => {
       xssSafe: true,
     };
     const { container } = render(
-      <StrategicReport
-        report={technicallySanitizedReport as typeof omittedReport}
-      />,
+      <StrategicReport report={technicallySanitizedReport} />,
     );
 
     expect(screen.getByText("Retido por política")).toBeInTheDocument();
@@ -115,7 +125,17 @@ describe("strategic report", () => {
       evidenceUrl: "https://evidence.invalid/EVIDENCE_PROP_CANARY",
     };
 
+    const propsWithReportContent: Parameters<typeof StrategicReport>[0] = {
+      report: {
+        status: "omitted_by_policy",
+        content: null,
+        // @ts-expect-error Report content is deliberately absent from the approved contract.
+        markdown: "MARKDOWN_REPORT_PROP_CANARY",
+      },
+    };
+
     expect("markdown" in propsWithMarkdown).toBe(true);
     expect("evidenceUrl" in propsWithEvidenceUrl).toBe(true);
+    expect("markdown" in propsWithReportContent.report).toBe(true);
   });
 });

@@ -11,14 +11,17 @@ interface StrategicReportProps {
   report: StrategicReportDisplayState;
 }
 
-const stateAppearance = {
+const stateAppearance: Record<
+  StrategicReportDisplayState["status"],
+  string
+> = {
   omitted_by_policy:
     "border-[oklch(77%_0.07_77)] bg-[oklch(96%_0.025_77)] text-[oklch(36%_0.065_62)]",
   missing:
     "border-[oklch(79%_0.02_252)] bg-[oklch(96%_0.008_252)] text-[oklch(41%_0.025_252)]",
   unavailable:
     "border-[oklch(74%_0.08_32)] bg-[oklch(96%_0.025_32)] text-[oklch(38%_0.07_32)]",
-} as const;
+};
 
 export function StrategicReport({ report }: StrategicReportProps) {
   const copy =
@@ -64,7 +67,8 @@ export function StrategicReport({ report }: StrategicReportProps) {
       </div>
 
       <div
-        role={report.status === "unavailable" ? "alert" : undefined}
+        role={report.status === "unavailable" ? "alert" : "status"}
+        aria-label={copy.label}
         className={`mt-6 grid gap-4 border px-5 py-6 sm:grid-cols-[minmax(9rem,auto)_1fr] sm:gap-8 ${stateAppearance[report.status]}`}
       >
         <p className="text-xs font-bold tracking-[0.12em] uppercase">
