@@ -25,6 +25,27 @@ export interface UnavailableLeadCollection {
   items: null;
 }
 
+export interface AvailableEmptyLeadCollection {
+  status: "available";
+  items: readonly [];
+}
+
+export interface MissingLeadCollection {
+  status: "missing";
+  items: null;
+}
+
+export interface PolicyOmittedLeadCollection {
+  status: "omitted_by_policy";
+  items: null;
+}
+
+export type LeadInsightCollection =
+  | AvailableEmptyLeadCollection
+  | MissingLeadCollection
+  | UnavailableLeadCollection
+  | PolicyOmittedLeadCollection;
+
 export interface PolicyOmittedContent {
   status: "omitted_by_policy";
   content: null;
@@ -71,8 +92,8 @@ export interface LeadDetail extends LeadSummary {
   icpScore: Nullable<number>;
   strategicAssetScore: Nullable<number>;
   strategicTier: Nullable<string>;
-  riskFlags: UnavailableLeadCollection;
-  positiveSignals: UnavailableLeadCollection;
+  riskFlags: LeadInsightCollection;
+  positiveSignals: LeadInsightCollection;
   evidences: PolicyOmittedContent;
   strategicReport: PolicyOmittedContent;
   audit: LeadAudit;
