@@ -85,18 +85,27 @@ The query reads `lead_decisions` directly. It may copy the ordering intent of `c
 
 ### History selection
 
-- Query `lead_decisions` by exact normalized CNPJ and approved production modes.
-- Include `COMPLETED` and `SUPERSEDED_MANUALLY` rows so superseded decisions remain auditable.
-- Sort `created_at DESC, decision_id DESC`.
+- Query `company_validation_runs` by exact normalized CNPJ and the approved
+  production/test predicate.
+- Include exactly one approved terminal row per distinct `lead_run_id`; exclude
+  `RECEBIDO` and every other operational row.
+- Require non-null run identity, matching CNPJ/source provenance, integrity
+  `OK`, and a stored final action. Ambiguous run shapes are unavailable.
+- Sort terminal rows by `created_at DESC, id DESC`.
 - Paginate and return the total.
-- Never group or deduplicate by source hash, batch, input row, or CNPJ.
-- If production-mode or retention evidence is not approved, disable the route and show unavailable history.
-- Unless retention completeness is proven, metadata and UI copy describe “Histórico disponível” or “Análises retidas encontradas” and state that older analyses may not be present.
+- Never merge distinct run IDs by batch, source row, CNPJ, or action.
+- RLB-T004 classifies retention completeness as `incomplete/unknown`. History is
+  retained-only and remains subject to production activation and the RLB-T005
+  six-terminal-row ceiling.
+- Metadata and UI copy use “Histórico disponível” or “Análises retidas
+  encontradas” and state “Análises mais antigas podem não estar presentes.”
 - Never label returned rows as a complete audit trail or every analysis ever produced.
 
-### Strategic report selection
+### Strategic report and evidence selection
 
-- Report/evidence retrieval is disabled until the semantic PII and confidential-content policy approves an allowlist plus redaction/omission behavior.
+- Report/evidence retrieval remains disabled because no current field or
+  content class is semantically allowlisted. The approved default state is
+  `omitted_by_policy`.
 - Query `company_strategic_research_reports` only by exact selected `lead_run_id` and CNPJ.
 - Ignore test rows unless an approved production predicate exists.
 - Require `integrity_status = 'OK'` to render content.
@@ -106,19 +115,48 @@ The query reads `lead_decisions` directly. It may copy the ordering intent of `c
 - An expired row may still be read but must be labeled `stale` from stored `expires_at`.
 - Do not expose `raw_payload` or `integrity_error`.
 - No CNPJ-only report fallback is permitted in MVP.
-- XSS sanitization does not establish privacy safety. Content that is structurally valid but semantically uncertain is omitted or redacted according to policy.
+- Any future exposure requires a named-owner allowlist of exact fields/content
+  classes and review for semantic PII, confidential business content, safe
+  deterministic redaction, URL safety, authorization, and logging.
+- XSS sanitization is not privacy approval. Structurally valid or XSS-safe
+  content that is semantically uncertain is omitted.
 
 ### Optional batch/source selection
 
-- Default to no batch/source route or screen.
-- Enable it only if reviewers determine that the selected fields, labels, aggregates, and navigation cannot reasonably be mistaken for import progress or operational monitoring.
-- Source `lead_import_batches` for identity and metadata.
-- Left join aggregate counts from eligible `lead_decisions`:
-  - `savedDecisionCount = count(decision_id)`
-  - `analyzedCompanyCount = count(distinct cnpj_normalizado)`
-- Do not calculate a completion percentage.
-- Do not use `received_count` as row progress.
-- Do not query legacy batch-flow views for confirmed business counts.
+- RLB-T004 defers all batch/source routes and screens. The audited batch is not
+  linked to the selected lead/run/report records, and its counters can be
+  mistaken for import progress.
+- Do not implement `BatchSourceSummary`, `/api/imports`, batch filtering,
+  aggregate counts, or batch navigation under the current contract.
+- An exact batch/source identifier may appear only as audit provenance for an
+  already authorized lead decision. It has no status, percentage, aggregate,
+  link, or progress wording.
+- Future enablement requires linked lineage plus reviewer approval that every
+  selected field, label, aggregate, and navigation behavior cannot reasonably
+  imply import progress or operational monitoring.
+
+### Approved sensitive-content boundary
+
+- Semantic PII includes names, email addresses, phone numbers, personal
+  identifiers, person-linked free text, and PII embedded in URLs.
+- Confidential content includes pricing, contracts, credentials/tokens,
+  internal notes, CRM history, prompts, proprietary strategy, and
+  customer-restricted information.
+- Only exact fields/content classes approved by a named business data owner and
+  privacy/security reviewer may enter a mapper. Unknown, mixed, or unclassified
+  content is omitted.
+- Redaction must be deterministic and tested, must not return the original, and
+  must leave meaning that is independently approved as safe. Otherwise omit the
+  item or section.
+- CRM company/contact snapshots remain deferred unless separately approved
+  under this same boundary.
+- Server-side organization authorization, exact run/CNPJ binding,
+  least-privilege field grants, mapped DTOs, and `private, no-store` delivery
+  are mandatory but do not themselves approve content privacy.
+- Logs, traces, analytics, errors, fixtures, and screenshots contain no
+  report/evidence bodies, raw Markdown/JSON, evidence URLs or query/fragment
+  values, contacts, prompts, CRM history, or redacted originals.
+
 
 ### Query safety
 

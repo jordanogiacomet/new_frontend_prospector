@@ -223,14 +223,24 @@ representative target before starting `RLB-T003`.
 **Tools:** `DOCS`  
 **Tests:** None — policy/semantics gate  
 **Gate:** Each conditional area has an explicit enabled-with-policy or deferred decision  
+**Execution status:** **COMPLETE (2026-07-01).** Retention completeness is
+classified as incomplete/unknown. Retained-only history is approved with
+“Histórico disponível” or “Análises retidas encontradas” and the mandatory
+warning that older analyses may not be present. A deny-by-default semantic
+privacy policy is approved, but no current report/evidence content is
+allowlisted; uncertain content is omitted and contact snapshots remain
+deferred. Batch/source screens and routes are deferred because audited lineage
+is absent and counters can imply import progress. No UI or route was
+implemented.
+
 **Done when:**
 
-- [ ] Retention evidence is classified as proven complete or incomplete/unknown.
-- [ ] Unless completeness is proven, history uses “Histórico disponível” or “Análises retidas encontradas” and states that older analyses may not be present.
-- [ ] Report/evidence policy addresses semantic PII, confidential business content, field allowlisting, redaction/omission, URL safety, authorization, and logging.
-- [ ] The policy explicitly states that XSS sanitization is not privacy approval and defaults uncertain content to omission.
-- [ ] Contact snapshots remain deferred unless separately approved under the same privacy boundary.
-- [ ] Batch/source screens are explicitly deferred unless reviewers establish that their semantics cannot reasonably be mistaken for import progress.
+- [x] Retention evidence is classified as proven complete or incomplete/unknown.
+- [x] Unless completeness is proven, history uses “Histórico disponível” or “Análises retidas encontradas” and states that older analyses may not be present.
+- [x] Report/evidence policy addresses semantic PII, confidential business content, field allowlisting, redaction/omission, URL safety, authorization, and logging.
+- [x] The policy explicitly states that XSS sanitization is not privacy approval and defaults uncertain content to omission.
+- [x] Contact snapshots remain deferred unless separately approved under the same privacy boundary.
+- [x] Batch/source screens are explicitly deferred unless reviewers establish that their semantics cannot reasonably be mistaken for import progress.
 
 **Verify:** Policy/semantics review plus `rg -n "Histórico disponível|Análises retidas encontradas|older analyses|mais antigas|semantic PII|confidential|batch/source" .specs/features/read-only-lead-browser/{spec,context,design,tasks}.md`  
 **Commit:** `docs(read-only-leads): approve retained-content semantics`

@@ -150,14 +150,30 @@ These are not invitations to expand scope. They are prerequisites that prevent t
 | Current-decision eligibility | `COMPLETED` and supersession fields exist, but manual supersession behavior needs confirmation. | Include only `decision_status = 'COMPLETED'` and `cnpj_normalizado IS NOT NULL`. |
 | Contract readability threshold | DDL does not prove stable JSON paths/types across time, versions, or modes. | Quantify eligible, readable, unreadable, and unclassified percentages; do not approve meaningful coverage without an explicit accepted threshold. |
 | Priority/action/verdict/trust value sets | Columns are free text; UI labels and low-confidence mapping cannot be inferred safely. | Profile distinct values read-only, approve mappings, preserve unknown values. |
-| PII/contact display | CRM tables hold names, email addresses, and phone numbers. | Defer contact fields until access and masking policy is approved. |
-| Report/evidence content policy | Structurally valid content can still contain semantic PII or confidential material. | Omit by default until policy approves allowed fields, redaction/omission, URL handling, logging, and access. |
 | Report multiplicity and fallback | `lead_run_id` is indexed but not unique; report JSON shapes are unprofiled. | Exact-run, integrity-OK report only after content policy approval; no CNPJ-only fallback. |
 | Query/performance envelope | Existing indexes do not prove proposed filters/counts are safe under realistic load. | Approve a measured capability matrix; omit unsupported filters, sorts, exact totals, and broad search. |
-| History retention semantics | DDL has no complete retention/deletion policy. | Treat rows as retained analyses; always caveat older analyses may be absent unless completeness is proven. |
-| Batch/source screen | Metadata is structurally available but can be mistaken for import progress. | Defer unless semantics are explicitly approved as non-operational and cannot reasonably imply progress. |
 | Test database strategy | No test infrastructure exists and no heavy dependency is preapproved. | Dedicated non-production PostgreSQL with synthetic fixtures; unit-test mappers/routes independently. |
 | Database grants | Schema dump does not include the deployed application role. | A separately provisioned role with `CONNECT`, `USAGE`, and `SELECT` only on approved objects. |
+
+## RLB-T004 Approval Record
+
+**Approved on 2026-07-01.** This decision closes the history, sensitive-content,
+and batch/source semantics gate. It does not authorize UI/routes, widen runtime
+database grants, approve report/evidence content, approve contact snapshots, or
+replace the RLB-T005 query/performance gate.
+
+| Decision | Approved contract | Evidence / boundary |
+| --- | --- | --- |
+| History completeness | Classify retained history as **incomplete/unknown**. The audited data proves six distinct retained terminal runs per CNPJ only in a bounded, entirely test-tagged dataset; it does not prove retention duration, deletion behavior, or older-run completeness. | Complete-history and full-audit wording is prohibited unless a later retention audit proves completeness. |
+| History wording | A retained-history section may use “Histórico disponível” or “Análises retidas encontradas” and must state “Análises mais antigas podem não estar presentes.” It must preserve distinct run identities and must not claim to show every analysis ever produced. | History remains subject to the production activation predicate and the RLB-T005 six-terminal-row ceiling; operational events are never a substitute. |
+| Report/evidence exposure | The privacy policy is approved, but **no current report/evidence content class or field is semantically allowlisted** because RLB-T002 inspected structure only. The default response state is `omitted_by_policy`; raw JSON, raw Markdown, evidence text, and evidence URLs are not retrieved for browser exposure. | Structural validity, integrity `OK`, exact-run matching, and Markdown sanitization do not establish privacy approval. XSS sanitization is not privacy approval. |
+| Semantic review boundary | Before any future exposure, a named business data owner and privacy/security reviewer must approve an exact field/content-class allowlist. Review covers semantic PII, including names, email addresses, phone numbers, personal identifiers, person-linked free text, and PII embedded in URLs; and confidential content, including pricing, contracts, credentials/tokens, internal notes, CRM history, prompts, proprietary strategy, and customer-restricted information. | Category or schema names are insufficient evidence that free text is safe. Unknown, mixed, or unclassified content is omitted. |
+| Redaction and omission | A field/item may be exposed only when it is allowlisted and either contains no disallowed content or has a deterministic, tested redaction that removes it without exposing the original. If safe meaning after redaction is uncertain, omit the item or entire section. Redacted/omitted, absent, explicit-empty, malformed, and unavailable states remain distinct. | Uncertain content defaults to omission, never pass-through. Raw source content is not available through an advanced/debug view. |
+| URL safety | A future allowlist may make a URL clickable only when it is an absolute normalized `https:` URL, contains no username/password, uses an explicitly approved public hostname that is not a known redirector, contains no token or semantic PII in its path/query/fragment, and is rendered with no-referrer and `noopener noreferrer`. Localhost, private/link-local IP destinations, non-HTTPS schemes, embedded content, and server-side fetching or redirect resolution are prohibited. Otherwise omit the link or render approved non-link evidence text. | URL validation prevents unsafe navigation/fetch behavior; it does not make the linked content private, accurate, or authorized, and the app does not attest to a downstream redirect destination. |
+| Authorization and delivery | Future content requires the same fail-closed server-side organization authorization as all private data, exact selected-run/CNPJ binding, least-privilege column grants for only approved fields, mapped DTOs, `private, no-store` responses, and no raw-payload fallback. Browser state alone never authorizes access. | Authorization permits an approved viewer to access approved content; it is not semantic privacy approval. |
+| Logging and diagnostics | Logs, traces, analytics, error details, fixtures, screenshots, and test artifacts must not contain report/evidence bodies, raw Markdown/JSON, evidence URLs, URL query/fragment values, contacts, CRM history, prompts, or redacted originals. Record only bounded event type, policy outcome, non-content correlation ID, and approved pseudonymous audit identifiers needed for access auditing. | SQL parameters and payload fragments remain excluded even on failures. |
+| Contact snapshots | CRM company/contact snapshots remain deferred. They require a separate explicit approval under this same semantic PII, allowlist, omission, authorization, URL, and logging boundary; RLB-T004 does not approve them. | Snapshot freshness does not make contact PII safe to expose. |
+| Batch/source | Batch/source list/detail screens, `/api/imports` routes, aggregates, filters, and navigation are deferred. The sole audited batch has no lineage to the audited projections/runs/reports, and its expected/received counters can be mistaken for import progress. Exact batch/source identifiers may remain only in the collapsed audit provenance of an already authorized lead decision, without status, percentage, aggregate, link, or progress wording. | A future task must supply linked lineage and complete wording/metric examples that reviewers confirm cannot reasonably imply import progress before any screen or route is reconsidered. |
 
 ## Agent’s Discretion After Approval
 
@@ -177,8 +193,12 @@ These are not invitations to expand scope. They are prerequisites that prevent t
 
 ## Deferred Features
 
-- Batch/source browser activation after data-quality approval.
-- CRM contact snapshot display after PII authorization.
+- Batch/source screens/routes until linked lineage and non-progress semantics
+  receive separate approval.
+- Report/evidence content until exact semantic allowlists and content-owner
+  approval exist under the RLB-T004 privacy policy.
+- CRM contact snapshot display until separate PII authorization under the same
+  policy boundary.
 - Full dashboard metrics.
 - Export.
 - Human review decisions or any write workflow.
@@ -194,6 +214,10 @@ No implementation may start until:
 1. Read-only scope and the “eligible, readable, retained decisions” MVP wording are approved.
 2. An authorized production/production-like `lead_decisions` contract audit quantifies JSON-path presence, JSON value types, null rates, domain values, time/workflow-version/execution-mode variation, eligibility coverage, and unreadable/unclassified row percentages. No raw payload is committed.
 3. Production scope, eligible modes, authentication provider, and exact organization authorization rule are approved.
-4. History retention limitations, semantic report/evidence privacy policy, and batch/source inclusion or explicit deferral are approved.
+4. ~~History retention limitations, semantic report/evidence privacy policy,
+   and batch/source inclusion or explicit deferral are approved.~~ Completed by
+   RLB-T004 on 2026-07-01: history is retained-only with incomplete/unknown
+   completeness; report/evidence and contacts are omitted pending separate
+   allowlists; batch/source screens/routes are deferred.
 5. Realistic query/performance evidence approves the enabled filter, sort, search, pagination, and count capability matrix.
 6. The design and task plan are approved after those findings are incorporated.
