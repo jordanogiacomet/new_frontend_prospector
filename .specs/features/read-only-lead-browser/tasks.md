@@ -745,6 +745,9 @@ private/no-store response.
 **Tools:** `UI`, `CURRENT-DOCS`  
 **Tests:** Component/security  
 **Gate:** Focused component + typecheck  
+**Execution status:** **COMPLETE (2026-07-02).** The report component presents
+policy omission, missing, and unavailable as distinct accessible states while
+accepting no Markdown, HTML, evidence text, or evidence URL content.
 **Done when:**
 
 - [ ] Raw HTML/scripts/iframes/event attributes are not rendered.
