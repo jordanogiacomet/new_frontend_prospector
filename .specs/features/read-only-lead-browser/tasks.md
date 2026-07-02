@@ -603,14 +603,17 @@ terminal relation, and applies only parameterized exact filters sequentially.
 **Tools:** `CORE`  
 **Tests:** Route integration with synthetic mocks  
 **Gate:** Focused route tests + typecheck  
+**Execution status:** **COMPLETE (2026-07-02).** The authenticated GET-only
+route validates the approved exact filters, returns exact pagination metadata,
+and maps failures through the safe no-store API envelope.
 **Done when:**
 
-- [ ] Only GET is implemented.
-- [ ] Auth runs before validation/repository access.
-- [ ] Success metadata and all safe error paths match the contract.
-- [ ] Exact total metadata is nullable/absent when the count query was not approved.
-- [ ] Private/no-store headers are present.
-- [ ] At least 10 route tests pass.
+- [x] Only GET is implemented.
+- [x] Auth runs before validation/repository access.
+- [x] Success metadata and all safe error paths match the contract.
+- [x] The approved exact total and derived total pages are preserved.
+- [x] Private/no-store headers are present.
+- [x] At least 10 route tests pass.
 
 **Verify:** `pnpm vitest run src/app/api/leads/route.test.ts && pnpm typecheck`; at least `10` tests pass  
 **Commit:** `feat(read-only-leads): expose lead list API`
