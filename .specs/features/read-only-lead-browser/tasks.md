@@ -781,7 +781,9 @@ accepting no Markdown, HTML, evidence text, or evidence URL content.
 
 ### RLB-T030: Build lead facts, risks, signals, and evidence sections
 
-**What:** Build the company/fiscal/commercial facts and null-aware insight collections.  
+**What:** Build the company/fiscal/commercial facts and the approved null-aware
+insight collection states without accepting risk, signal, or evidence content
+while the semantic allowlist remains empty.
 **Where:** `src/components/leads/lead-insights.tsx` and tests  
 **Depends on:** RLB-T010, RLB-T012, RLB-T028  
 **Reuses:** `LeadDetail` and safe evidence presentation  
@@ -791,11 +793,14 @@ accepting no Markdown, HTML, evidence text, or evidence URL content.
 **Gate:** Focused component + typecheck  
 **Done when:**
 
-- [ ] Missing and explicit-empty collections use different copy.
-- [ ] Text revenue/employee values are not falsely formatted as numbers.
-- [ ] Invalid evidence has no clickable unsafe link.
-- [ ] Unapproved or semantically uncertain evidence is omitted/redacted with a withheld state.
-- [ ] At least 10 complete/null/empty/malformed tests pass.
+- [x] Missing, explicit-empty, unavailable, and policy-omitted collections use
+  different business copy.
+- [x] Text revenue/employee values are not falsely formatted as numbers.
+- [x] No risk, signal, evidence text, or evidence URL input is accepted or
+  rendered while the semantic allowlist remains empty.
+- [x] Runtime malformed or unapproved extras are ignored; evidence remains
+  non-clickable and uses a clear withheld state.
+- [x] At least 10 complete/null/empty/malformed tests pass.
 
 **Verify:** `pnpm vitest run src/components/leads/lead-insights.test.tsx && pnpm typecheck`; at least `10` tests pass  
 **Commit:** `feat(read-only-leads): build lead insight sections`
