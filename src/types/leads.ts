@@ -115,14 +115,13 @@ export interface LeadDetail extends LeadSummary {
   dataQuality: DataQualityNotice[];
 }
 
-export interface LeadHistoryItem extends LeadAuditIdentity {
-  analyzedAt: string;
-  score: Nullable<number>;
-  finalVerdict: Nullable<string>;
-  recommendedAction: Nullable<string>;
+export interface LeadHistoryItem {
+  decision_id: string;
+  import_batch_id: Nullable<string>;
+  lead_run_id: string;
+  source_row: Nullable<number>;
+  analyzedAt: Nullable<string>;
+  recommendedAction: string;
   recommendedActionReason: Nullable<string>;
-  priority: Nullable<string>;
-  trustStatus: Nullable<string>;
-  used_cache: Nullable<boolean>;
   isCurrent: boolean;
 }

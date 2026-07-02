@@ -466,20 +466,25 @@ representative target before starting `RLB-T003`.
 
 ### RLB-T016: Implement `LeadHistoryItem` mapper
 
-**What:** Map decision rows into distinct history items with supersession and current markers.  
-**Where:** `src/server/mappers/lead-history-mapper.ts` and tests  
+**What:** Map approved native terminal-run columns into distinct history items with an exact row-identity current marker.
+**Where:** `src/types/leads.ts`, `src/server/mappers/lead-history-mapper.ts` and tests
 **Depends on:** RLB-T010, RLB-T012  
 **Reuses:** `LeadHistoryItem` field map  
 **Requirements:** RLB-05, RLB-06, RLB-12, RLB-15  
 **Tools:** `CORE`  
 **Tests:** Unit  
 **Gate:** Focused unit + typecheck  
+**Execution status:** **COMPLETE (2026-07-02).** The mapper uses only native
+`company_validation_runs` columns, preserves the exact terminal row `id` and
+`lead_run_id`, and marks the current item only by the exact row identity.
+Fields absent from the approved history read model are not fabricated from
+`NULL` aliases, projection values, or inference.
 **Done when:**
 
-- [ ] Decision/run IDs are never replaced or collapsed.
-- [ ] Supersession fields remain nullable and visible.
-- [ ] Current marker uses exact decision ID.
-- [ ] At least 8 history mapping tests pass.
+- [x] Native terminal-row and run IDs are never replaced or collapsed.
+- [x] Nullable native values remain null without projection or supersession inference.
+- [x] Current marker uses the exact terminal-row ID.
+- [x] At least 8 history mapping tests pass.
 
 **Verify:** `pnpm vitest run src/server/mappers/lead-history-mapper.test.ts && pnpm typecheck`; at least `8` tests pass  
 **Commit:** `feat(read-only-leads): map lead history safely`
