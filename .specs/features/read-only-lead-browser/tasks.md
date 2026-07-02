@@ -671,13 +671,16 @@ and maps failures through the safe no-store API envelope.
 **Tools:** `UI`  
 **Tests:** Page/component  
 **Gate:** Focused page tests + lint + typecheck  
+**Execution status:** **COMPLETE (2026-07-02).** The authenticated private
+experience requests only the current URL-bounded API page and presents
+distinct loading, empty, no-match, populated, and safe error states.
 **Done when:**
 
-- [ ] Loading, no data, no matching filters, API error, and populated states are distinct.
-- [ ] Filters remain in the URL and error details remain safe.
-- [ ] No full-dataset client filtering/sorting occurs.
-- [ ] Scope copy describes eligible, readable, retained decisions and does not imply an authoritative inventory.
-- [ ] At least 7 page-state tests pass.
+- [x] Loading, no data, no matching filters, API error, and populated states are distinct.
+- [x] Filters remain in the URL and error details remain safe.
+- [x] No full-dataset client filtering/sorting occurs.
+- [x] Scope copy describes eligible, readable, retained decisions and does not imply an authoritative inventory.
+- [x] At least 7 page-state tests pass.
 
 **Verify:** `pnpm vitest run 'src/app/(private)/leads' && pnpm lint && pnpm typecheck`; at least `7` tests pass  
 **Commit:** `feat(read-only-leads): assemble lead list experience`
