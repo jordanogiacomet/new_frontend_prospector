@@ -630,12 +630,12 @@ and maps failures through the safe no-store API envelope.
 **Gate:** Focused component + typecheck  
 **Done when:**
 
-- [ ] Controls expose only supported filters/sorts.
-- [ ] No deferred broad or expensive query control is rendered.
-- [ ] Active filters are visible and clearable.
-- [ ] Criteria changes reset `page=1`.
-- [ ] Unknown current values render neutrally.
-- [ ] At least 8 interaction tests pass.
+- [x] Controls expose only supported filters/sorts.
+- [x] No deferred broad or expensive query control is rendered.
+- [x] Active filters are visible and clearable.
+- [x] Criteria changes reset `page=1`.
+- [x] Unknown current values render neutrally.
+- [x] At least 8 interaction tests pass.
 
 **Verify:** `pnpm vitest run src/components/leads/lead-list-filters.test.tsx && pnpm typecheck`; at least `8` tests pass  
 **Commit:** `feat(read-only-leads): build lead list filters`
