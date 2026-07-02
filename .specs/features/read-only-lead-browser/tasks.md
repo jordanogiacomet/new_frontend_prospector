@@ -554,12 +554,15 @@ representative target before starting `RLB-T003`.
 **Tools:** `CORE`  
 **Tests:** Unit/integration  
 **Gate:** Focused auth tests + typecheck  
+**Execution status:** **COMPLETE (2026-07-02).** The server-only guard maps
+missing/expired sessions to safe `401`, denied sessions to safe `403`, and
+returns only a minimal authorization proof before protected continuation.
 **Done when:**
 
-- [ ] Repository callbacks are not invoked for unauthorized requests.
-- [ ] Authorized identity is returned in a narrow server-only type.
-- [ ] Responses contain no claims/provider details.
-- [ ] At least 5 guard tests pass.
+- [x] Repository callbacks are not invoked for unauthorized requests.
+- [x] Authorized identity is returned in a narrow server-only type.
+- [x] Responses contain no claims/provider details.
+- [x] At least 5 guard tests pass.
 
 **Verify:** `pnpm vitest run src/server/auth/require-api-session.test.ts && pnpm typecheck`; at least `5` tests pass  
 **Commit:** `feat(read-only-leads): guard private APIs`
