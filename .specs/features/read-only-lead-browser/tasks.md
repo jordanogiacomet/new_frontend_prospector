@@ -720,13 +720,17 @@ returns report/evidence only as `omitted_by_policy` without querying content.
 **Tools:** `CORE`  
 **Tests:** Route integration  
 **Gate:** Focused route tests + typecheck  
+**Execution status:** **COMPLETE (2026-07-02).** The authenticated GET-only
+route validates the exact CNPJ and optional run selector, returns the mapped
+policy-gated detail, and maps missing or mismatched selections to the same safe
+private/no-store response.
 **Done when:**
 
-- [ ] Invalid CNPJ/run returns safe `400`.
-- [ ] Missing or mismatched lead returns safe `404`.
-- [ ] Success returns only `LeadDetail`.
-- [ ] GET response is private/no-store.
-- [ ] At least 9 route tests pass.
+- [x] Invalid CNPJ/run returns safe `400`.
+- [x] Missing or mismatched lead returns safe `404`.
+- [x] Success returns only `LeadDetail`.
+- [x] GET response is private/no-store.
+- [x] At least 9 route tests pass.
 
 **Verify:** `pnpm vitest run 'src/app/api/leads/[cnpj]/route.test.ts' && pnpm typecheck`; at least `9` tests pass  
 **Commit:** `feat(read-only-leads): expose lead detail API`
