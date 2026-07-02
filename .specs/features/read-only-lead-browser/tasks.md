@@ -695,6 +695,9 @@ distinct loading, empty, no-match, populated, and safe error states.
 **Tools:** `CORE`, optional `DB-READ` for approved synthetic integration  
 **Tests:** Repository unit plus approved non-production integration  
 **Gate:** Focused repository tests + typecheck  
+**Execution status:** **COMPLETE (2026-07-02).** The server-only repository
+selects one CNPJ-bound current decision, optionally requires its exact run, and
+returns report/evidence only as `omitted_by_policy` without querying content.
 **Done when:**
 
 - [ ] Default and exact-`leadRunId` selection are CNPJ-bound.
