@@ -812,10 +812,10 @@ accepting no Markdown, HTML, evidence text, or evidence URL content.
 **Gate:** Focused component + typecheck  
 **Done when:**
 
-- [ ] All approved audit identifiers are preserved and labeled in Portuguese.
-- [ ] No raw JSON or technical error is exposed.
-- [ ] Null optional fields show unavailable.
-- [ ] At least 6 audit tests pass.
+- [x] All approved audit identifiers are preserved and labeled in Portuguese.
+- [x] No raw JSON or technical error is exposed.
+- [x] Null optional fields show unavailable.
+- [x] At least 6 audit tests pass.
 
 **Verify:** `pnpm vitest run src/components/leads/lead-audit.test.tsx && pnpm typecheck`; at least `6` tests pass  
 **Commit:** `feat(read-only-leads): build lead audit details`
