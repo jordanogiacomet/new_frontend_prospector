@@ -652,11 +652,11 @@ and maps failures through the safe no-store API envelope.
 **Gate:** Focused component + typecheck  
 **Done when:**
 
-- [ ] Required business columns render with Brazilian formatting.
-- [ ] Null is never shown as zero.
-- [ ] Detail links preserve CNPJ and `leadRunId`.
-- [ ] Badges have neutral unknown fallback.
-- [ ] At least 8 display/navigation tests pass.
+- [x] Required business columns render with Brazilian formatting.
+- [x] Null is never shown as zero.
+- [x] Detail links preserve CNPJ and `leadRunId`.
+- [x] Badges have neutral unknown fallback.
+- [x] At least 8 display/navigation tests pass.
 
 **Verify:** `pnpm vitest run src/components/leads/lead-table.test.tsx && pnpm typecheck`; at least `8` tests pass  
 **Commit:** `feat(read-only-leads): build lead results table`
