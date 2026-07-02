@@ -771,10 +771,10 @@ accepting no Markdown, HTML, evidence text, or evidence URL content.
 **Gate:** Focused component + typecheck  
 **Done when:**
 
-- [ ] Stored values render without recalculation.
-- [ ] Missing score/action/reason remain unavailable.
-- [ ] Low and unknown confidence are visually distinct.
-- [ ] At least 7 component tests pass.
+- [x] Stored values render without recalculation.
+- [x] Missing score/action/reason remain unavailable.
+- [x] Low and unknown confidence are visually distinct.
+- [x] At least 7 component tests pass.
 
 **Verify:** `pnpm vitest run src/components/leads/lead-detail-summary.test.tsx && pnpm typecheck`; at least `7` tests pass  
 **Commit:** `feat(read-only-leads): build lead decision summary`
