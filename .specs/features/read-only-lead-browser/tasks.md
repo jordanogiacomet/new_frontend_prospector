@@ -577,15 +577,18 @@ returns only a minimal authorization proof before protected continuation.
 **Tools:** `CORE`, optional `DB-READ` for approved synthetic integration  
 **Tests:** Repository unit plus approved non-production integration  
 **Gate:** Focused repository tests + typecheck  
+**Execution status:** **COMPLETE (2026-07-02).** The server-only repository
+guards the unfiltered projection cardinality, selects the exact eligible
+terminal relation, and applies only parameterized exact filters sequentially.
 **Done when:**
 
-- [ ] Ranking precedes business filters.
-- [ ] SQL identifiers come only from allowlisted maps.
-- [ ] Exact count exists only if approved; when enabled, count/data predicates match and ties are deterministic.
-- [ ] SQL contains no deferred broad filter, expensive sort, or unapproved JSON predicate.
-- [ ] Query timeout and capability constraints match the approved evidence envelope.
-- [ ] Null scores remain null and sort predictably.
-- [ ] At least 14 tests cover ordering, filters, pagination, escaping, and injection attempts.
+- [x] Ranking precedes business filters.
+- [x] SQL identifiers come only from allowlisted maps.
+- [x] Exact count exists only if approved; when enabled, count/data predicates match and ties are deterministic.
+- [x] SQL contains no deferred broad filter, expensive sort, or unapproved JSON predicate.
+- [x] Query timeout and capability constraints match the approved evidence envelope.
+- [x] Null scores remain null and sort predictably.
+- [x] At least 14 tests cover ordering, filters, pagination, escaping, and injection attempts.
 
 **Verify:** `pnpm vitest run src/server/repositories/lead-list-repository.test.ts && pnpm typecheck`; at least `14` tests pass  
 **Commit:** `feat(read-only-leads): query latest leads read-only`
