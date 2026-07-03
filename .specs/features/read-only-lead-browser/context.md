@@ -249,9 +249,9 @@ retention claims, or unmeasured query shapes.
 | --- | --- | --- |
 | Authentication provider | The application uses the organization-managed OpenID Connect provider through a server-only Auth.js integration and server-validated sessions. The exact issuer, client ID, and client secret are deployment configuration; local users and password authentication are prohibited. | The repository has no existing identity implementation. OIDC preserves external identity ownership without inventing an account store. Auth implementation remains RLB-T017. |
 | Organization authorization | Access is single-organization and fail-closed. A session is authorized only when the verified token issuer exactly equals configured `AUTH_OIDC_ISSUER`, `sub` is non-empty, and the exact string `org_id` claim equals configured `AUTH_ALLOWED_ORG_ID`. Email address/domain, display name, and client-supplied claims never authorize. Missing or multi-valued `org_id` is `403`. | Satisfies the single-organization rule without treating an email domain as membership. Every private page and API revalidates the server session. |
-| Production/test scope | For the selected current source, production means an exact terminal run with `test_case_id IS NULL`. Any non-null test marker is excluded. No `execution_mode` value is inferred from `PRODUCTION_E2E`, batch metadata, filenames, IDs, or versions; the selected source does not store a trustworthy execution-mode field. | All RLB-T002 run/report rows were test-tagged and the only `PRODUCTION_E2E` batch had no lineage to them. Therefore the audited rows are not production rows. |
+| Production/test scope | Superseded in part by RLB-T035A. For the current producer, an exact terminal run is eligible when `test_case_id IS NULL` or `test_case_id = 'SR_' || source_row`. Every other non-null marker remains excluded as test/audit data. No execution mode is inferred from batch metadata, filenames, IDs, or versions. | RLB-T035A aligns the predicate with the producer's row-provenance marker while retaining fail-closed exclusion for explicit test identifiers. |
 | Time/version scope | No historical lower date or producer-version allowlist applies. Require non-empty `agent_version`, non-future `validated_at` and terminal `run_created_at`, and preserve the exact version for audit. Expiry does not remove a retained row; an expired value is presented as stale. Unknown future versions remain eligible only if the same structural/readability contract passes. | Prevents an unevidenced version cutoff and does not silently hide retained stale data. |
-| Eligibility and readability | Use one `company_validations` projection with `integrity_status = 'OK'`, a 14-digit normalized CNPJ matching its CNPJ, and non-empty `last_lead_run_id`. That ID must resolve to exactly one `company_validation_runs` row with `processing_result = 'INSERIDO_VALIDATION'`, `integrity_status = 'OK'`, `test_case_id IS NULL`, matching normalized CNPJ and null-safe exact batch/source position, non-future time, and a non-empty stored `final_action`. Zero/multiple matches, an unknown terminal result, identity/provenance mismatch, or failed required scalar bounds is unreadable. Optional nulls remain null; a malformed optional collection is omitted with a data-quality notice and does not become zero or an empty array. | RLB-T002 found this relationship structurally readable for 20/20 test-tagged projections and proved that operational `RECEBIDO` rows must be excluded. |
+| Eligibility and readability | Use one `company_validations` projection with `integrity_status = 'OK'`, a 14-digit normalized CNPJ matching its CNPJ, and a `last_lead_run_id` matching exactly `lr_` plus 8 or 64 lowercase hexadecimal characters. That ID must resolve to exactly one `company_validation_runs` row with `processing_result = 'INSERIDO_VALIDATION'`, `integrity_status = 'OK'`, the RLB-T035A production predicate, matching normalized CNPJ and null-safe exact batch/source position, non-future time, and a non-empty stored `final_action`. Zero/multiple matches, an unknown terminal result, identity/provenance mismatch, or failed required scalar bounds is unreadable. Optional nulls remain null; a malformed optional collection is omitted with a data-quality notice and does not become zero or an empty array. | RLB-T035A changes only producer identity/provenance eligibility. Stored decisions, scores, actions, and audit identities remain exact and are never grouped or deduplicated. |
 | Coverage threshold | Accept the RLB-T002 result as **20/20 (100%) bounded production-like structural coverage only**. Initial production activation requires a non-zero production denominator, 100% readable eligible production candidates, and zero unclassified candidates under the predicate above. A zero denominator is “not measured,” never 100%. | This preserves the accepted T002 result without generalizing its entirely test-tagged sample. A lower threshold requires a later explicit approval. |
 | Action domain | Recognized exact tokens are `PROSPECTAR` → “Prospectar”, `PROSPECTAR_COM_CAUTELA` → “Prospectar com cautela”, `NUTRIR` → “Nutrir”, `NAO_ABORDAR` → “Não abordar”, and `REVISAO_HUMANA` → “Revisão humana”. | These are the terminal actions recorded by RLB-T002. Mapping changes presentation only and never recomputes the action. |
 | Priority domain | Recognized exact tokens are `B`, `C`, `E`, and `R`, presented as “Prioridade B/C/E/R”. No rank, severity, or confidence order is inferred. | These are the priority tokens recorded by RLB-T002; their business ordering was not evidenced. |
@@ -420,17 +420,36 @@ or identifying sample was selected, printed into this record, or committed.
 - Copy refinements that preserve the specified business meanings.
 - Whether list filters use a drawer or an inline responsive panel.
 
+## RLB-T035A Approval Record
+
+**Approved on 2026-07-03.** This documentary gate partially supersedes the
+RLB-T004 batch/source decision and aligns the current producer-provenance
+assumptions previously recorded in RLB-T003. It unlocks only RLB-T036 and does
+not authorize RLB-T037–RLB-T040, any write, n8n call/change, raw workflow
+artifact, CSV, or production migration.
+
+| Decision | Approved contract |
+| --- | --- |
+| Production eligibility | `test_case_id IS NULL OR test_case_id = 'SR_' || source_row`. Every other non-null identifier, including `grupo_teste`, is excluded as explicit test/audit data. |
+| Run identity | Accept exactly `lr_` followed by 8 or 64 lowercase hexadecimal characters. Reject every other prefix, length, character set, and case. Preserve every accepted run and decision identity exactly; never group or deduplicate them. |
+| Current batch identity | Recognize the producer's opaque `empresaqui_<timestamp ISO>` identifier and preserve it exactly. Analysis dates come only from `run_created_at`, never by parsing this identifier. |
+| Batch source | Do not use `lead_import_batches`; the current producer does not write it. Aggregate only eligible terminal decisions already retained in `company_validation_runs`. |
+| Minimal summary | `import_batch_id`, first/last `run_created_at`, eligible saved-decision count, and distinct-CNPJ count. Filename, expected/received rows, execution mode, versions, hashes, manifests, status, percentage, and progress are prohibited. |
+| Evidence handling | Only aggregate contract evidence is recorded here. Raw workflow exports and EmpresaAqui CSVs remain outside Git. |
+| Task release | RLB-T036 is executable. RLB-T037–RLB-T040 remain blocked pending separate repository/API/UI approval. |
+
 ## Specific References
 
 - Repository guidance in `AGENTS.md`.
 - DDL evidence in `docs/db/schema.sql`.
 - `docs/db/tables.txt`, `docs/db/views.txt`, and `docs/db/functions.txt` exist but are empty.
-- No sanitized n8n documentation was present, so no workflow behavior beyond repository and schema evidence is assumed.
+- Raw workflow exports and EmpresaAqui CSVs remain outside Git. RLB-T035A
+  records only the approved aggregate producer contract.
 
 ## Deferred Features
 
-- Batch/source screens/routes until linked lineage and non-progress semantics
-  receive separate approval.
+- Batch/source repositories, screens, routes, filters, and navigation remain
+  blocked after the RLB-T036 mapper until separate approval.
 - Report/evidence content until exact semantic allowlists and content-owner
   approval exist under the RLB-T004 privacy policy.
 - CRM contact snapshot display until separate PII authorization under the same

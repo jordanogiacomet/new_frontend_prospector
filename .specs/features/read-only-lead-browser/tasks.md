@@ -2,7 +2,7 @@
 
 **Design:** `.specs/features/read-only-lead-browser/design.md`  
 **Phase:** Tasks  
-**Status:** APPROVED through RLB-T005 — bounded query envelope approved; bootstrap not started
+**Status:** RLB-T035A APPROVED — producer contract aligned; RLB-T036 executable
 **Plan origin:** Fresh plan created for `read-only-lead-browser`; it does not continue or reuse any prior T01/T02 plan.
 
 ## Execution Rules
@@ -14,8 +14,8 @@
 - Run no production migration and make no n8n call/change.
 - Use synthetic data for all implementation tests, fixtures, seeds, and screenshots. Evidence gates may use authorized aggregate production/production-like reads but commit no raw records or payloads.
 - Tasks marked **Parallel-ready** may overlap technically, but no sub-agent delegation is authorized by this plan. Parallel agents require an explicit future user request.
-- Conditional batch tasks RLB-T036–RLB-T040 are deferred by RLB-T004 and must
-  not execute without a separate later semantic approval.
+- RLB-T035A partially supersedes RLB-T004 only for RLB-T036. RLB-T037–RLB-T040
+  remain blocked and must not execute without separate approval.
 - Report/evidence content retrieval and rendering remain disabled. RLB-T004
   approved a deny-by-default policy but no current semantic field/content
   allowlist; only withheld/omitted states may be implemented without a separate
@@ -122,23 +122,20 @@ UI component tasks `RLB-T028` through `RLB-T031` are parallel-ready when their d
 RLB-T004 + RLB-T009 + RLB-T011 + RLB-T016 → RLB-T033
 RLB-T013 + RLB-T020 + RLB-T033 → RLB-T034
 RLB-T012 + RLB-T032 + RLB-T034 → RLB-T035
+RLB-T035 → RLB-T035A
 ```
 
-### Phase 6 — Optional batch/source view, conditional P2
+### Phase 6 — Batch/source mapper only
 
-**Deferred by RLB-T004.** The dependency graph is retained only for a future
-separately approved reactivation; none of RLB-T036–RLB-T040 is executable under
-the current contract.
+**Partially enabled by RLB-T035A.** RLB-T036 is executable against the minimal
+aggregate contract. RLB-T037–RLB-T040 remain blocked.
 
 ```text
-RLB-T004 + RLB-T010 + RLB-T012 → RLB-T036
-RLB-T009 + RLB-T011 + RLB-T036 → RLB-T037
-RLB-T013 + RLB-T020 + RLB-T037 → RLB-T038
-RLB-T013 + RLB-T020 + RLB-T037 → RLB-T039
-RLB-T012 + RLB-T019 + RLB-T038 + RLB-T039 → RLB-T040
+RLB-T035A + RLB-T010 + RLB-T012 → RLB-T036
+RLB-T036 ──X RLB-T037 ──X RLB-T038/RLB-T039 ──X RLB-T040
 ```
 
-The two GET route tasks are parallel-ready after the batch repository passes.
+The blocked edge requires a separate repository/API/UI contract approval.
 
 ### Phase 7 — Final verification
 
@@ -1007,25 +1004,52 @@ states without event or retry fallbacks.
 **Verify:** `pnpm vitest run src/components/leads/lead-history.test.tsx && pnpm typecheck`; at least `8` tests pass  
 **Commit:** `feat(read-only-leads): build lead decision history`
 
-### RLB-T036: Implement `BatchSourceSummary` mapper — conditional P2
+### RLB-T035A: Align the producer provenance contract
 
-**What:** Map batch metadata and persisted-decision aggregates without progress inference.  
-**Where:** `src/server/mappers/batch-source-mapper.ts` and tests  
-**Depends on:** RLB-T004, RLB-T010, RLB-T012  
-**Reuses:** Conditional DTO field map  
+**What:** Approve the current producer's production predicate, run/batch
+identity formats, terminal aggregate source, and the narrow RLB-T036 release.
+**Where:** `.specs/features/read-only-lead-browser/{spec,context,design,tasks}.md`
+**Depends on:** RLB-T035
+**Reuses:** RLB-T003/RLB-T004 decisions and aggregate producer evidence
+**Requirements:** RLB-04, RLB-05, RLB-12, RLB-14, RLB-18
+**Tools:** `DOCS`
+**Tests:** None — documentation gate
+**Gate:** Structural/scope review
+**Execution status:** **COMPLETE (2026-07-03).** The gate accepts null or exact
+`SR_<source_row>` provenance, 8/64-hex run IDs, opaque
+`empresaqui_<timestamp ISO>` batch IDs, and terminal-run aggregates without
+`lead_import_batches`. Only RLB-T036 is released.
+**Done when:**
+
+- [x] Explicit test/audit identifiers remain excluded.
+- [x] Exact accepted run and batch identities are documented.
+- [x] Raw workflow exports and CSVs remain outside Git.
+- [x] RLB-T036 is executable and RLB-T037–RLB-T040 remain blocked.
+
+**Verify:** Contract review plus `git diff --check`
+**Commit:** `docs(read-only-leads): align producer provenance contract`
+
+### RLB-T036: Implement `BatchSourceSummary` mapper
+
+**What:** Map only approved terminal-decision aggregate metadata without
+progress inference.
+**Where:** `src/types/imports.ts`, `src/server/mappers/batch-source-mapper.ts`
+and tests
+**Depends on:** RLB-T035A, RLB-T010, RLB-T012
+**Reuses:** RLB-T035A minimal DTO field map
 **Requirements:** RLB-05, RLB-12, RLB-14, RLB-15  
 **Tools:** `CORE`  
 **Tests:** Unit  
 **Gate:** Focused unit + typecheck  
 **Done when:**
 
-- [ ] Expected rows remain nullable.
-- [ ] Counts use exact “saved decisions”/“analyzed companies” labels.
-- [ ] Approved labels and fields cannot reasonably be interpreted as import progress.
-- [ ] Filename is bounded/escaped and raw manifest/hash is absent.
-- [ ] At least 7 mapper tests pass.
+- [ ] Only the five approved DTO fields exist.
+- [ ] Dates are ISO values derived from aggregate `run_created_at` columns.
+- [ ] Zero counts remain valid; negative/fractional counts fail safely.
+- [ ] Batch IDs are preserved exactly and operational metadata is absent.
+- [ ] At least 8 mapper tests pass.
 
-**Verify:** `pnpm vitest run src/server/mappers/batch-source-mapper.test.ts && pnpm typecheck`; at least `7` tests pass  
+**Verify:** `pnpm vitest run src/server/mappers/batch-source-mapper.test.ts && pnpm typecheck`; at least `8` tests pass
 **Commit:** `feat(read-only-leads): map batch source metadata`
 
 ### RLB-T037: Implement the batch/source repository — conditional P2
@@ -1038,9 +1062,12 @@ states without event or retry fallbacks.
 **Tools:** `CORE`, optional `DB-READ` for approved synthetic integration  
 **Tests:** Repository unit plus approved non-production integration  
 **Gate:** Focused repository tests + typecheck  
+**Execution status:** **BLOCKED by RLB-T035A.** No repository source/query
+contract is approved; RLB-T036 does not authorize this task.
 **Done when:**
 
-- [ ] Query uses `lead_import_batches` and eligible `lead_decisions` only.
+- [ ] A separate approval defines an aggregate query over eligible terminal
+  decisions without `lead_import_batches`.
 - [ ] No progress percentage or legacy flow view exists.
 - [ ] Count/data predicates and sorting are deterministic.
 - [ ] At least 10 repository tests pass.
@@ -1058,6 +1085,8 @@ states without event or retry fallbacks.
 **Tools:** `CORE`  
 **Tests:** Route integration  
 **Gate:** Focused route tests + typecheck  
+**Execution status:** **BLOCKED by RLB-T035A.** RLB-T036 does not authorize an
+API surface.
 **Done when:**
 
 - [ ] Only GET exists; no body/import trigger is accepted.
@@ -1078,6 +1107,8 @@ states without event or retry fallbacks.
 **Tools:** `CORE`  
 **Tests:** Route integration  
 **Gate:** Focused route tests + typecheck  
+**Execution status:** **BLOCKED by RLB-T035A.** RLB-T036 does not authorize an
+API surface.
 **Done when:**
 
 - [ ] Invalid ID returns `400`; absent ID returns safe `404`.
@@ -1098,6 +1129,8 @@ states without event or retry fallbacks.
 **Tools:** `UI`  
 **Tests:** Component/page  
 **Gate:** Focused UI + lint + typecheck  
+**Execution status:** **BLOCKED by RLB-T035A.** RLB-T036 does not authorize a
+batch/source screen or navigation.
 **Done when:**
 
 - [ ] Expected/null counts and persisted-decision labels are exact.

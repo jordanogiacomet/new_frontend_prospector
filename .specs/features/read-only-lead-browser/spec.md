@@ -250,19 +250,24 @@ That rate is not real-production coverage and cannot be generalized.
 
 **User story:** As a manager, I want limited source-batch context so that I can understand where analyses originated.
 
-**RLB-T004 decision:** Deferred. No batch/source screen or route is part of the
-approved contract because the audited batch lacks lineage to the selected lead
-records and its counters can reasonably be mistaken for import progress. Exact
-batch/source identifiers may remain only as non-clickable audit provenance for
-an already authorized decision.
+**RLB-T035A decision:** RLB-T004 is partially superseded only for the
+`BatchSourceSummary` DTO and mapper. RLB-T036 may map aggregate provenance from
+eligible terminal decisions. RLB-T037–RLB-T040 remain blocked: no repository,
+route, screen, filter, navigation, or producer operation is approved.
 
-1. WHEN batch browsing is approved THEN the API SHALL return only source metadata and clearly named persisted-decision aggregates whose semantics cannot reasonably be mistaken for import progress.
-2. WHEN `row_count_expected` is null THEN the UI SHALL show unavailable rather than zero.
-3. WHEN expected rows and saved decisions differ THEN the UI SHALL not infer completion, failure, or progress.
-4. WHEN batch detail is requested THEN the route SHALL remain GET-only and SHALL not trigger any producer behavior.
-5. WHEN reviewers cannot establish non-operational wording and semantics THEN the batch/source screen SHALL be deferred.
+1. The summary SHALL contain only `import_batch_id`, first/last analysis dates,
+   saved terminal-decision count, and distinct analyzed-company count.
+2. Dates SHALL come from aggregated `run_created_at`; the batch identifier is
+   never parsed as a timestamp.
+3. `savedDecisionCount` SHALL count retained eligible terminal decisions and
+   `analyzedCompanyCount` SHALL count distinct CNPJs in those decisions.
+4. Zero SHALL be returned only when it is a real aggregate count; invalid,
+   negative, or fractional counts SHALL fail mapping safely.
+5. Filename, expected/received rows, execution mode, versions, hashes,
+   manifests, status, percentage, and progress SHALL be absent.
 
-**Independent test:** Display batches with null expected count, replayed receipts, and different decision counts without showing a progress percentage.
+**Independent test:** Map synthetic aggregate rows, including real zero counts,
+without adding operational metadata or inferring progress.
 
 ## UI States
 
@@ -300,7 +305,7 @@ Every private screen must define:
 | RLB-11 | Do not call/change n8n, write lead data, or run production migrations. | P1 invariant | Whole system | In Design |
 | RLB-12 | Preserve decision, run, batch, source-row, hash, version, and timestamp audit identity. | P1 | DTOs/detail/history | In Design |
 | RLB-13 | Show a low-confidence warning only from an approved stored-value mapping. | P1 | Labels/UI | In Design |
-| RLB-14 | Optionally expose limited batch/source metadata without progress inference. | P2 conditional | Batch repository/API/UI | Deferred by RLB-T004 |
+| RLB-14 | Optionally expose limited batch/source metadata without progress inference. | P2 conditional | Aggregate DTO/mapper only | RLB-T036 enabled by RLB-T035A; RLB-T037–RLB-T040 blocked |
 | RLB-15 | Test validation, auth, mapping, formatting, content safety, errors, and null handling with synthetic data. | P1 | Test strategy | In Design |
 | RLB-16 | Audit the actual production/production-like current projection, terminal-run relationship, report relationship, batch semantics, comparison views, null/domain behavior, and bounded readability before implementation. | P1 evidence gate | Contract audit | Bounded Evidence Accepted |
 | RLB-17 | Enable only query shapes supported by realistic plan/cost, count, JSON extraction, index compatibility, timeout, and concurrency evidence. | P1 evidence gate | Query/performance gate | Bounded Evidence Approved |

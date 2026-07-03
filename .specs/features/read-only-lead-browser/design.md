@@ -74,7 +74,7 @@ targets, and no checked write privileges. The approved bounded source design is:
 | Recommended action/provenance | Exact terminal `company_validation_runs` row joined by `company_validations.last_lead_run_id` | Require exactly one approved terminal row with matching CNPJ/source and stored action; exclude operational `RECEBIDO` rows |
 | History | Distinct terminal `company_validation_runs` rows by `lead_run_id` | Retained-only and incomplete by definition; conditional on production-scope and retention approval |
 | Strategic report | `company_strategic_research_reports` by exact selected run plus validation/CNPJ checks | Structurally approved; content withheld pending privacy policy; zero/multiple matches are missing/ambiguous |
-| Batch/source | `lead_import_batches` | Disabled because its sole row matches none of the audited projection/run/report batch references |
+| Batch/source summary | Eligible terminal `company_validation_runs` aggregates | RLB-T035A enables only the minimal DTO/mapper; repositories, routes, screens, filters, and navigation remain blocked |
 | Comparison views | `vw_dashboard_empresaqui`, `vw_company_validation_runs_latest_per_company` | Comparison only; neither is the primary DTO source |
 
 All audited run and report rows are test-tagged. This is a production-like
@@ -88,7 +88,7 @@ fail-closed production contract below.
 | --- | --- |
 | Identity | Server-only Auth.js integration with the organization-managed OIDC provider; no local users or passwords |
 | Organization access | Exact verified issuer + non-empty subject + single exact `org_id` equal to server configuration; email/domain never authorizes |
-| Production marker | The selected current projection is production-eligible only through its exact terminal run when `test_case_id IS NULL`; non-null is test, and batch `PRODUCTION_E2E` is not an execution-mode signal |
+| Production marker | The selected exact terminal run is eligible when `test_case_id IS NULL` or equals `SR_` concatenated with its exact `source_row`; every other non-null marker is test/audit data |
 | Time/version | No lower time/version allowlist; require non-future validation/run times and non-empty `agent_version`; retained expired rows are stale, not silently removed |
 | Terminal contract | Exactly one integrity-`OK` `INSERIDO_VALIDATION` row by `last_lead_run_id`, with exact CNPJ and null-safe batch/source match plus non-empty stored action |
 | Coverage | T002's 20/20 is accepted only as bounded production-like evidence; production activation requires a non-zero denominator, 100% readable candidates, and zero unclassified candidates |
@@ -106,9 +106,9 @@ Later gates may narrow this contract; they may not widen it implicitly.
 The RLB-T005-approved current selection follows this logical order:
 
 1. Read `company_validations` as one mutable current projection per CNPJ.
-2. Require the exact selected terminal run to have `test_case_id IS NULL`; the
-   audited batch relationship and `PRODUCTION_E2E` value cannot supply or
-   override production status.
+2. Require the exact selected terminal run to satisfy
+   `test_case_id IS NULL OR test_case_id = 'SR_' || source_row`; batch labels
+   cannot supply or override production status.
 3. Require valid matching `cnpj`/`cnpj_normalizado` and projection integrity
    `OK`.
 4. Join by exact `last_lead_run_id` and require exactly one approved terminal
@@ -176,17 +176,17 @@ identity.
 
 ### Optional batch/source selection
 
-- RLB-T004 defers all batch/source routes and screens. The audited batch is not
-  linked to the selected lead/run/report records, and its counters can be
-  mistaken for import progress.
-- Do not implement `BatchSourceSummary`, `/api/imports`, batch filtering,
-  aggregate counts, or batch navigation under the current contract.
+- RLB-T035A partially supersedes RLB-T004 only for the minimal
+  `BatchSourceSummary` DTO and mapper in RLB-T036.
+- Do not implement a batch repository, `/api/imports`, batch filtering,
+  navigation, or UI under the current contract; RLB-T037–RLB-T040 remain
+  blocked.
 - An exact batch/source identifier may appear only as audit provenance for an
-  already authorized lead decision. It has no status, percentage, aggregate,
-  link, or progress wording.
-- Future enablement requires linked lineage plus reviewer approval that every
-  selected field, label, aggregate, and navigation behavior cannot reasonably
-  imply import progress or operational monitoring.
+  already authorized lead decision or in the minimal aggregate DTO. It has no
+  status, percentage, link, or progress wording.
+- The mapper source contract is an aggregate over eligible terminal decisions;
+  `lead_import_batches` is not used because the current producer does not write
+  it.
 
 ### Approved sensitive-content boundary
 
@@ -336,18 +336,11 @@ interface LeadHistoryItem {
 }
 
 interface BatchSourceSummary {
-  importBatchId: string
-  sourceSystem: string
-  originalFilename: Nullable<string>
-  expectedRowCount: Nullable<number>
+  import_batch_id: string
+  firstAnalysisAt: string
+  lastAnalysisAt: string
   savedDecisionCount: number
   analyzedCompanyCount: number
-  firstSeenAt: string
-  lastSeenAt: string
-  workflowVersion: string
-  rulesetVersion: string
-  promptModelVersion: string
-  executionMode: string
 }
 ```
 
@@ -500,18 +493,11 @@ Inherited `LeadSummary` fields use the mappings above.
 
 | DTO field | Source table/view | Source column | Required / nullable / derived | Caveat or safety note |
 | --- | --- | --- | --- | --- |
-| `importBatchId` | `lead_import_batches` | `import_batch_id` | Required | Stable source identity. |
-| `sourceSystem` | `lead_import_batches` | `source_system` | Required | Expected EmpresaAqui but do not hardcode display evidence. |
-| `originalFilename` | `lead_import_batches` | `original_filename` | Nullable | Potentially sensitive; display basename only and escape text. |
-| `expectedRowCount` | `lead_import_batches` | `row_count_expected` | Nullable | Declared expectation, not confirmed progress. |
-| `savedDecisionCount` | `lead_decisions` aggregate | `count(decision_id)` by batch | Derived | Counts persisted eligible decisions, not completed source rows. |
-| `analyzedCompanyCount` | `lead_decisions` aggregate | `count(distinct cnpj_normalizado)` by batch | Derived | Distinct companies, not rows. |
-| `firstSeenAt` | `lead_import_batches` | `first_seen_at` | Required | Producer receipt timestamp. |
-| `lastSeenAt` | `lead_import_batches` | `last_seen_at` | Required | Mutable on replay. |
-| `workflowVersion` | `lead_import_batches` | `workflow_version` | Required | Audit only. |
-| `rulesetVersion` | `lead_import_batches` | `ruleset_version` | Required | Audit only. |
-| `promptModelVersion` | `lead_import_batches` | `prompt_model_version` | Required | Audit only. |
-| `executionMode` | `lead_import_batches` | `execution_mode` | Required | Apply approved production predicate. |
+| `import_batch_id` | eligible terminal-run aggregate | `import_batch_id` | Required | Preserve the opaque identifier exactly; current producer uses `empresaqui_<timestamp ISO>`. |
+| `firstAnalysisAt` | eligible terminal-run aggregate | `min(run_created_at)` | Required | Convert the database value to ISO; never parse the batch identifier. |
+| `lastAnalysisAt` | eligible terminal-run aggregate | `max(run_created_at)` | Required | Convert the database value to ISO; never parse the batch identifier. |
+| `savedDecisionCount` | eligible terminal-run aggregate | `count(id)` | Derived | Retained eligible terminal decisions, not imported/processed rows. |
+| `analyzedCompanyCount` | eligible terminal-run aggregate | `count(distinct cnpj_normalizado)` | Derived | Distinct analyzed CNPJs in those decisions. |
 
 ## API Contracts
 
@@ -772,10 +758,10 @@ Server logs may include a generated request/error ID and error category, but not
 
 ### Batch/source — conditional P2
 
-- Deferred by RLB-T004; no screen, route, aggregate, filtered-list link, or
-  navigation is implemented under the current contract.
-- Exact batch/source identifiers may appear only in collapsed audit provenance
-  for an already authorized decision, without progress or status semantics.
+- RLB-T035A enables only the minimal aggregate DTO/mapper in RLB-T036.
+- RLB-T037–RLB-T040 remain blocked; no screen, route, repository,
+  filtered-list link, or navigation is implemented.
+- The DTO contains no operational metadata and makes no progress inference.
 
 ## Security Model
 
@@ -858,14 +844,14 @@ prohibited.
 | Decision | Choice | Rationale |
 | --- | --- | --- |
 | Current read model | `company_validations` plus exactly one terminal `company_validation_runs` row by `last_lead_run_id` | The aggregate audit found 20/20 structurally readable current relationships with matching CNPJ/source and stored action. |
-| Read-model authority | Bounded production-like contract plus fail-closed production predicate | Every audited run/report is test-tagged; production requires `test_case_id IS NULL`, a non-zero measured denominator, 100% readability, and zero unclassified candidates. |
+| Read-model authority | Bounded production-like contract plus fail-closed production predicate | RLB-T035A accepts null or exact `SR_<source_row>` producer provenance; every other non-null marker remains excluded. |
 | Filter placement | Filter after latest-per-CNPJ ranking | Prevents older matching decisions from appearing as current. |
 | History source | Distinct terminal `company_validation_runs` rows by `lead_run_id` | Excludes `RECEBIDO` operations and preserves retained run identity without claiming completeness. |
 | Reports | Withheld by default; then exact `lead_run_id` and CNPJ only if policy approves | Prevents privacy leakage and cross-run report attachment. |
 | Missing values | Explicit null-aware mapper | Projection/view defaults can misrepresent missing as zero/empty. |
 | API surface | Authenticated GET only | Enforces read-only business scope. |
 | Database changes | None | Existing schema is the source; production migrations are excluded. |
-| Batch screen | Disabled for the audited contract | The sole batch row matches none of the audited projection/run/report references. |
+| Batch mapper | Minimal aggregate contract only | RLB-T035A enables RLB-T036 without enabling repository/API/UI or operational metadata. |
 | Query controls | Fixed date/id order; exact CNPJ plus single exact UF/priority; page size 20; exact totals behind hard row ceilings | Pagination does not make broad ranking/filter/count work safe; all other controls are deferred. |
 | Caching | Private/no-store | Lead data is sensitive and user access must be revalidated. |
 
@@ -898,9 +884,11 @@ Completed design gates:
   contact snapshots and report/evidence exposure remain deferred.
 - [x] RLB-T004 deferred batch/source screens and routes because audited lineage
   is absent and the available counters can imply import progress.
+- [x] RLB-T035A partially superseded that decision for the minimal aggregate
+  DTO/mapper, aligned producer provenance, and kept RLB-T037–RLB-T040 blocked.
 - [x] RLB-T005 approved the realistic data/count plans, JSON deferral,
   filter/index matrix, fixed sorting, hard cardinality guards, timeouts, pool
   budget, two-statement concurrency cap, and reapproval triggers.
 
-The design is approved through RLB-T005. Bootstrap remains the separate
-RLB-T006 task and was not started by this approval.
+The producer-provenance contract is approved through RLB-T035A. Only RLB-T036
+is newly executable; RLB-T037–RLB-T040 remain blocked.
