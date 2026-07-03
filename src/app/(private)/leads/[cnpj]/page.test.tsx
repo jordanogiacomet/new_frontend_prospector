@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { LeadDetail } from "../../../../types/leads";
@@ -22,6 +22,7 @@ import LeadDetailPage from "./page";
 
 const fetchMock = vi.fn();
 const syntheticLeadRunId = `lr_${"a".repeat(64)}`;
+const syntheticPreviousLeadRunId = `lr_${"b".repeat(64)}`;
 
 const syntheticDetail: LeadDetail = {
   decision_id: "decision-synthetic-page-032",
@@ -122,8 +123,19 @@ describe("lead detail page", () => {
         name: "Empresa Detalhe Sintética",
       }),
     ).toBeInTheDocument();
-    expect(fetchMock).toHaveBeenCalledExactlyOnceWith(
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
       `/api/leads/11.222.333%2F0001-81?leadRunId=${syntheticLeadRunId}`,
+      expect.objectContaining({
+        cache: "no-store",
+        credentials: "same-origin",
+        method: "GET",
+      }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/api/leads/11.222.333%2F0001-81/history",
       expect.objectContaining({
         cache: "no-store",
         credentials: "same-origin",
@@ -267,6 +279,67 @@ describe("lead detail page", () => {
     expect(screen.getByTestId("audit-lead-run-id")).toHaveTextContent(
       syntheticLeadRunId,
     );
+  });
+
+  it("integrates the retained history section using only the history API response", async () => {
+    fetchMock.mockImplementation(async (input) => {
+      const endpoint = String(input);
+
+      if (endpoint.endsWith("/history")) {
+        return respondWithJson({
+          data: [
+            {
+              decision_id: "decision-synthetic-page-history-current",
+              import_batch_id: "batch-synthetic-page-history",
+              lead_run_id: syntheticLeadRunId,
+              source_row: 35,
+              analyzedAt: "2026-07-03T12:00:00.000Z",
+              recommendedAction: "PROSPECTAR",
+              recommendedActionReason: "Decisão atual armazenada.",
+              isCurrent: true,
+            },
+            {
+              decision_id: "decision-synthetic-page-history-previous",
+              import_batch_id: "batch-synthetic-page-history",
+              lead_run_id: syntheticPreviousLeadRunId,
+              source_row: 34,
+              analyzedAt: "2026-06-03T12:00:00.000Z",
+              recommendedAction: "NUTRIR",
+              recommendedActionReason: "Decisão anterior armazenada.",
+              isCurrent: false,
+            },
+          ],
+          meta: {
+            page: 1,
+            pageSize: 20,
+            total: 2,
+            completeness: "retained_only",
+            label: "Análises retidas encontradas",
+            caveat:
+              "Análises mais antigas podem não estar presentes.",
+          },
+        });
+      }
+
+      return respondWithJson(successfulResponse());
+    });
+
+    render(<LeadDetailPage />);
+
+    expect(
+      await screen.findByRole("heading", {
+        name: "Histórico de decisões",
+      }),
+    ).toBeInTheDocument();
+    expect(
+      await screen.findByText(
+        "decision-synthetic-page-history-current",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("decision-synthetic-page-history-previous"),
+    ).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it("preserves explicit missing report and evidence states without inferring content", async () => {

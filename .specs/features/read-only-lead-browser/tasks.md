@@ -990,14 +990,19 @@ database, and unexpected failures to private no-store safe responses.
 **Tools:** `UI`  
 **Tests:** Component/page integration  
 **Gate:** Focused component + typecheck  
+**Execution status:** **COMPLETE (2026-07-03).** The detail page now loads
+retained-only decision history exclusively through the authenticated history
+API, preserves response order and exact-run links, and presents current,
+superseded, nullable, empty, unavailable, unexpected-error, and malformed
+states without event or retry fallbacks.
 **Done when:**
 
-- [ ] Each item links to its own `leadRunId`.
-- [ ] Current/superseded and null values are clear.
-- [ ] No event/retry timeline is presented.
-- [ ] It uses “Histórico disponível” or “Análises retidas encontradas” and states that older analyses may not be present unless completeness is proven.
-- [ ] It never claims to be every analysis ever produced or a complete audit trail without proof.
-- [ ] At least 8 history-state tests pass.
+- [x] Each item links to its own `leadRunId`.
+- [x] Current/superseded and null values are clear.
+- [x] No event/retry timeline is presented.
+- [x] It uses “Histórico disponível” or “Análises retidas encontradas” and states that older analyses may not be present unless completeness is proven.
+- [x] It never claims to be every analysis ever produced or a complete audit trail without proof.
+- [x] At least 8 history-state tests pass.
 
 **Verify:** `pnpm vitest run src/components/leads/lead-history.test.tsx && pnpm typecheck`; at least `8` tests pass  
 **Commit:** `feat(read-only-leads): build lead decision history`

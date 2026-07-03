@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 
 import { LeadAuditDetails } from "../../../../components/leads/lead-audit";
 import { LeadDetailSummary } from "../../../../components/leads/lead-detail-summary";
+import { LeadHistory } from "../../../../components/leads/lead-history";
 import { LeadInsights } from "../../../../components/leads/lead-insights";
 import { StrategicReport } from "../../../../components/leads/strategic-report";
 import type {
@@ -316,6 +317,10 @@ export default function LeadDetailPage() {
 
       <div className="mt-10">
         <StrategicReport report={currentState.lead.strategicReport} />
+      </div>
+
+      <div className="mt-10">
+        <LeadHistory cnpj={cnpj} />
       </div>
 
       <div className="mt-10">
