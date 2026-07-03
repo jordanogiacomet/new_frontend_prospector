@@ -173,7 +173,15 @@ describe("API authorization guard", () => {
       "internal-provider",
     ];
 
-    setAuthorization({ status: "authorized" });
+    setAuthorization({
+      status: "authorized",
+      actor: {
+        issuer: "https://issuer.example.test",
+        subject: "synthetic-subject",
+        organizationId: "synthetic-organization",
+        permissions: ["leads:read"],
+      },
+    });
     const authorization = await requireApiSession();
 
     setAuthorization({ status: "unauthorized" });

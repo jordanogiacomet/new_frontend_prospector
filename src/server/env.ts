@@ -9,6 +9,7 @@ export interface ServerEnv {
   AUTH_OIDC_CLIENT_ID: string;
   AUTH_OIDC_CLIENT_SECRET: string;
   AUTH_ALLOWED_ORG_ID: string;
+  AUTH_DEV_BYPASS_ENABLED: boolean;
 }
 
 export interface ProspectaServerEnv {
@@ -44,6 +45,7 @@ const serverOnlyNames = [
   "AUTH_OIDC_CLIENT_ID",
   "AUTH_OIDC_CLIENT_SECRET",
   "AUTH_ALLOWED_ORG_ID",
+  "AUTH_DEV_BYPASS_ENABLED",
   "AUTH_ROLE_CLAIM",
   "AUTH_ROLE_MAPPING",
   "N8N_IMPORT_URL",
@@ -153,6 +155,14 @@ function parseBoolean(
 
   errors.push(`${name} must be either true or false`);
   return false;
+}
+
+function parseOptionalBoolean(
+  name: string,
+  value: string | undefined,
+  errors: string[],
+): boolean {
+  return value === undefined ? false : parseBoolean(name, value, errors);
 }
 
 function parseRoleMapping(
@@ -360,6 +370,19 @@ export function parseServerEnv(input: EnvironmentInput): ParsedServerEnv {
     errors.push("AUTH_ROLE_CLAIM must be a valid claim name");
   }
 
+  const authDevelopmentBypassEnabled = parseOptionalBoolean(
+    "AUTH_DEV_BYPASS_ENABLED",
+    input.AUTH_DEV_BYPASS_ENABLED,
+    errors,
+  );
+
+  if (
+    authDevelopmentBypassEnabled &&
+    input.NODE_ENV === "production"
+  ) {
+    errors.push("AUTH_DEV_BYPASS_ENABLED is forbidden in production");
+  }
+
   if (raw.N8N_IMPORT_URL) {
     validateHttpsUrl(
       "N8N_IMPORT_URL",
@@ -392,6 +415,7 @@ export function parseServerEnv(input: EnvironmentInput): ParsedServerEnv {
     AUTH_OIDC_CLIENT_ID: raw.AUTH_OIDC_CLIENT_ID,
     AUTH_OIDC_CLIENT_SECRET: raw.AUTH_OIDC_CLIENT_SECRET,
     AUTH_ALLOWED_ORG_ID: raw.AUTH_ALLOWED_ORG_ID,
+    AUTH_DEV_BYPASS_ENABLED: authDevelopmentBypassEnabled,
     AUTH_ROLE_CLAIM: raw.AUTH_ROLE_CLAIM,
     AUTH_ROLE_MAPPING: parseRoleMapping(raw.AUTH_ROLE_MAPPING, errors),
     N8N_IMPORT_URL: raw.N8N_IMPORT_URL,

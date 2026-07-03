@@ -3,10 +3,12 @@ import "server-only";
 import type { JWT } from "next-auth/jwt";
 import type { NextAuthConfig, Profile } from "next-auth";
 
-import type { ServerEnv } from "../env";
+import type { ProspectaServerEnv, ServerEnv } from "../env";
 import {
   authorizeIdentityClaims,
+  authorizeRetainedActor,
   type AuthorizationPolicy,
+  type AuthorizedActor,
 } from "./authorization";
 
 export const AUTH_SESSION_MAX_AGE_SECONDS = 8 * 60 * 60;
@@ -27,44 +29,46 @@ type ApplicationAuthConfig = NextAuthConfig & {
   };
 };
 
-function policyFromEnvironment(environment: ServerEnv): AuthorizationPolicy {
+type AuthEnvironment = ServerEnv &
+  Pick<
+    ProspectaServerEnv,
+    "AUTH_ROLE_CLAIM" | "AUTH_ROLE_MAPPING"
+  >;
+
+export function createAuthorizationPolicy(
+  environment: AuthEnvironment,
+): AuthorizationPolicy {
   return {
     issuer: environment.AUTH_OIDC_ISSUER,
     organizationId: environment.AUTH_ALLOWED_ORG_ID,
+    roleClaim: environment.AUTH_ROLE_CLAIM,
+    roleBundles: environment.AUTH_ROLE_MAPPING,
   };
 }
 
-function tokenIdentity(token: JWT): Record<string, unknown> {
+function tokenActor(token: JWT): Record<string, unknown> {
   return {
-    iss: token.verifiedIssuer,
-    sub: token.subject,
-    org_id: token.organizationId,
+    issuer: token.verifiedIssuer,
+    subject: token.subject,
+    organizationId: token.organizationId,
+    permissions: token.permissions,
   };
 }
 
-function retainApprovedTokenValues(token: JWT): JWT {
-  const retained: JWT = {};
-
-  if (typeof token.verifiedIssuer === "string") {
-    retained.verifiedIssuer = token.verifiedIssuer;
-  }
-
-  if (typeof token.subject === "string") {
-    retained.subject = token.subject;
-  }
-
-  if (typeof token.organizationId === "string") {
-    retained.organizationId = token.organizationId;
-  }
-
-  return retained;
+function tokenFromActor(actor: AuthorizedActor): JWT {
+  return {
+    verifiedIssuer: actor.issuer,
+    subject: actor.subject,
+    organizationId: actor.organizationId,
+    permissions: actor.permissions,
+  };
 }
 
 export function createAuthConfig(
-  environment: ServerEnv,
+  environment: AuthEnvironment,
   isProduction: boolean,
 ): ApplicationAuthConfig {
-  const policy = policyFromEnvironment(environment);
+  const policy = createAuthorizationPolicy(environment);
 
   return {
     secret: environment.AUTH_SECRET,
@@ -139,25 +143,35 @@ export function createAuthConfig(
             return {};
           }
 
-          return {
-            verifiedIssuer: authorization.identity.issuer,
-            subject: authorization.identity.subject,
-            organizationId: authorization.identity.organizationId,
-          };
+          return tokenFromActor(authorization.actor);
         }
 
-        return retainApprovedTokenValues(token);
-      },
-      async session({ session, token }) {
-        const authorization = authorizeIdentityClaims(
-          tokenIdentity(token),
+        const authorization = authorizeRetainedActor(
+          tokenActor(token),
           policy,
         );
 
+        return authorization.status === "authorized"
+          ? tokenFromActor(authorization.actor)
+          : {};
+      },
+      async session({ session, token }) {
+        const authorization = authorizeRetainedActor(
+          tokenActor(token),
+          policy,
+        );
+
+        if (authorization.status !== "authorized") {
+          return {
+            expires: session.expires,
+            authorization: "denied",
+          };
+        }
+
         return {
           expires: session.expires,
-          authorization:
-            authorization.status === "authorized" ? "authorized" : "denied",
+          authorization: "authorized",
+          actor: authorization.actor,
         };
       },
     },

@@ -5,17 +5,22 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
 
-import type { ServerEnv } from "../env";
+import type { ProspectaServerEnv, ServerEnv } from "../env";
 import {
   authorizeIdentityClaims,
   classifyServerSession,
+  createDevelopmentAuthorization,
 } from "./authorization";
 import {
   AUTH_SESSION_MAX_AGE_SECONDS,
   createAuthConfig,
 } from "./config";
 
-const environment: ServerEnv = {
+const environment: ServerEnv &
+  Pick<
+    ProspectaServerEnv,
+    "AUTH_ROLE_CLAIM" | "AUTH_ROLE_MAPPING"
+  > = {
   DATABASE_URL:
     "postgresql://readonly_user:synthetic-password@localhost:5432/synthetic",
   AUTH_SECRET: "synthetic-session-secret-with-more-than-32-characters",
@@ -23,33 +28,167 @@ const environment: ServerEnv = {
   AUTH_OIDC_CLIENT_ID: "synthetic-client-id",
   AUTH_OIDC_CLIENT_SECRET: "synthetic-client-secret",
   AUTH_ALLOWED_ORG_ID: "synthetic-organization",
+  AUTH_DEV_BYPASS_ENABLED: false,
+  AUTH_ROLE_CLAIM: "https://prospecta.example.test/roles",
+  AUTH_ROLE_MAPPING: {
+    "synthetic-manager-role": ["manager"],
+    "synthetic-sensitive-role": ["sensitive"],
+  },
 };
 
 const policy = {
   issuer: environment.AUTH_OIDC_ISSUER,
   organizationId: environment.AUTH_ALLOWED_ORG_ID,
+  roleClaim: environment.AUTH_ROLE_CLAIM,
+  roleBundles: environment.AUTH_ROLE_MAPPING,
 };
 
 const validClaims = {
   iss: environment.AUTH_OIDC_ISSUER,
   sub: "synthetic-subject",
   org_id: environment.AUTH_ALLOWED_ORG_ID,
+  [environment.AUTH_ROLE_CLAIM]: ["synthetic-manager-role"],
 };
 
+const authorizedActor = {
+  issuer: environment.AUTH_OIDC_ISSUER,
+  subject: validClaims.sub,
+  organizationId: environment.AUTH_ALLOWED_ORG_ID,
+  permissions: [
+    "leads:read",
+    "imports:read",
+    "commercial:read",
+    "commercial:write",
+    "imports:create",
+    "commercial:assign",
+  ],
+} as const;
+
 describe("server authentication and authorization", () => {
+  it("creates a minimal synthetic actor only for an enabled development bypass", () => {
+    expect(
+      createDevelopmentAuthorization(
+        true,
+        "development",
+        "synthetic-organization",
+      ),
+    ).toEqual({
+      status: "authorized",
+      actor: {
+        issuer: "urn:prospecta:local-development",
+        subject: "local-development-user",
+        organizationId: "synthetic-organization",
+        permissions: ["leads:read"],
+      },
+    });
+  });
+
+  it.each([
+    { enabled: false, nodeEnv: "development" },
+    { enabled: true, nodeEnv: "test" },
+    { enabled: true, nodeEnv: "production" },
+  ])(
+    "does not bypass authentication for $nodeEnv with enabled=$enabled",
+    ({ enabled, nodeEnv }) => {
+      expect(
+        createDevelopmentAuthorization(
+          enabled,
+          nodeEnv,
+          "synthetic-organization",
+        ),
+      ).toBeNull();
+    },
+  );
+
   it("authorizes exact issuer, non-empty subject, and exact organization", () => {
     expect(authorizeIdentityClaims(validClaims, policy)).toEqual({
       status: "authorized",
-      identity: {
-        issuer: environment.AUTH_OIDC_ISSUER,
-        subject: "synthetic-subject",
-        organizationId: environment.AUTH_ALLOWED_ORG_ID,
+      actor: authorizedActor,
+    });
+  });
+
+  it("grants nothing for a verified but unmapped synthetic role", () => {
+    expect(
+      authorizeIdentityClaims(
+        {
+          ...validClaims,
+          [environment.AUTH_ROLE_CLAIM]: ["synthetic-unknown-role"],
+        },
+        policy,
+      ),
+    ).toEqual({
+      status: "authorized",
+      actor: { ...authorizedActor, permissions: [] },
+    });
+  });
+
+  it("grants nothing when a configured role points to an unknown bundle", () => {
+    expect(
+      authorizeIdentityClaims(validClaims, {
+        ...policy,
+        roleBundles: {
+          "synthetic-manager-role": ["synthetic-unknown-bundle"],
+        },
+      }),
+    ).toEqual({
+      status: "authorized",
+      actor: { ...authorizedActor, permissions: [] },
+    });
+  });
+
+  it("grants nothing when the configured role claim is absent", () => {
+    const claims = {
+      iss: validClaims.iss,
+      sub: validClaims.sub,
+      org_id: validClaims.org_id,
+    };
+
+    expect(authorizeIdentityClaims(claims, policy)).toEqual({
+      status: "authorized",
+      actor: { ...authorizedActor, permissions: [] },
+    });
+  });
+
+  it("grants nothing when the configured role claim has an invalid shape", () => {
+    expect(
+      authorizeIdentityClaims(
+        {
+          ...validClaims,
+          [environment.AUTH_ROLE_CLAIM]: "synthetic-manager-role",
+        },
+        policy,
+      ),
+    ).toEqual({
+      status: "authorized",
+      actor: { ...authorizedActor, permissions: [] },
+    });
+  });
+
+  it("adds sensitive access only from its explicit synthetic overlay role", () => {
+    const authorization = authorizeIdentityClaims(
+      {
+        ...validClaims,
+        [environment.AUTH_ROLE_CLAIM]: [
+          "synthetic-manager-role",
+          "synthetic-sensitive-role",
+        ],
+      },
+      policy,
+    );
+
+    expect(authorization).toEqual({
+      status: "authorized",
+      actor: {
+        ...authorizedActor,
+        permissions: [...authorizedActor.permissions, "sensitive:read"],
       },
     });
   });
 
   it("distinguishes an absent session", () => {
-    expect(classifyServerSession(null)).toEqual({ status: "missing" });
+    expect(classifyServerSession(null, policy)).toEqual({
+      status: "missing",
+    });
   });
 
   it("distinguishes an expired session", () => {
@@ -59,6 +198,7 @@ describe("server authentication and authorization", () => {
           expires: "2026-06-30T23:59:59.000Z",
           authorization: "authorized",
         },
+        policy,
         new Date("2026-07-01T00:00:00.000Z"),
       ),
     ).toEqual({ status: "expired" });
@@ -211,7 +351,7 @@ describe("server authentication and authorization", () => {
     ).resolves.toBe(false);
   });
 
-  it("keeps only approved identity values in the encrypted session token", async () => {
+  it("keeps only the authorized actor in the encrypted session token", async () => {
     const callback = createAuthConfig(environment, true).callbacks?.jwt;
 
     expect(callback).toBeTypeOf("function");
@@ -230,10 +370,12 @@ describe("server authentication and authorization", () => {
       session: {
         issuer: "client-supplied-issuer",
         organizationId: "client-supplied-organization",
+        permissions: ["sensitive:read"],
       },
       token: {
         email: "manager@example.test",
         accessToken: "synthetic-access-token",
+        permissions: ["sensitive:read"],
       },
       trigger: "signIn",
       user: { id: validClaims.sub },
@@ -243,7 +385,118 @@ describe("server authentication and authorization", () => {
       verifiedIssuer: environment.AUTH_OIDC_ISSUER,
       subject: validClaims.sub,
       organizationId: environment.AUTH_ALLOWED_ORG_ID,
+      permissions: authorizedActor.permissions,
     });
+  });
+
+  it("does not accept roles or permissions supplied outside verified claims", async () => {
+    const callback = createAuthConfig(environment, true).callbacks?.jwt;
+    const token = await callback?.({
+      account: {
+        provider: "organization-oidc",
+        type: "oidc",
+      },
+      profile: {
+        iss: validClaims.iss,
+        sub: validClaims.sub,
+        org_id: validClaims.org_id,
+      },
+      session: {
+        roles: ["synthetic-manager-role", "synthetic-sensitive-role"],
+        permissions: ["commercial:assign", "sensitive:read"],
+      },
+      token: {
+        roles: ["synthetic-manager-role", "synthetic-sensitive-role"],
+        permissions: ["commercial:assign", "sensitive:read"],
+      },
+      trigger: "signIn",
+      user: { id: validClaims.sub },
+    } as never);
+
+    expect(token).toEqual({
+      verifiedIssuer: environment.AUTH_OIDC_ISSUER,
+      subject: validClaims.sub,
+      organizationId: environment.AUTH_ALLOWED_ORG_ID,
+      permissions: [],
+    });
+  });
+
+  it("preserves only authorized actor values during JWT refresh", async () => {
+    const callback = createAuthConfig(environment, true).callbacks?.jwt;
+    const token = await callback?.({
+      token: {
+        verifiedIssuer: authorizedActor.issuer,
+        subject: authorizedActor.subject,
+        organizationId: authorizedActor.organizationId,
+        permissions: authorizedActor.permissions,
+        email: "manager@example.test",
+        accessToken: "synthetic-access-token",
+        roles: ["synthetic-sensitive-role"],
+      },
+      trigger: undefined,
+    } as never);
+
+    expect(token).toEqual({
+      verifiedIssuer: authorizedActor.issuer,
+      subject: authorizedActor.subject,
+      organizationId: authorizedActor.organizationId,
+      permissions: authorizedActor.permissions,
+    });
+  });
+
+  it("drops unknown permissions during JWT refresh", async () => {
+    const callback = createAuthConfig(environment, true).callbacks?.jwt;
+    const token = await callback?.({
+      token: {
+        verifiedIssuer: authorizedActor.issuer,
+        subject: authorizedActor.subject,
+        organizationId: authorizedActor.organizationId,
+        permissions: ["leads:read", "unknown:permission"],
+      },
+      trigger: undefined,
+    } as never);
+
+    expect(token).toEqual({
+      verifiedIssuer: authorizedActor.issuer,
+      subject: authorizedActor.subject,
+      organizationId: authorizedActor.organizationId,
+      permissions: ["leads:read"],
+    });
+  });
+
+  it.each([
+    {
+      name: "changed organization",
+      token: {
+        verifiedIssuer: authorizedActor.issuer,
+        subject: authorizedActor.subject,
+        organizationId: "synthetic-other-organization",
+        permissions: authorizedActor.permissions,
+      },
+    },
+    {
+      name: "missing organization",
+      token: {
+        verifiedIssuer: authorizedActor.issuer,
+        subject: authorizedActor.subject,
+        permissions: authorizedActor.permissions,
+      },
+    },
+    {
+      name: "changed issuer",
+      token: {
+        verifiedIssuer: "https://identity.example.test/other-tenant",
+        subject: authorizedActor.subject,
+        organizationId: authorizedActor.organizationId,
+        permissions: authorizedActor.permissions,
+      },
+    },
+  ])("fails closed during JWT refresh for $name", async ({ token }) => {
+    const callback = createAuthConfig(environment, true).callbacks?.jwt;
+
+    await expect(
+      callback?.({ token, trigger: undefined } as never),
+    ).resolves.toEqual({});
   });
 
   it("uses secure session cookies with production-safe defaults", () => {
@@ -263,7 +516,7 @@ describe("server authentication and authorization", () => {
     expect(development.cookies?.sessionToken.options.secure).toBe(false);
   });
 
-  it("exposes no issuer, claims, tokens, or secrets in the public session", async () => {
+  it("retains only the authorized actor in the session", async () => {
     const callback = createAuthConfig(environment, true).callbacks?.session;
 
     expect(callback).toBeTypeOf("function");
@@ -279,8 +532,13 @@ describe("server authentication and authorization", () => {
         verifiedIssuer: environment.AUTH_OIDC_ISSUER,
         subject: validClaims.sub,
         organizationId: environment.AUTH_ALLOWED_ORG_ID,
+        permissions: [
+          ...authorizedActor.permissions,
+          "unknown:permission",
+        ],
         accessToken: "synthetic-access-token",
         idToken: "synthetic-id-token",
+        roles: ["synthetic-sensitive-role"],
       },
     } as never);
     const serialized = JSON.stringify(session);
@@ -288,13 +546,89 @@ describe("server authentication and authorization", () => {
     expect(session).toEqual({
       expires: "2026-07-01T08:00:00.000Z",
       authorization: "authorized",
+      actor: authorizedActor,
     });
-    expect(serialized).not.toContain(environment.AUTH_OIDC_ISSUER);
-    expect(serialized).not.toContain(environment.AUTH_ALLOWED_ORG_ID);
     expect(serialized).not.toContain(environment.AUTH_OIDC_CLIENT_SECRET);
     expect(serialized).not.toContain("manager@example.test");
     expect(serialized).not.toContain("synthetic-access-token");
     expect(serialized).not.toContain("synthetic-id-token");
+    expect(serialized).not.toContain("synthetic-sensitive-role");
+    expect(serialized).not.toContain("unknown:permission");
+  });
+
+  it.each([
+    {
+      name: "changed organization",
+      token: {
+        verifiedIssuer: authorizedActor.issuer,
+        subject: authorizedActor.subject,
+        organizationId: "synthetic-other-organization",
+        permissions: authorizedActor.permissions,
+      },
+    },
+    {
+      name: "missing organization",
+      token: {
+        verifiedIssuer: authorizedActor.issuer,
+        subject: authorizedActor.subject,
+        permissions: authorizedActor.permissions,
+      },
+    },
+    {
+      name: "invalid permissions",
+      token: {
+        verifiedIssuer: authorizedActor.issuer,
+        subject: authorizedActor.subject,
+        organizationId: authorizedActor.organizationId,
+        permissions: "leads:read",
+      },
+    },
+  ])("fails closed in the session for $name", async ({ token }) => {
+    const callback = createAuthConfig(environment, true).callbacks?.session;
+
+    await expect(
+      callback?.({
+        session: { expires: "2026-07-01T08:00:00.000Z" },
+        token,
+      } as never),
+    ).resolves.toEqual({
+      expires: "2026-07-01T08:00:00.000Z",
+      authorization: "denied",
+    });
+  });
+
+  it("classifies an authorized session with its revalidated actor", () => {
+    expect(
+      classifyServerSession(
+        {
+          expires: "2026-07-01T08:00:00.000Z",
+          authorization: "authorized",
+          actor: authorizedActor,
+        },
+        policy,
+        new Date("2026-07-01T00:00:00.000Z"),
+      ),
+    ).toEqual({
+      status: "authorized",
+      actor: authorizedActor,
+    });
+  });
+
+  it("fails closed when the session actor organization changed", () => {
+    expect(
+      classifyServerSession(
+        {
+          expires: "2026-07-01T08:00:00.000Z",
+          authorization: "authorized",
+          actor: {
+            ...authorizedActor,
+            organizationId: "synthetic-other-organization",
+          },
+        },
+        policy,
+        new Date("2026-07-01T00:00:00.000Z"),
+      ),
+    ).toEqual({ status: "unauthorized" });
   });
 
   it("exposes the official Auth.js GET and POST route handlers", () => {

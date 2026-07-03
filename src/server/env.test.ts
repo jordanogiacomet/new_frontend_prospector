@@ -172,12 +172,48 @@ describe("server environment", () => {
     ).toThrow(/FEATURE_IMPORTS_ENABLED/);
   });
 
+  it("keeps the development auth bypass disabled by default", () => {
+    expect(
+      environment.parseServerEnv(validEnvironment)
+        .AUTH_DEV_BYPASS_ENABLED,
+    ).toBe(false);
+  });
+
+  it("accepts the development auth bypass only outside production", () => {
+    expect(
+      environment.parseServerEnv({
+        ...validEnvironment,
+        NODE_ENV: "development",
+        AUTH_DEV_BYPASS_ENABLED: "true",
+      }).AUTH_DEV_BYPASS_ENABLED,
+    ).toBe(true);
+
+    expect(() =>
+      environment.parseServerEnv({
+        ...validEnvironment,
+        NODE_ENV: "production",
+        AUTH_DEV_BYPASS_ENABLED: "true",
+      }),
+    ).toThrow(/AUTH_DEV_BYPASS_ENABLED/);
+  });
+
+  it("rejects a malformed development auth bypass flag", () => {
+    expect(() =>
+      environment.parseServerEnv({
+        ...validEnvironment,
+        NODE_ENV: "development",
+        AUTH_DEV_BYPASS_ENABLED: "yes",
+      }),
+    ).toThrow(/AUTH_DEV_BYPASS_ENABLED/);
+  });
+
   it("rejects server-only settings exposed with public names", () => {
     const leakedValue = "do-not-echo-this-public-secret";
 
     expect(() =>
       environment.parseServerEnv({
         ...validEnvironment,
+        NEXT_PUBLIC_AUTH_DEV_BYPASS_ENABLED: "true",
         NEXT_PUBLIC_N8N_HMAC_SECRET: leakedValue,
       }),
     ).toThrowError(
@@ -220,6 +256,7 @@ describe("server environment", () => {
       FEATURE_BATCH_OBSERVATION_ENABLED: false,
       FEATURE_COMMERCIAL_ENABLED: false,
       FEATURE_SENSITIVE_CONTENT_ENABLED: false,
+      AUTH_DEV_BYPASS_ENABLED: false,
     });
   });
 
