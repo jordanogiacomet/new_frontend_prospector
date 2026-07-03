@@ -9,6 +9,7 @@ import {
 } from "./lead-query";
 
 const syntheticCnpj = "00000000000000";
+const syntheticShortLeadRunId = "lr_12ab34cd";
 const syntheticLeadRunId = `lr_${"a".repeat(64)}`;
 
 function query(entries: Record<string, string | string[]>): URLSearchParams {
@@ -241,18 +242,25 @@ describe("leadDetailQuerySchema", () => {
     expect(leadDetailQuerySchema.parse(new URLSearchParams())).toEqual({});
   });
 
-  it("accepts an exact lead run identifier", () => {
+  it.each([syntheticShortLeadRunId, syntheticLeadRunId])(
+    "accepts the approved lead run identifier %s",
+    (leadRunId) => {
     expect(
-      leadDetailQuerySchema.parse(query({ leadRunId: syntheticLeadRunId })),
-    ).toEqual({ leadRunId: syntheticLeadRunId });
-  });
+        leadDetailQuerySchema.parse(query({ leadRunId })),
+      ).toEqual({ leadRunId });
+    },
+  );
 
   it.each([
     "lr_abc",
-    `lr_${"A".repeat(64)}`,
-    `${"a".repeat(64)}`,
+    "lr_12ab34c",
+    "lr_12ab34cde",
     `lr_${"a".repeat(63)}`,
     `lr_${"a".repeat(65)}`,
+    "lr_12ab34cg",
+    "lr_12AB34CD",
+    `lr_${"A".repeat(64)}`,
+    `${"a".repeat(64)}`,
     "",
   ])("rejects malformed lead run identifier %s", (leadRunId) => {
     expect(

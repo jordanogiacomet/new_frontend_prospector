@@ -40,6 +40,7 @@ const defaultQuery = {
   page: 1,
   pageSize: 20,
 } as const;
+const approvedRunIdPattern = "^lr_([0-9a-f]{8}|[0-9a-f]{64})$";
 
 function projectionRows(count: number): { cnpj: string }[] {
   return Array.from({ length: count }, (_, index) => ({
@@ -147,7 +148,7 @@ describe("listLeads", () => {
     );
   });
 
-  it("excludes operational and test-tagged run rows", async () => {
+  it("accepts only null or exact source-row provenance and valid run IDs", async () => {
     mocks.query
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{ total: 0 }])
@@ -157,9 +158,14 @@ describe("listLeads", () => {
 
     const [, count] = statements();
     expect(count.text).toMatch(/terminal\.processing_result\s*=\s*\$3/i);
-    expect(count.text).toMatch(/terminal\.test_case_id\s+IS\s+NULL/i);
+    expect(count.text).toMatch(
+      /\(\s*terminal\.test_case_id\s+IS\s+NULL\s+OR\s+terminal\.test_case_id\s*=\s*'SR_'\s*\|\|\s*terminal\.source_row\s*\)/i,
+    );
+    expect(count.text).toMatch(/terminal\.lead_run_id\s*~\s*\$5/i);
     expect(count.values).toContain("INSERIDO_VALIDATION");
+    expect(count.values).toContain(approvedRunIdPattern);
     expect(count.text).not.toContain("RECEBIDO");
+    expect(count.text).not.toMatch(/grupo_teste/i);
   });
 
   it("requires exactly one eligible terminal per current projection", async () => {
@@ -174,7 +180,7 @@ describe("listLeads", () => {
     expect(count.text).toMatch(
       /COUNT\(\*\)\s+OVER\s*\(\s*PARTITION BY\s+company_validations\.id\s*\)\s+AS\s+terminal_count/i,
     );
-    expect(count.text).toMatch(/terminal_count\s*=\s*\$5/i);
+    expect(count.text).toMatch(/terminal_count\s*=\s*\$6/i);
     expect(count.values).toContain(1);
   });
 
@@ -227,7 +233,7 @@ describe("listLeads", () => {
     await listLeads({ ...defaultQuery, cnpj });
 
     const [, count, data] = statements();
-    expect(count.text).toMatch(/lead\.cnpj_normalizado\s*=\s*\$6/i);
+    expect(count.text).toMatch(/lead\.cnpj_normalizado\s*=\s*\$7/i);
     expect(count.values).toContain(cnpj);
     expect(data.values).toContain(cnpj);
     expect(count.text).not.toContain(cnpj);
@@ -243,7 +249,7 @@ describe("listLeads", () => {
     await listLeads({ ...defaultQuery, uf: "PE" });
 
     const [, count] = statements();
-    expect(count.text).toMatch(/lead\.uf\s*=\s*\$6/i);
+    expect(count.text).toMatch(/lead\.uf\s*=\s*\$7/i);
     expect(count.values).toContain("PE");
     expect(count.text).not.toMatch(/\bLIKE\b/i);
   });
@@ -257,7 +263,7 @@ describe("listLeads", () => {
     await listLeads({ ...defaultQuery, priority: "B" });
 
     const [, count] = statements();
-    expect(count.text).toMatch(/lead\.priority\s*=\s*\$6/i);
+    expect(count.text).toMatch(/lead\.priority\s*=\s*\$7/i);
     expect(count.values).toContain("B");
     expect(count.text).not.toMatch(/\bLIKE\b/i);
   });
@@ -278,13 +284,14 @@ describe("listLeads", () => {
 
     const [, count] = statements();
     expect(count.text).toMatch(
-      /lead\.cnpj_normalizado\s*=\s*\$6\s+AND\s+lead\.uf\s*=\s*\$7\s+AND\s+lead\.priority\s*=\s*\$8/i,
+      /lead\.cnpj_normalizado\s*=\s*\$7\s+AND\s+lead\.uf\s*=\s*\$8\s+AND\s+lead\.priority\s*=\s*\$9/i,
     );
     expect(count.values).toEqual([
       "OK",
       "^[0-9]{14}$",
       "INSERIDO_VALIDATION",
       "",
+      approvedRunIdPattern,
       1,
       "11222333000181",
       "PE",
@@ -301,13 +308,14 @@ describe("listLeads", () => {
     await listLeads({ page: 3, pageSize: 7 });
 
     const [, count, data] = statements();
-    expect(data.text).toMatch(/LIMIT\s+\$6\s+OFFSET\s+\$7/i);
-    expect(count.values).toHaveLength(5);
+    expect(data.text).toMatch(/LIMIT\s+\$7\s+OFFSET\s+\$8/i);
+    expect(count.values).toHaveLength(6);
     expect(data.values).toEqual([
       "OK",
       "^[0-9]{14}$",
       "INSERIDO_VALIDATION",
       "",
+      approvedRunIdPattern,
       1,
       7,
       14,
@@ -350,10 +358,10 @@ describe("listLeads", () => {
 
     const [, countStatement, dataStatement] = statements();
     expect(countStatement.text).toContain(
-      "FROM eligible_current AS lead\nWHERE lead.uf = $6",
+      "FROM eligible_current AS lead\nWHERE lead.uf = $7",
     );
     expect(dataStatement.text).toContain(
-      "FROM eligible_current AS lead\nWHERE lead.uf = $6",
+      "FROM eligible_current AS lead\nWHERE lead.uf = $7",
     );
     expect(dataStatement.values.slice(0, countStatement.values.length)).toEqual(
       countStatement.values,

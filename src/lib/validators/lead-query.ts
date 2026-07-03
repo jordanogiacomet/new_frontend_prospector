@@ -73,7 +73,10 @@ export const cnpjSchema = z
   .regex(/^\d{2}\.?\d{3}\.?\d{3}\/?\d{4}-?\d{2}$/)
   .transform((value) => value.replace(/[./-]/g, ""));
 
-export const leadRunIdSchema = z.string().regex(/^lr_[0-9a-f]{64}$/);
+export const leadRunIdPattern =
+  /^lr_([0-9a-f]{8}|[0-9a-f]{64})$/;
+
+export const leadRunIdSchema = z.string().regex(leadRunIdPattern);
 
 const paginationKeys = new Set(["page", "pageSize"]);
 const paginationShape = {

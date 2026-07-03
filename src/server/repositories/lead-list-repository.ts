@@ -1,6 +1,9 @@
 import "server-only";
 
-import type { LeadListQuery } from "../../lib/validators/lead-query";
+import {
+  leadRunIdPattern,
+  type LeadListQuery,
+} from "../../lib/validators/lead-query";
 import type { LeadSummary } from "../../types/leads";
 import { SafeApiError } from "../api/errors";
 import { query as databaseQuery, type SqlStatement } from "../db/client";
@@ -8,6 +11,7 @@ import {
   mapLeadSummary,
   type LeadSummaryRow,
 } from "../mappers/lead-summary-mapper";
+import { buildProductionRunPredicate } from "./production-run-predicate";
 
 const maximumCurrentProjections = 20;
 const sourceGuardLimit = maximumCurrentProjections + 1;
@@ -53,7 +57,8 @@ const eligibleCurrentCte = `WITH current_terminal_candidates AS (
     AND company_validations.validated_at <= CURRENT_TIMESTAMP
     AND terminal.integrity_status = $1
     AND terminal.processing_result = $3
-    AND terminal.test_case_id IS NULL
+    AND ${buildProductionRunPredicate("terminal")}
+    AND terminal.lead_run_id ~ $5
     AND terminal.cnpj_normalizado = company_validations.cnpj_normalizado
     AND terminal.import_batch_id IS NOT DISTINCT FROM company_validations.last_import_batch_id
     AND terminal.source_row IS NOT DISTINCT FROM company_validations.last_source_row
@@ -81,7 +86,7 @@ eligible_current AS (
     current_terminal_candidates.validated_at,
     current_terminal_candidates.projection_id
   FROM current_terminal_candidates
-  WHERE current_terminal_candidates.terminal_count = $5
+  WHERE current_terminal_candidates.terminal_count = $6
 )`;
 
 const baseValues: readonly unknown[] = [
@@ -89,6 +94,7 @@ const baseValues: readonly unknown[] = [
   "^[0-9]{14}$",
   "INSERIDO_VALIDATION",
   "",
+  leadRunIdPattern.source,
   1,
 ];
 

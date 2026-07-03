@@ -17,6 +17,7 @@ import { getLeadDetail } from "./lead-detail-repository";
 
 const syntheticCnpj = "11222333000181";
 const syntheticLeadRunId = `lr_${"a".repeat(64)}`;
+const approvedRunIdPattern = "^lr_([0-9a-f]{8}|[0-9a-f]{64})$";
 
 const syntheticRow = {
   decision_id: "9001",
@@ -69,13 +70,14 @@ describe("getLeadDetail", () => {
     await getLeadDetail(syntheticCnpj);
 
     expect(statement().text).toMatch(
-      /company_validations\.cnpj_normalizado\s*=\s*\$6/i,
+      /company_validations\.cnpj_normalizado\s*=\s*\$7/i,
     );
     expect(statement().values).toEqual([
       "OK",
       "^[0-9]{14}$",
       "INSERIDO_VALIDATION",
       "",
+      approvedRunIdPattern,
       1,
       syntheticCnpj,
     ]);
@@ -88,16 +90,17 @@ describe("getLeadDetail", () => {
     await getLeadDetail(syntheticCnpj, syntheticLeadRunId);
 
     expect(statement().text).toMatch(
-      /company_validations\.cnpj_normalizado\s*=\s*\$6/i,
+      /company_validations\.cnpj_normalizado\s*=\s*\$7/i,
     );
     expect(statement().text).toMatch(
-      /terminal\.lead_run_id\s*=\s*\$7/i,
+      /terminal\.lead_run_id\s*=\s*\$8/i,
     );
     expect(statement().values).toEqual([
       "OK",
       "^[0-9]{14}$",
       "INSERIDO_VALIDATION",
       "",
+      approvedRunIdPattern,
       1,
       syntheticCnpj,
       syntheticLeadRunId,
@@ -111,9 +114,9 @@ describe("getLeadDetail", () => {
     await getLeadDetail(syntheticCnpj);
 
     expect(statement().text).not.toMatch(
-      /terminal\.lead_run_id\s*=\s*\$7/i,
+      /terminal\.lead_run_id\s*=\s*\$8/i,
     );
-    expect(statement().values).toHaveLength(6);
+    expect(statement().values).toHaveLength(7);
   });
 
   it("returns null when no eligible CNPJ-bound detail exists", async () => {
@@ -195,7 +198,7 @@ describe("getLeadDetail", () => {
     );
   });
 
-  it("excludes operational and test-tagged terminal rows", async () => {
+  it("accepts only null or exact source-row provenance and valid run IDs", async () => {
     mocks.query.mockResolvedValueOnce([]);
 
     await getLeadDetail(syntheticCnpj);
@@ -204,10 +207,13 @@ describe("getLeadDetail", () => {
       /terminal\.processing_result\s*=\s*\$3/i,
     );
     expect(statement().text).toMatch(
-      /terminal\.test_case_id\s+IS\s+NULL/i,
+      /\(\s*terminal\.test_case_id\s+IS\s+NULL\s+OR\s+terminal\.test_case_id\s*=\s*'SR_'\s*\|\|\s*terminal\.source_row\s*\)/i,
     );
+    expect(statement().text).toMatch(/terminal\.lead_run_id\s*~\s*\$5/i);
+    expect(statement().values).toContain(approvedRunIdPattern);
     expect(statement().values).toContain("INSERIDO_VALIDATION");
     expect(statement().text).not.toContain("RECEBIDO");
+    expect(statement().text).not.toMatch(/grupo_teste/i);
     expect(statement().text).not.toMatch(/execution_mode|PRODUCTION_E2E/i);
   });
 
@@ -219,7 +225,7 @@ describe("getLeadDetail", () => {
     expect(statement().text).toMatch(
       /COUNT\(\*\)\s+OVER\s*\(\s*PARTITION BY\s+company_validations\.id\s*\)\s+AS\s+terminal_count/i,
     );
-    expect(statement().text).toMatch(/terminal_count\s*=\s*\$5/i);
+    expect(statement().text).toMatch(/terminal_count\s*=\s*\$6/i);
     expect(statement().values).toContain(1);
   });
 

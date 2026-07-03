@@ -32,6 +32,7 @@ const defaultPage = {
   page: 1,
   pageSize: 20,
 } as const;
+const approvedRunIdPattern = "^lr_([0-9a-f]{8}|[0-9a-f]{64})$";
 
 function statements(): SqlStatement[] {
   return mocks.query.mock.calls.map((call) => call[0] as SqlStatement);
@@ -80,12 +81,13 @@ describe("listLeadHistory", () => {
 
     const [count, data] = statements();
     expect(count.text).toMatch(
-      /history\.cnpj_normalizado\s*=\s*\$4/i,
+      /history\.cnpj_normalizado\s*=\s*\$5/i,
     );
     expect(count.values).toEqual([
       "OK",
       "INSERIDO_VALIDATION",
       "",
+      approvedRunIdPattern,
       syntheticCnpj,
     ]);
     expect(data.values).toContain(syntheticCnpj);
@@ -94,7 +96,7 @@ describe("listLeadHistory", () => {
     expect(count.text).not.toMatch(/\bLIKE\b|\bILIKE\b/i);
   });
 
-  it("requires only approved terminal rows and excludes operational/test rows", async () => {
+  it("accepts only valid run IDs with null or exact source-row provenance", async () => {
     mocks.query
       .mockResolvedValueOnce([{ total: 0 }])
       .mockResolvedValueOnce([]);
@@ -106,10 +108,13 @@ describe("listLeadHistory", () => {
       /history\.processing_result\s*=\s*\$2/i,
     );
     expect(count.text).toMatch(/history\.integrity_status\s*=\s*\$1/i);
-    expect(count.text).toMatch(/history\.test_case_id\s+IS\s+NULL/i);
+    expect(count.text).toMatch(
+      /\(\s*history\.test_case_id\s+IS\s+NULL\s+OR\s+history\.test_case_id\s*=\s*'SR_'\s*\|\|\s*history\.source_row\s*\)/i,
+    );
     expect(count.text).toMatch(
       /BTRIM\(history\.lead_run_id\)\s*<>\s*\$3/i,
     );
+    expect(count.text).toMatch(/history\.lead_run_id\s*~\s*\$4/i);
     expect(count.text).toMatch(
       /BTRIM\(history\.final_action\)\s*<>\s*\$3/i,
     );
@@ -117,7 +122,9 @@ describe("listLeadHistory", () => {
       /history\.run_created_at\s*<=\s*CURRENT_TIMESTAMP/i,
     );
     expect(count.values).toContain("INSERIDO_VALIDATION");
+    expect(count.values).toContain(approvedRunIdPattern);
     expect(count.text).not.toContain("RECEBIDO");
+    expect(count.text).not.toMatch(/grupo_teste/i);
   });
 
   it("preserves distinct decisions and run identifiers without grouping", async () => {
@@ -206,7 +213,7 @@ describe("listLeadHistory", () => {
     expect(data.text).toMatch(
       /current_terminal\.source_row\s+IS\s+NOT\s+DISTINCT\s+FROM\s+current_projection\.last_source_row/i,
     );
-    expect(data.text).toMatch(/terminal_count\s*=\s*\$5/i);
+    expect(data.text).toMatch(/terminal_count\s*=\s*\$6/i);
   });
 
   it("uses the fixed deterministic history ordering", async () => {
@@ -231,12 +238,13 @@ describe("listLeadHistory", () => {
     await listLeadHistory(syntheticCnpj, { page: 3, pageSize: 20 });
 
     const [count, data] = statements();
-    expect(count.values).toHaveLength(4);
-    expect(data.text).toMatch(/LIMIT\s+\$6\s+OFFSET\s+\$7/i);
+    expect(count.values).toHaveLength(5);
+    expect(data.text).toMatch(/LIMIT\s+\$7\s+OFFSET\s+\$8/i);
     expect(data.values).toEqual([
       "OK",
       "INSERIDO_VALIDATION",
       "",
+      approvedRunIdPattern,
       syntheticCnpj,
       1,
       20,

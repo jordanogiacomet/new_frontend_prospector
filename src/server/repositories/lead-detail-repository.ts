@@ -1,17 +1,20 @@
 import "server-only";
 
+import { leadRunIdPattern } from "../../lib/validators/lead-query";
 import type { LeadDetail } from "../../types/leads";
 import { query as databaseQuery, type SqlStatement } from "../db/client";
 import {
   mapLeadDetail,
   type LeadDetailRow,
 } from "../mappers/lead-detail-mapper";
+import { buildProductionRunPredicate } from "./production-run-predicate";
 
 const baseValues: readonly unknown[] = [
   "OK",
   "^[0-9]{14}$",
   "INSERIDO_VALIDATION",
   "",
+  leadRunIdPattern.source,
   1,
 ];
 
@@ -76,18 +79,19 @@ function buildDetailStatement(
     AND company_validations.validated_at <= CURRENT_TIMESTAMP
     AND terminal.integrity_status = $1
     AND terminal.processing_result = $3
-    AND terminal.test_case_id IS NULL
+    AND ${buildProductionRunPredicate("terminal")}
+    AND terminal.lead_run_id ~ $5
     AND terminal.cnpj_normalizado = company_validations.cnpj_normalizado
     AND terminal.import_batch_id IS NOT DISTINCT FROM company_validations.last_import_batch_id
     AND terminal.source_row IS NOT DISTINCT FROM company_validations.last_source_row
     AND BTRIM(terminal.final_action) <> $4
     AND terminal.run_created_at <= CURRENT_TIMESTAMP
-    AND company_validations.cnpj_normalizado = $6${exactRunClause}
+    AND company_validations.cnpj_normalizado = $7${exactRunClause}
 ),
 eligible_detail AS (
   SELECT *
   FROM detail_candidates
-  WHERE detail_candidates.terminal_count = $5
+  WHERE detail_candidates.terminal_count = $6
 )
 SELECT
   detail.decision_id,

@@ -1,6 +1,9 @@
 import "server-only";
 
-import type { LeadHistoryQuery } from "../../lib/validators/lead-query";
+import {
+  leadRunIdPattern,
+  type LeadHistoryQuery,
+} from "../../lib/validators/lead-query";
 import type { LeadHistoryItem } from "../../types/leads";
 import { SafeApiError } from "../api/errors";
 import { query as databaseQuery, type SqlStatement } from "../db/client";
@@ -8,6 +11,7 @@ import {
   mapLeadHistoryItem,
   type LeadHistoryRow,
 } from "../mappers/lead-history-mapper";
+import { buildProductionRunPredicate } from "./production-run-predicate";
 
 const maximumRetainedHistoryRows = 6;
 const retainedHistoryCompleteness = "retained_only";
@@ -27,9 +31,10 @@ const eligibleHistoryCte = `WITH eligible_history AS (
   FROM public.company_validation_runs AS history
   WHERE history.integrity_status = $1
     AND history.processing_result = $2
-    AND history.test_case_id IS NULL
+    AND ${buildProductionRunPredicate("history")}
     AND BTRIM(history.lead_run_id) <> $3
-    AND history.cnpj_normalizado = $4
+    AND history.lead_run_id ~ $4
+    AND history.cnpj_normalizado = $5
     AND BTRIM(history.final_action) <> $3
     AND history.run_created_at <= CURRENT_TIMESTAMP
 )`;
@@ -46,12 +51,14 @@ const currentDecisionCtes = `current_terminal_candidates AS (
   WHERE current_projection.integrity_status = $1
     AND current_projection.cnpj::text = current_projection.cnpj_normalizado
     AND BTRIM(current_projection.last_lead_run_id) <> $3
+    AND current_projection.last_lead_run_id ~ $4
     AND BTRIM(current_projection.agent_version) <> $3
     AND current_projection.validated_at <= CURRENT_TIMESTAMP
-    AND current_projection.cnpj_normalizado = $4
+    AND current_projection.cnpj_normalizado = $5
     AND current_terminal.integrity_status = $1
     AND current_terminal.processing_result = $2
-    AND current_terminal.test_case_id IS NULL
+    AND ${buildProductionRunPredicate("current_terminal")}
+    AND current_terminal.lead_run_id ~ $4
     AND current_terminal.cnpj_normalizado = current_projection.cnpj_normalizado
     AND current_terminal.import_batch_id IS NOT DISTINCT FROM current_projection.last_import_batch_id
     AND current_terminal.source_row IS NOT DISTINCT FROM current_projection.last_source_row
@@ -61,7 +68,7 @@ const currentDecisionCtes = `current_terminal_candidates AS (
 current_decision AS (
   SELECT current_terminal_candidates.decision_id
   FROM current_terminal_candidates
-  WHERE current_terminal_candidates.terminal_count = $5
+  WHERE current_terminal_candidates.terminal_count = $6
 )`;
 
 interface LeadHistoryCountRow {
@@ -85,7 +92,13 @@ function buildCountStatement(cnpj: string): SqlStatement {
     text: `${eligibleHistoryCte}
 SELECT COUNT(*)::integer AS total
 FROM eligible_history`,
-    values: ["OK", "INSERIDO_VALIDATION", "", cnpj],
+    values: [
+      "OK",
+      "INSERIDO_VALIDATION",
+      "",
+      leadRunIdPattern.source,
+      cnpj,
+    ],
   };
 }
 
@@ -97,6 +110,7 @@ function buildDataStatement(
     "OK",
     "INSERIDO_VALIDATION",
     "",
+    leadRunIdPattern.source,
     cnpj,
     1,
     input.pageSize,
@@ -119,7 +133,7 @@ FROM eligible_history AS history
 LEFT JOIN current_decision
   ON current_decision.decision_id = history.id::text
 ORDER BY history.created_at DESC, history.id DESC
-LIMIT $6 OFFSET $7`,
+LIMIT $7 OFFSET $8`,
     values,
   };
 }
