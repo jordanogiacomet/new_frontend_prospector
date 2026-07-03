@@ -965,13 +965,17 @@ six-row history ceiling without event, processing-view, or JSON fallback.
 **Tools:** `CORE`  
 **Tests:** Route integration  
 **Gate:** Focused route tests + typecheck  
+**Execution status:** **COMPLETE (2026-07-03).** The authenticated GET-only
+route validates normalized CNPJ and bounded pagination before repository
+access, preserves retained-only metadata exactly, and maps availability,
+database, and unexpected failures to private no-store safe responses.
 **Done when:**
 
-- [ ] GET only, auth-first, bounded pagination.
-- [ ] Availability/completeness metadata matches approved policy.
-- [ ] Unless completeness is proven, metadata includes the approved retained-history label and mandatory older-analysis caveat.
-- [ ] Errors expose no event/retention internals.
-- [ ] At least 8 route tests pass.
+- [x] GET only, auth-first, bounded pagination.
+- [x] Availability/completeness metadata matches approved policy.
+- [x] Unless completeness is proven, metadata includes the approved retained-history label and mandatory older-analysis caveat.
+- [x] Errors expose no event/retention internals.
+- [x] At least 8 route tests pass.
 
 **Verify:** `pnpm vitest run 'src/app/api/leads/[cnpj]/history/route.test.ts' && pnpm typecheck`; at least `8` tests pass  
 **Commit:** `feat(read-only-leads): expose lead history API`
