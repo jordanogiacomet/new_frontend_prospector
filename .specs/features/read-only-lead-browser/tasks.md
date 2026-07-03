@@ -2,7 +2,7 @@
 
 **Design:** `.specs/features/read-only-lead-browser/design.md`  
 **Phase:** Tasks  
-**Status:** RLB-T035A APPROVED — producer contract aligned; RLB-T036 executable
+**Status:** RLB-T036 COMPLETE — minimal batch mapper implemented; RLB-T037–RLB-T040 blocked
 **Plan origin:** Fresh plan created for `read-only-lead-browser`; it does not continue or reuse any prior T01/T02 plan.
 
 ## Execution Rules
@@ -1041,13 +1041,18 @@ and tests
 **Tools:** `CORE`  
 **Tests:** Unit  
 **Gate:** Focused unit + typecheck  
+**Execution status:** **COMPLETE (2026-07-03).** The five-field DTO and mapper
+preserve the opaque batch ID, normalize aggregate `run_created_at` bounds to
+ISO, retain real zero counts, reject invalid values safely, and expose no
+operational or progress metadata. All 15 focused mapper tests and typecheck
+pass.
 **Done when:**
 
-- [ ] Only the five approved DTO fields exist.
-- [ ] Dates are ISO values derived from aggregate `run_created_at` columns.
-- [ ] Zero counts remain valid; negative/fractional counts fail safely.
-- [ ] Batch IDs are preserved exactly and operational metadata is absent.
-- [ ] At least 8 mapper tests pass.
+- [x] Only the five approved DTO fields exist.
+- [x] Dates are ISO values derived from aggregate `run_created_at` columns.
+- [x] Zero counts remain valid; negative/fractional counts fail safely.
+- [x] Batch IDs are preserved exactly and operational metadata is absent.
+- [x] At least 8 mapper tests pass.
 
 **Verify:** `pnpm vitest run src/server/mappers/batch-source-mapper.test.ts && pnpm typecheck`; at least `8` tests pass
 **Commit:** `feat(read-only-leads): map batch source metadata`
