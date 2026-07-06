@@ -22,7 +22,7 @@ No application role receives mutation privileges on producer objects.
 
 ```text
 Browser → App API
-App API → approved n8n import webhook
+App API → approved official EmpresaAqui n8n import webhook
 n8n → producer PostgreSQL
 App API → approved producer SELECTs
 App API → app-owned schema reads/writes

@@ -199,6 +199,7 @@ describe("GET /api/leads/:cnpj/history", () => {
       "validate-query",
       "repository",
     ]);
+    expect(requireApiSessionMock).toHaveBeenCalledOnce();
   });
 
   it("normalizes the CNPJ exactly and applies default pagination", async () => {

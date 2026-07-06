@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
 
-import type { ProspectaServerEnv, ServerEnv } from "../env";
+import type { ServerEnv } from "../env";
 import {
   authorizeIdentityClaims,
   classifyServerSession,
@@ -16,11 +16,7 @@ import {
   createAuthConfig,
 } from "./config";
 
-const environment: ServerEnv &
-  Pick<
-    ProspectaServerEnv,
-    "AUTH_ROLE_CLAIM" | "AUTH_ROLE_MAPPING"
-  > = {
+const environment: ServerEnv = {
   DATABASE_URL:
     "postgresql://readonly_user:synthetic-password@localhost:5432/synthetic",
   AUTH_SECRET: "synthetic-session-secret-with-more-than-32-characters",
@@ -29,39 +25,28 @@ const environment: ServerEnv &
   AUTH_OIDC_CLIENT_SECRET: "synthetic-client-secret",
   AUTH_ALLOWED_ORG_ID: "synthetic-organization",
   AUTH_DEV_BYPASS_ENABLED: false,
-  AUTH_ROLE_CLAIM: "https://prospecta.example.test/roles",
-  AUTH_ROLE_MAPPING: {
-    "synthetic-manager-role": ["manager"],
-    "synthetic-sensitive-role": ["sensitive"],
-  },
 };
 
 const policy = {
   issuer: environment.AUTH_OIDC_ISSUER,
   organizationId: environment.AUTH_ALLOWED_ORG_ID,
-  roleClaim: environment.AUTH_ROLE_CLAIM,
-  roleBundles: environment.AUTH_ROLE_MAPPING,
 };
 
 const validClaims = {
   iss: environment.AUTH_OIDC_ISSUER,
   sub: "synthetic-subject",
   org_id: environment.AUTH_ALLOWED_ORG_ID,
-  [environment.AUTH_ROLE_CLAIM]: ["synthetic-manager-role"],
+  roles: ["synthetic-manager-role"],
+  "https://prospecta.example.test/roles": [
+    "synthetic-sensitive-role",
+  ],
 };
 
 const authorizedActor = {
   issuer: environment.AUTH_OIDC_ISSUER,
   subject: validClaims.sub,
   organizationId: environment.AUTH_ALLOWED_ORG_ID,
-  permissions: [
-    "leads:read",
-    "imports:read",
-    "commercial:read",
-    "commercial:write",
-    "imports:create",
-    "commercial:assign",
-  ],
+  permissions: [],
 } as const;
 
 describe("server authentication and authorization", () => {
@@ -78,7 +63,7 @@ describe("server authentication and authorization", () => {
         issuer: "urn:prospecta:local-development",
         subject: "local-development-user",
         organizationId: "synthetic-organization",
-        permissions: ["leads:read"],
+        permissions: [],
       },
     });
   });
@@ -107,36 +92,40 @@ describe("server authentication and authorization", () => {
     });
   });
 
-  it("grants nothing for a verified but unmapped synthetic role", () => {
+  it("ignores provider roles during identity authorization", () => {
     expect(
       authorizeIdentityClaims(
         {
           ...validClaims,
-          [environment.AUTH_ROLE_CLAIM]: ["synthetic-unknown-role"],
+          roles: ["synthetic-manager-role", "synthetic-sensitive-role"],
         },
         policy,
       ),
     ).toEqual({
       status: "authorized",
-      actor: { ...authorizedActor, permissions: [] },
+      actor: authorizedActor,
     });
   });
 
-  it("grants nothing when a configured role points to an unknown bundle", () => {
+  it("ignores namespaced role claims during identity authorization", () => {
     expect(
-      authorizeIdentityClaims(validClaims, {
-        ...policy,
-        roleBundles: {
-          "synthetic-manager-role": ["synthetic-unknown-bundle"],
+      authorizeIdentityClaims(
+        {
+          ...validClaims,
+          "https://prospecta.example.test/roles": [
+            "synthetic-manager-role",
+            "synthetic-sensitive-role",
+          ],
         },
-      }),
+        policy,
+      ),
     ).toEqual({
       status: "authorized",
-      actor: { ...authorizedActor, permissions: [] },
+      actor: authorizedActor,
     });
   });
 
-  it("grants nothing when the configured role claim is absent", () => {
+  it("authorizes without any role claim", () => {
     const claims = {
       iss: validClaims.iss,
       sub: validClaims.sub,
@@ -145,30 +134,33 @@ describe("server authentication and authorization", () => {
 
     expect(authorizeIdentityClaims(claims, policy)).toEqual({
       status: "authorized",
-      actor: { ...authorizedActor, permissions: [] },
+      actor: authorizedActor,
     });
   });
 
-  it("grants nothing when the configured role claim has an invalid shape", () => {
+  it("ignores malformed role-shaped claims", () => {
     expect(
       authorizeIdentityClaims(
         {
           ...validClaims,
-          [environment.AUTH_ROLE_CLAIM]: "synthetic-manager-role",
+          roles: "synthetic-manager-role",
+          "https://prospecta.example.test/roles": {
+            permission: "sensitive:read",
+          },
         },
         policy,
       ),
     ).toEqual({
       status: "authorized",
-      actor: { ...authorizedActor, permissions: [] },
+      actor: authorizedActor,
     });
   });
 
-  it("adds sensitive access only from its explicit synthetic overlay role", () => {
+  it("never grants sensitive access from provider roles", () => {
     const authorization = authorizeIdentityClaims(
       {
         ...validClaims,
-        [environment.AUTH_ROLE_CLAIM]: [
+        roles: [
           "synthetic-manager-role",
           "synthetic-sensitive-role",
         ],
@@ -178,10 +170,7 @@ describe("server authentication and authorization", () => {
 
     expect(authorization).toEqual({
       status: "authorized",
-      actor: {
-        ...authorizedActor,
-        permissions: [...authorizedActor.permissions, "sensitive:read"],
-      },
+      actor: authorizedActor,
     });
   });
 
@@ -294,6 +283,10 @@ describe("server authentication and authorization", () => {
   it("configures only the managed OIDC provider and a bounded JWT session", () => {
     const config = createAuthConfig(environment, true);
     const provider = config.providers[0];
+    const configSource = readFileSync(
+      resolve(process.cwd(), "src/server/auth/config.ts"),
+      "utf8",
+    );
 
     expect(typeof provider).toBe("object");
     expect(provider).toMatchObject({
@@ -319,6 +312,8 @@ describe("server authentication and authorization", () => {
       signIn: "/login",
       error: "/login",
     });
+    expect(configSource).not.toContain("AUTH_ROLE_CLAIM");
+    expect(configSource).not.toContain("AUTH_ROLE_MAPPING");
   });
 
   it("accepts sign-in only for verified exact identity claims", async () => {
@@ -444,7 +439,7 @@ describe("server authentication and authorization", () => {
     });
   });
 
-  it("drops unknown permissions during JWT refresh", async () => {
+  it("drops all stale permissions during JWT refresh", async () => {
     const callback = createAuthConfig(environment, true).callbacks?.jwt;
     const token = await callback?.({
       token: {
@@ -460,7 +455,7 @@ describe("server authentication and authorization", () => {
       verifiedIssuer: authorizedActor.issuer,
       subject: authorizedActor.subject,
       organizationId: authorizedActor.organizationId,
-      permissions: ["leads:read"],
+      permissions: [],
     });
   });
 
@@ -575,12 +570,12 @@ describe("server authentication and authorization", () => {
       },
     },
     {
-      name: "invalid permissions",
+      name: "changed issuer",
       token: {
-        verifiedIssuer: authorizedActor.issuer,
+        verifiedIssuer: "https://identity.example.test/other-tenant",
         subject: authorizedActor.subject,
         organizationId: authorizedActor.organizationId,
-        permissions: "leads:read",
+        permissions: authorizedActor.permissions,
       },
     },
   ])("fails closed in the session for $name", async ({ token }) => {

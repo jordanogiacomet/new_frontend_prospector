@@ -1,17 +1,10 @@
 import "server-only";
 
-import {
-  permissionsForRoles,
-  retainApprovedPermissions,
-  type Permission,
-  type RoleBundleMapping,
-} from "./permissions";
+import type { Permission } from "./permissions";
 
 export interface AuthorizationPolicy {
   issuer: string;
   organizationId: string;
-  roleClaim: string;
-  roleBundles: RoleBundleMapping;
 }
 
 export interface AuthorizedActor {
@@ -28,7 +21,7 @@ export type IdentityAuthorization =
     }
   | {
       status: "unauthorized";
-      reason: "issuer" | "subject" | "organization" | "permissions";
+      reason: "issuer" | "subject" | "organization";
     };
 
 export type ServerSessionAuthorization =
@@ -54,7 +47,7 @@ export function createDevelopmentAuthorization(
       issuer: "urn:prospecta:local-development",
       subject: "local-development-user",
       organizationId,
-      permissions: ["leads:read"],
+      permissions: [],
     },
   };
 }
@@ -108,22 +101,6 @@ function authorizeIdentityFields(
   };
 }
 
-function verifiedRoles(
-  claims: Record<string, unknown>,
-  roleClaim: string,
-): readonly string[] {
-  const roles = claims[roleClaim];
-
-  if (
-    !Array.isArray(roles) ||
-    !roles.every((role): role is string => typeof role === "string")
-  ) {
-    return [];
-  }
-
-  return roles;
-}
-
 export function authorizeIdentityClaims(
   claims: Record<string, unknown>,
   policy: AuthorizationPolicy,
@@ -143,10 +120,7 @@ export function authorizeIdentityClaims(
     status: "authorized",
     actor: {
       ...authorization.identity,
-      permissions: permissionsForRoles(
-        verifiedRoles(claims, policy.roleClaim),
-        policy.roleBundles,
-      ),
+      permissions: [],
     },
   };
 }
@@ -175,15 +149,11 @@ export function authorizeRetainedActor(
     return authorization;
   }
 
-  if (!Array.isArray(actor.permissions)) {
-    return { status: "unauthorized", reason: "permissions" };
-  }
-
   return {
     status: "authorized",
     actor: {
       ...authorization.identity,
-      permissions: retainApprovedPermissions(actor.permissions),
+      permissions: [],
     },
   };
 }

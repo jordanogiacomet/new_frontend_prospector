@@ -4,7 +4,10 @@
 **Limitation:** DDL presence does not prove that a workflow actively populates
 an object
 
-## Active Legacy Sources Evidenced by the Sanitized Workflow
+**Current workflow cross-check:**
+`private-workflows/EmpresaAqui_Webhook_Import_v1.json` on 2026-07-06
+
+## Producer Sources Evidenced by the Official Workflow Export
 
 | Concept | Source | Contract caveat |
 | --- | --- | --- |
@@ -14,7 +17,7 @@ an object
 | CRM company/contact snapshots | `public.crm_company_history`, `public.crm_lead_contact_history` | Sensitive and mutable; not approved for general UI exposure |
 | Operational failures | `public.workflow_dead_letters`, `public.workflow_integrity_errors` | Operational, potentially sensitive, not commercial UI sources |
 
-## Structured Objects Present in DDL but Not Evidenced in the Current Export
+## Structured Objects Present in DDL but Not Evidenced in the Official Export
 
 | Object | Intended concept | Current treatment |
 | --- | --- | --- |
@@ -61,7 +64,7 @@ Subject to query and semantic approval:
 ## History Reliability
 
 - Distinct `lead_run_id` rows can support a retained-history view.
-- The DDL and current workflow do not prove complete retention.
+- The DDL and official workflow do not prove complete retention.
 - `company_validations` is a current projection.
 - Strategic reports can be replaced by upsert and are not inherently immutable.
 - UI copy must describe retained/available history, not every analysis ever

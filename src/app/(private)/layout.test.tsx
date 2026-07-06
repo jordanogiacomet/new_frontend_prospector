@@ -1,3 +1,6 @@
+import { readdirSync } from "node:fs";
+import { join, relative, resolve } from "node:path";
+
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -28,6 +31,28 @@ function PrivateContent() {
   privateContentRender();
 
   return <p>Conteúdo privado sintético</p>;
+}
+
+function listAppSurface(directory: string, appRoot: string): string[] {
+  const files: string[] = [];
+
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    const entryPath = join(directory, entry.name);
+
+    if (entry.isDirectory()) {
+      files.push(...listAppSurface(entryPath, appRoot));
+      continue;
+    }
+
+    if (
+      entry.isFile() &&
+      /^(?:layout|page|route)\.(?:ts|tsx)$/.test(entry.name)
+    ) {
+      files.push(relative(appRoot, entryPath).replaceAll("\\", "/"));
+    }
+  }
+
+  return files;
 }
 
 describe("private application shell", () => {
@@ -159,5 +184,27 @@ describe("private application shell", () => {
 
   it("explicitly opts private routes out of shared rendering cache", () => {
     expect(dynamic).toBe("force-dynamic");
+  });
+
+  it("keeps the current private pages and API routes on the authenticated lead surface", () => {
+    const appRoot = resolve(process.cwd(), "src/app");
+    const surface = listAppSurface(appRoot, appRoot).sort();
+
+    expect(
+      surface.filter((file) => file.startsWith("(private)/")),
+    ).toEqual([
+      "(private)/layout.tsx",
+      "(private)/leads/[cnpj]/page.tsx",
+      "(private)/leads/page.tsx",
+    ]);
+    expect(surface.filter((file) => file.startsWith("api/"))).toEqual([
+      "api/auth/[...nextauth]/route.ts",
+      "api/leads/[cnpj]/history/route.ts",
+      "api/leads/[cnpj]/route.ts",
+      "api/leads/route.ts",
+    ]);
+    expect(surface.join("\n")).not.toMatch(
+      /(?:api\/imports|api\/work-queue|api\/workspaces|\(private\)\/imports|\(private\)\/work)/,
+    );
   });
 });

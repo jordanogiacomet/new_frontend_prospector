@@ -10,7 +10,7 @@
 On 2026-07-03 the repository owner authorized planning and staged
 implementation of Prospecta under the permanent producer boundary. This
 authorizes repository changes, synthetic tests, local/disposable database work,
-and preparation of a separate versioned n8n ingress.
+and integration planning for the official versioned n8n ingress.
 
 It does not identify a production target or authorize a production migration,
 n8n activation, secret change, deployment, or release. Those actions remain
@@ -48,16 +48,27 @@ fail-closed.
   app.
 - Commercial state belongs only in an app-owned schema.
 - The browser never calls n8n or PostgreSQL directly.
-- The current form-trigger workflow is not an acceptable app ingress.
+- The official current EmpresaAqui ingress is the webhook workflow
+  `EmpresaAqui - Webhook Import v1 - StrictOneTokenDomainGate`, whose
+  operational source of truth is
+  `private-workflows/EmpresaAqui_Webhook_Import_v1.json`.
+- The historical form-trigger export is not the current app ingress.
 
 ### Upload direction
 
-- The proposed ingress is server-to-server and accepts the exact CSV rather
-  than reproducing producer normalization.
+- The integration direction is Browser → App API → official n8n webhook. The
+  App API sends `multipart/form-data` server-side with the CSV in
+  `arquivo_csv`; the frontend never receives or calls the n8n URL.
 - The app performs only superficial file checks.
-- Upload correlation uses an app submission UUID, an idempotency key, a SHA-256
-  file hash, and a versioned contract.
-- The producer must acknowledge acceptance before expensive processing.
+- The official workflow returns HTTP `202` with `accepted`, `message`,
+  `import_batch_id`, `row_count`, and `source`.
+- Current correlation is limited to associating the synchronous returned
+  `import_batch_id` with the app-owned submission that made the request.
+- The official export does not consume an app submission UUID, upload-level
+  idempotency key, SHA-256, or contract-version field and does not persist
+  durable acceptance before returning `202`.
+- The current `202` is therefore a workflow acknowledgement, not proof of
+  durable `ACCEPTED` state.
 - Automatic retry is outside the first MVP.
 
 ### Data honesty
@@ -71,26 +82,43 @@ fail-closed.
 
 ## External Decisions and Evidence Still Required
 
-- Non-production and production targets/owners for the separately versioned
-  n8n ingress; the current workflow will not be changed.
+- Non-production and production targets/owners for the official n8n webhook;
+  the reviewed workflow file will not be changed or activated by app work.
+- Executed non-production proof that the deployed workflow/version matches the
+  official file and honors the mapped request and response.
+- Webhook authentication, HMAC/replay controls, upload-level idempotency,
+  exact-byte hash verification, durable acceptance, controlled errors, and
+  timeout reconciliation. These are not evidenced in the official export and
+  remain blockers rather than assumed behavior.
 - Who owns the product, producer contract, security review, and LGPD policy.
 - Exact producer terminal results and batch-completion evidence.
 - Operations confirmation that the approved direct-forwarding, 10 MiB,
   in-memory request boundary and timeout envelope fit the target. Encrypted
   temporary object storage requires a later decision if they do not.
 - App schema DDL, migration process, backup/retention, and database roles.
-- Role names, permission assignments, and sensitive-content eligibility.
+- The future granular-authorization source, permission assignments, revocation
+  behavior, and sensitive-content eligibility. Provider role claims are not a
+  dependency of the current phase.
 - Conflict policy when two sellers attempt to own or contact the same lead.
 - Production-like query scale, indexes, latency budget, and freshness windows.
 
 ## Approved Implementation Defaults
 
-- Browser-to-app upload uses one raw CSV body with a sanitized filename and
-  UUID idempotency header; app-to-producer uses the multipart contract.
+- Private access currently requires OIDC authentication, exact issuer/subject,
+  and the allowed organization. Provider role claims are ignored;
+  `AUTH_ROLE_CLAIM` and `AUTH_ROLE_MAPPING` are deferred and not required at
+  startup. Granular permissions remain an external gate.
+- Browser-to-app upload remains an app-owned future contract. App-to-producer
+  must match the official workflow's `multipart/form-data` request with one
+  file in `arquivo_csv`; no additional field is currently consumed.
 - Maximum file size is 10 MiB for implementation and tests.
 - Exact bytes are kept only for the authenticated request and direct producer
   forwarding; PostgreSQL stores metadata only.
-- HMAC uses the finalized canonical contract and a five-minute replay window.
+- HMAC remains deferred hardening: the official export does not validate it,
+  and the optional server-only `N8N_HMAC_KEY_ID`/`N8N_HMAC_SECRET` settings
+  are unused in this phase. T019 must define and test the approved
+  server-to-server authentication mechanism before `/api/imports` is
+  implemented or `FEATURE_IMPORTS_ENABLED` can leave `false`.
 - App-owned schema name is `prospecting_app`.
 - Commercial notes and activities are append-only in MVP 1.
 - Workspace mutations use optimistic version checks.
@@ -103,7 +131,9 @@ fail-closed.
 ## Specific References
 
 - Current source documentation: `docs/db/schema.sql`.
-- Current sanitized workflow:
+- Official current EmpresaAqui ingress and operational contract source:
+  `private-workflows/EmpresaAqui_Webhook_Import_v1.json`.
+- Historical sanitized qualification workflow:
   `private-workflows/EmpresaAqui - CRM Runs Auditado v5.8.22 -
   StrictOneTokenDomainGate.sanitized.json`.
 - Reusable legacy feature:

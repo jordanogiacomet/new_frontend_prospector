@@ -25,10 +25,11 @@ Minimum fields:
 - `file_sha256`;
 - byte count and approved MIME type;
 - `idempotency_key` with an organization-scoped uniqueness rule;
-- contract version;
-- submitted and accepted timestamps;
-- opaque `producer_batch_id`;
-- accepted row count;
+- app contract version;
+- submitted timestamp and nullable durable-acceptance timestamp;
+- returned producer `import_batch_id`;
+- acknowledged `row_count` kept distinct from any future durable accepted-row
+  count;
 - status facts and last observation time;
 - created/updated timestamps.
 

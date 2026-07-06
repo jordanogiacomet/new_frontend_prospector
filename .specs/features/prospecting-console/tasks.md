@@ -2,14 +2,25 @@
 
 **Spec:** `.specs/features/prospecting-console/spec.md`  
 **Design:** `.specs/features/prospecting-console/design.md`  
-**Status:** READY FOR REVIEW — execution paused until this plan is presented  
-**Baseline:** 31 Vitest files / 494 tests passing on 2026-07-03
+**Status:** IN PROGRESS — private access consolidated through T007; official
+n8n contract integration remains gated
+
+**Historical baseline:** 31 Vitest files / 494 tests passing on 2026-07-03
 
 ## Planning Gate Result — 2026-07-03
 
 - T001: complete.
 - T002: complete.
 - T003: complete.
+- T004: corrected locally on 2026-07-06 to require the official
+  `empresaqui/import` URL, keep HMAC optional/unused, and preserve disabled
+  import controls; final phase gate recorded below.
+- T005: complete per the implementation progress reported by the repository
+  owner.
+- T006: complete per the implementation progress reported by the repository
+  owner.
+- T007: actor-aware permission and same-origin guards implemented locally on
+  2026-07-06; complete only after the final phase gate recorded below.
 - `pnpm lint`: passed with two pre-existing unused-variable warnings in
   `src/server/auth/auth.test.ts`.
 - `pnpm typecheck`: passed.
@@ -20,6 +31,92 @@
   Snap/VS Code profile-path warning; it does not change command exit status.
 - `test:integration`, `test:contract`, and `test:e2e` do not exist yet; their
   creation and execution are T009, T019, and T048.
+- The 2026-07-06 documentation review did not rerun implementation gates and
+  does not fabricate updated test counts.
+- Static mapping of
+  `private-workflows/EmpresaAqui_Webhook_Import_v1.json` is recorded, but T018
+  and T019 are not complete because no named non-production endpoint or
+  executed contract test was provided.
+
+## T004/T007 Correction Gate — 2026-07-06
+
+- T004: complete after correction to the official n8n URL forms and
+  optional/unused deferred HMAC settings.
+- T005 remains as dormant permission vocabulary; it does not grant runtime
+  access in the current phase.
+- T006 now retains verified identity/organization with empty permissions and
+  ignores provider roles and stale token permissions.
+- T007 keeps actor-aware auth-first and reusable same-origin enforcement;
+  current lead GETs require authenticated allowed-organization sessions rather
+  than granular permissions.
+- Focused gate: 7 files / 176 tests passed.
+- `pnpm lint`: passed with the same two pre-existing unused-variable warnings
+  in `src/server/auth/auth.test.ts`.
+- `pnpm typecheck`: passed.
+- `pnpm test`: 32 files / 595 tests passed.
+- `pnpm build`: compiled and passed TypeScript but initially stopped during
+  page-data collection because the untouched `.env.local` contains an old
+  n8n path. A rerun with a process-only synthetic
+  `N8N_IMPORT_URL=https://build-placeholder.example.com/webhook/empresaqui/import`
+  passed completely; `.env.local` was not inspected or changed.
+- `git diff --check`: passed after the implementation and documentation
+  updates.
+- T018 remains in progress from static mapping only. T019, the n8n client,
+  `/api/imports`, upload behavior, and import enablement remain blocked.
+
+## Role-claim Deferral Gate — 2026-07-06
+
+- `AUTH_ROLE_CLAIM` and `AUTH_ROLE_MAPPING` were removed from required/parsed
+  runtime configuration and remain commented as deferred in `.env.example`.
+- OIDC authorization uses verified issuer, subject, and allowed organization
+  only. Provider roles and stale token permissions are ignored; actor
+  permissions remain empty.
+- Current lead GET routes remain private and auth-first through
+  `requireApiSession`; granular permission checks remain blocked by X1.
+- Focused env/auth gate: 3 files / 104 tests passed.
+- `pnpm lint`: passed with the same two pre-existing unused-variable warnings
+  in `src/server/auth/auth.test.ts`.
+- `pnpm typecheck`: passed.
+- `pnpm test`: 32 files / 598 tests passed.
+- `pnpm build`: plain run failed during page-data collection because the
+  untouched `.env.local` contains an unapproved `N8N_IMPORT_URL`; rerun with a
+  process-only synthetic
+  `N8N_IMPORT_URL=https://build-placeholder.example.com/webhook/empresaqui/import`
+  passed.
+- No n8n, import route/client, database, migration, or feature-flag activation
+  was introduced.
+
+## Private Access Consolidation Gate — 2026-07-06
+
+- Current private pages are limited to the authenticated lead surface:
+  `(private)/layout.tsx`, `/leads`, and `/leads/[cnpj]`. The server layout
+  redirects missing/expired sessions to `/login` and renders a safe access
+  denial state for unauthorized sessions without private children or identity
+  details.
+- Current private APIs are limited to `GET /api/leads`,
+  `GET /api/leads/:cnpj`, and `GET /api/leads/:cnpj/history`. Each route uses
+  `requireApiSession` before validation or repository work, returns `401` for
+  unauthenticated sessions, returns `403` for denied sessions, and keeps
+  `Cache-Control: private, no-store` on success and errors.
+- `AUTH_ALLOWED_ORG_ID` remains enforced by the server authorization policy,
+  OIDC sign-in, JWT refresh, session mapping, and retained-session
+  classification. Provider role claims and stale token permissions remain
+  ignored; actor permissions remain empty.
+- Feature flags remain disabled server-side placeholders for unreleased
+  capabilities. The environment parser now rejects `NEXT_PUBLIC_FEATURE_*`
+  exposure, and a synthetic app-surface test keeps `/api/imports`,
+  work-queue/workspace routes, and import/commercial private pages absent.
+- Focused private-access gate: 7 files / 158 tests passed.
+- `pnpm lint`: passed with the same two pre-existing unused-variable warnings
+  in `src/server/auth/auth.test.ts`.
+- `pnpm typecheck`: passed.
+- `pnpm test`: 32 files / 599 tests passed.
+- `pnpm build`: passed with a process-only synthetic
+  `N8N_IMPORT_URL=https://build-placeholder.example.com/webhook/empresaqui/import`;
+  `.env.local` was not inspected or changed.
+- `git diff --check`: passed.
+- No `/api/imports`, n8n client/call, database change, migration, granular
+  role authorization, feature activation, or real data was introduced.
 
 ## Execution Rules
 
@@ -27,7 +124,10 @@
 - No sub-agent or parallel-agent execution is authorized.
 - Every code task includes its own tests; test work is never deferred.
 - Use only synthetic data.
-- Never call or change the current productive n8n workflow.
+- Treat `private-workflows/EmpresaAqui_Webhook_Import_v1.json` as the official
+  current ingress contract source; never change, call, import, or activate it
+  as part of documentation work.
+- Never call or change a production n8n workflow.
 - Never write producer objects.
 - Do not run a migration, n8n activation, deployment, or rollout against
   production without an identified target, credentials, owner, and explicit
@@ -83,9 +183,9 @@ deletion is a failure.
 
 | Gate | Required input | Blocks |
 | --- | --- | --- |
-| X1 Identity | Exact IdP role claim, provider-role assignments, revocation policy | Production actor/permission activation |
+| X1 Identity | Approved granular-authorization source, permission assignments, organization binding, revocation policy, and security tests | Any route/capability that depends on granular permissions |
 | X2 App database | Named disposable/non-production target now; production target, roles, grants, backup owner later | DB integration; production commercial writes |
-| X3 n8n ingress | Non-production URL, credentials, owner, deployment/rollback process | Separate workflow and live contract tests |
+| X3 n8n ingress | Named non-production deployment of the official file, URL, authentication contract/credentials, owner, safe test window, deployment/rollback process | Runtime contract proof and every app upload/client task |
 | X4 Producer facts | Batch/row/close read source and exact result-to-terminal mapping | Producer observation repository and truthful completion |
 | X5 Performance | Production-like scale, latency/timeout/index budgets, approved plans | Queue/batch production enablement and guard removal |
 | X6 Data policy | Exact field/JSON-path and hostname allowlists; LGPD owner | Production sensitive-content enablement |
@@ -104,13 +204,14 @@ T004 → T008 → T010
 T002 → T009 → T010
 
 Phase 2:
-T004 → T011
-T004 → T012
-T011 + T012 → T013
+T002 → T018
+T018 + X3 + X4 → T019
+T004 + T019 → T011
+T004 + T019 → T012
+T011 + T012 + T019 → T013
 T008 + T009 → T014
 T013 + T014 → T015
 T007 + T015 → T016 → T017
-T002 + T012 + X3 + X4 → T018 → T019
 
 Phase 3:
 T002 → T020
@@ -198,49 +299,57 @@ commit label, and external blockers.
 
 #### T004: Expand and validate server environment
 
-**What/where:** Add separate DB URLs, ingress/HMAC settings, upload limits,
-URL hosts, role mapping, and feature flags in `src/server/env.ts`,
+**What/where:** Add separate DB URLs, the required official ingress URL,
+optional/deferred HMAC settings, upload limits, URL hosts, and feature flags
+in `src/server/env.ts`,
 `.env.example`, and colocated tests.  
 **Depends on:** T003. **Requirements:** PC-01, PC-04, PC-05. **Tools:** CORE.  
 **Tests/gate:** Unit, minimum 12 new cases / UNIT.  
-**Done when:** Invalid URLs, public secret names, weak HMAC secrets, malformed
-role maps, and unsafe hosts fail closed without echoing values.  
+**Done when:** Missing/invalid/unofficial URLs, public secret names, malformed
+optional HMAC values, and unsafe hosts fail closed without echoing values;
+absent HMAC and role settings remain valid, role settings are ignored, and
+imports remain disabled.
 **Verify:** `pnpm vitest run src/server/env.test.ts && pnpm typecheck`  
 **Commit:** `feat(prospecta): validate server integration environment`
 
-#### T005: Define permission and role-bundle policy
+#### T005: Define the deferred permission vocabulary
 
 **What/where:** Create `src/server/auth/permissions.ts` and tests for the exact
-permission union and deny-by-default bundle mapping.  
+permission union and dormant deny-by-default helpers.
 **Depends on:** T003. **Requirements:** PC-05. **Tools:** CORE.  
 **Tests/gate:** Unit, minimum 10 new cases / UNIT.  
-**Done when:** Unknown roles/permissions grant nothing and sensitive access is
-an independent overlay.  
+**Done when:** The vocabulary grants nothing through the current OIDC flow;
+unknown values remain denied and any future activation requires X1.
 **Verify:** focused permission test and typecheck.  
 **Commit:** `feat(prospecta): define permission policy`
 
 #### T006: Retain the verified actor in server auth
 
 **What/where:** Extend `src/server/auth/authorization.ts`, `config.ts`, and
-`index.ts` with issuer, subject, organization, and permissions; update auth
-tests.  
+`index.ts` with issuer, subject, organization, and an empty deferred
+permissions slot; update auth tests.
 **Depends on:** T004, T005. **Requirements:** PC-05. **Tools:** CORE,
 CURRENT-DOCS.  
 **Tests/gate:** Auth integration, minimum 14 new/updated cases / UNIT.  
-**Done when:** Only verified claims create an actor; refresh preserves
-allowlisted values; missing/changed organization fails closed.  
+**Done when:** Only verified identity/organization claims create an actor;
+provider roles and stale permissions are ignored; refresh preserves identity
+only; missing/changed organization fails closed.
 **Verify:** `pnpm vitest run src/server/auth/auth.test.ts && pnpm typecheck`  
 **Commit:** `feat(prospecta): retain authorized actor context`
 
-#### T007: Enforce permissions and same-origin mutations
+#### T007: Enforce authenticated actor and same-origin mutations
 
 **What/where:** Replace the minimal API context in
-`src/server/auth/require-api-session.ts` with `requirePermission` and add a
-same-origin mutation guard plus tests.  
+`src/server/auth/require-api-session.ts` with actor-aware session context, keep
+deny-by-default `requirePermission` dormant, and add a same-origin mutation
+guard plus tests.
 **Depends on:** T006. **Requirements:** PC-05. **Tools:** CORE.  
 **Tests/gate:** Route/auth integration, minimum 16 new/updated cases / UNIT.  
-**Done when:** `401/403` happens before body, DB, hash, or HTTP callbacks;
-cross-origin mutations fail safely.  
+**Done when:** The server context retains the actor; current lead GETs require
+an authenticated allowed-organization session without provider roles;
+`401/403` happens before body, DB, hash, or HTTP callbacks; and missing,
+malformed, or cross-origin mutation origins fail safely without actor
+exposure. Granular route authorization remains blocked by X1.
 **Verify:** focused guard tests and typecheck.  
 **Commit:** `feat(prospecta): enforce actor permissions`
 
@@ -288,108 +397,187 @@ allowlisted work. No production DSN is accepted.
 #### T011: Validate and hash exact CSV bytes
 
 **What/where:** Add `src/server/imports/upload-file.ts` and tests for filename,
-media type, 10 MiB limit, UTF-8, NUL, non-empty header, and SHA-256.  
-**Depends on:** T004. **Requirements:** PC-12. **Tools:** CORE.  
-**Tests/gate:** Unit, minimum 18 cases / UNIT.  
-**Done when:** Exact input bytes are unchanged and no business row/CNPJ logic
-exists.  
-**Verify:** focused upload-file tests and source scan for business parsing.  
+media type, 10 MiB limit, UTF-8, NUL, non-empty header, and SHA-256.
+
+**Depends on:** T004, T019. **Requirements:** PC-12. **Tools:** CORE.
+
+**Tests/gate:** Unit, minimum 18 cases / UNIT.
+
+**Done when:** Exact input bytes are unchanged, the app limits are compatible
+with the tested official endpoint, and no business row/CNPJ logic exists. The
+hash remains an app audit fact unless the producer contract is changed and
+tested to verify it.
+
+**Verify:** focused upload-file tests and source scan for business parsing.
+
 **Commit:** `feat(prospecta): validate exact csv uploads`
 
-#### T012: Implement HMAC v1 canonicalization and signing
+#### T012: Implement the approved server-to-server authentication contract
 
-**What/where:** Add `src/server/imports/hmac.ts`, golden vectors, malformed
-input, clock, nonce, and constant-time verification tests.  
-**Depends on:** T004. **Requirements:** PC-01, PC-02. **Tools:** CORE.  
-**Tests/gate:** Unit, minimum 20 cases / UNIT.  
-**Done when:** Output exactly matches the contract and secrets/signatures never
-enter errors or logs.  
-**Verify:** focused HMAC tests and typecheck.  
+**What/where:** After X3 resolves the official endpoint's security gap, add the
+approved HMAC/canonicalization/replay client support under
+`src/server/imports/` with golden vectors and malformed-input tests. Do not
+claim that the current export already supports those headers.
+
+**Depends on:** T004, T019. **Requirements:** PC-01, PC-02. **Tools:** CORE.
+
+**Tests/gate:** Unit, minimum 20 cases / UNIT.
+
+**Done when:** Output exactly matches the tested non-production authentication
+contract and URL path; secrets/signatures never enter client responses, errors,
+or logs.
+
+**Verify:** focused HMAC tests and typecheck.
+
 **Commit:** `feat(prospecta): implement ingress hmac contract`
 
 #### T013: Implement the typed n8n ingress client
 
 **What/where:** Add `src/server/imports/ingress-client.ts` with injected fetch,
-multipart request, HMAC headers, timeout, response Zod validation, and tests.  
-**Depends on:** T011, T012. **Requirements:** PC-01, PC-02. **Tools:** CORE,
-CURRENT-DOCS.  
-**Tests/gate:** Unit/integration mock, minimum 18 cases / UNIT.  
-**Done when:** Only validated correlated `202` is accepted; safe mappings cover
-400/401/403/409/413/429/503/timeout.  
-**Verify:** focused client tests and typecheck.  
+multipart `arquivo_csv`, the T012 authentication contract, timeout, exact
+official response validation, and tests.
+
+**Depends on:** T011, T012, T019. **Requirements:** PC-01, PC-02. **Tools:**
+CORE, CURRENT-DOCS.
+
+**Tests/gate:** Unit/integration mock, minimum 18 cases / UNIT.
+
+**Done when:** Only the tested `202` fields `accepted`, `message`,
+`import_batch_id`, `row_count`, and `source` are recognized; acknowledgement
+is distinct from durable acceptance; safe mappings cover only status/error
+behavior proven by T019 plus timeout/unknown.
+
+**Verify:** focused client tests and typecheck.
+
 **Commit:** `feat(prospecta): add producer ingress client`
 
-#### T014: Persist idempotent app submissions and acceptance
+#### T014: Persist idempotent app submissions and producer acknowledgement
 
 **What/where:** Add the import repository under
-`src/server/repositories/imports/` with transactional events and tests.  
+`src/server/repositories/imports/` with transactional events and tests.
+
 **Depends on:** T008, T009. **Requirements:** PC-02, PC-06. **Tools:** CORE,
-DB-TEST.  
-**Tests/gate:** Unit + PostgreSQL integration, minimum 16 cases / UNIT + DB.  
+DB-TEST.
+
+**Tests/gate:** Unit + PostgreSQL integration, minimum 16 cases / UNIT + DB.
+
 **Done when:** Same org/key/hash returns the original record; conflicts return
-409; acceptance and event commit atomically.  
-**Verify:** focused repository tests and `pnpm test:integration`.  
+409; app intent and returned `import_batch_id` acknowledgement are retained
+without relabeling them durable producer acceptance.
+
+**Verify:** focused repository tests and `pnpm test:integration`.
+
 **Commit:** `feat(prospecta): persist import submission facts`
 
 #### T015: Orchestrate submission without automatic retry
 
 **What/where:** Add `src/server/imports/submit-import.ts` and tests for actor,
-hash, durable intent, one ingress call, acceptance, conflict, and unknown state.  
-**Depends on:** T013, T014. **Requirements:** PC-02, PC-12. **Tools:** CORE.  
-**Tests/gate:** Service unit, minimum 14 cases / UNIT.  
-**Done when:** Persistence precedes producer call and no accepted/unknown path
-automatically calls it again.  
-**Verify:** focused service tests asserting exact call order/count.  
+hash, durable intent, one ingress call, acknowledgement, conflict, and unknown
+state.
+
+**Depends on:** T013, T014. **Requirements:** PC-02, PC-12. **Tools:** CORE.
+
+**Tests/gate:** Service unit, minimum 14 cases / UNIT.
+
+**Done when:** Persistence precedes producer call; acknowledgement is not
+promoted to durable `ACCEPTED`; no acknowledged/unknown path automatically
+calls the producer again.
+
+**Verify:** focused service tests asserting exact call order/count.
+
 **Commit:** `feat(prospecta): orchestrate controlled import`
 
 #### T016: Add `POST /api/imports`
 
-**What/where:** Implement the raw-body upload route and route tests.  
-**Depends on:** T007, T015. **Requirements:** PC-12. **Tools:** CORE.  
-**Tests/gate:** Route integration, minimum 18 cases / UNIT.  
+**What/where:** Implement the raw-body upload route and route tests.
+
+**Depends on:** T007, T015. **Requirements:** PC-12. **Tools:** CORE.
+
+**Tests/gate:** Route integration, minimum 18 cases / UNIT.
+
 **Done when:** Auth/permission/origin run first; body is bounded; response is
-safe/private and distinguishes recorded versus accepted `202`.  
-**Verify:** focused route tests and typecheck.  
+safe/private and distinguishes app submission, workflow acknowledgement,
+durable acceptance, and unknown outcome. This task remains blocked until T019
+passes against a named non-production endpoint.
+
+**Verify:** focused route tests and typecheck.
+
 **Commit:** `feat(prospecta): expose controlled import endpoint`
 
 #### T017: Build the controlled upload page
 
 **What/where:** Add private import page/component with one-file selection,
-client hints, stable UUID idempotency key, and loading/error/unknown/accepted
-states.  
-**Depends on:** T016. **Requirements:** PC-12. **Tools:** UI.  
-**Tests/gate:** RTL, minimum 14 cases / UNIT.  
+client hints, stable UUID idempotency key, and
+loading/error/unknown/acknowledged states.
+
+**Depends on:** T016. **Requirements:** PC-12. **Tools:** UI.
+
+**Tests/gate:** RTL, minimum 14 cases / UNIT.
+
 **Done when:** Browser calls only `/api/imports`, never n8n; no automatic retry
-UI or row qualification logic exists.  
-**Verify:** focused component/page tests plus source scan for n8n URLs.  
+UI or row qualification logic exists.
+
+**Verify:** focused component/page tests plus source scan for n8n URLs.
+
 **Commit:** `feat(prospecta): add controlled import experience`
 
-#### T018: Build the separate versioned n8n ingress artifact
+#### T018: Map and validate the official n8n ingress
 
-**What/where:** Create sanitized, credential-free artifacts under
-`integrations/n8n/prospecting-import-v1/`; do not touch `private-workflows/`.  
-**Depends on:** T002, T012, X3, X4. **Requirements:** PC-01–PC-03. **Tools:**
-N8N-TEST, CURRENT-DOCS.  
-**Tests/gate:** Import/export validation and non-production smoke / CTR.  
-**Done when:** The separate workflow verifies HMAC/hash/replay, persists one
-acceptance, correlates rows, and returns early `202`; it is not activated in
-production.  
-**Verify:** artifact diff, credential scan, and non-production smoke.  
-**Commit:** `feat(prospecta): add versioned n8n ingress`
+**Status:** IN PROGRESS — static map recorded; runtime validation pending.
 
-#### T019: Execute ingress contract tests
+**What/where:** Treat
+`private-workflows/EmpresaAqui_Webhook_Import_v1.json` as read-only source of
+truth; maintain `contracts/n8n-import-webhook.md` and
+`evidence/current-workflow-map.md` with its nodes, request, binary extraction,
+response, producer writes, guarantees, and gaps. Do not create a replacement
+workflow under `integrations/` and do not change `private-workflows/`.
 
-**What/where:** Add `test:contract` and HTTP tests for all contract cases,
-including completion correlation fixtures.  
-**Depends on:** T018, X3. **Requirements:** PC-01–PC-03. **Tools:** N8N-TEST,
-CORE.  
-**Tests/gate:** Contract integration, minimum 24 cases / CTR + FULL.  
-**Done when:** Golden HMAC, replay/conflict, timeout, redaction, correlation,
-and closure cases pass against the named non-production endpoint.  
-**Verify:** `pnpm test:contract && FULL`.  
-**Commit:** `test(prospecta): verify n8n ingress contract`
+**Depends on:** T002. **Requirements:** PC-01–PC-03, PC-09, PC-12. **Tools:**
+DOCS, N8N-TEST.
 
-**Phase 2 gate:** `FULL && DB && CTR`; CTR may remain explicitly blocked by X3.
+**Tests/gate:** Static JSON/contract review now; import/version validation and
+non-production smoke after X3 / DOC + CTR.
+
+**Done when:** Static mapping matches the official file, every difference from
+the previous proposal is explicit, gaps have owners/dispositions, and the same
+workflow/version is proven in a named non-production target. Static inspection
+alone does not complete T018.
+
+**Verify:** JSON parse plus scoped contract/evidence review, then recorded
+non-production import/version/smoke evidence without real data or credentials.
+
+**Commit:** `docs(prospecta): map official n8n ingress`
+
+#### T019: Prepare and execute official ingress contract tests
+
+**Status:** PENDING — no named non-production endpoint/test execution
+evidenced.
+
+**What/where:** Add `test:contract` and synthetic HTTP tests for the exact
+official path, multipart field/binary, CSV extraction options, five-field
+`202`, response timing, producer correlation, repeated-request behavior,
+security controls after resolution, safe failures, and any approved completion
+facts.
+
+**Depends on:** T018, X3, X4 for completion cases. **Requirements:** PC-01–PC-03.
+
+**Tools:** N8N-TEST, CORE.
+
+**Tests/gate:** Contract integration, minimum 24 cases / CTR + FULL.
+
+**Done when:** The suite passes against the named non-production deployment of
+the official workflow; authentication/replay, acknowledgement versus durable
+acceptance, timeout, redaction, repeated request, `import_batch_id`/row/run
+correlation, and approved closure cases are evidenced. Unimplemented security
+or completion behavior remains a failing/blocking gap, not a waived test.
+
+**Verify:** `pnpm test:contract && FULL`, with target/version and redacted
+results recorded.
+
+**Commit:** `test(prospecta): verify official n8n ingress contract`
+
+**Phase 2 gate:** `FULL && DB && CTR`; CTR remains explicitly blocked by X3
+and completion cases by X4. No app import/client/route task may bypass T019.
 
 ### Phase 3 — Evidence-based batches
 
@@ -756,7 +944,7 @@ The dependency diagram and task bodies were compared directly:
 | --- | --- | --- |
 | T001–T003 | None → T001 → T002 → T003 | ✅ |
 | T004–T010 | T003 branches; T004+T005→T006→T007; T004→T008; T002→T009; T008+T009→T010 | ✅ |
-| T011–T019 | T011/T012 branches → T013; T014; T013+T014→T015→T016→T017; external ingress branch T018→T019 | ✅ |
+| T011–T019 | T002→T018; T018+X3+X4→T019; T019 gates T011/T012→T013; T014; T013+T014→T015→T016→T017 | ✅ |
 | T020–T027 | T020/T021/T022→T023→T024/T025→T026/T027 | ✅ |
 | T028–T041 | T028 and T010 feed repositories; repositories feed routes; routes feed two UI tasks | ✅ |
 | T042–T046 | T042→T043/T044/T045→T046 | ✅ |
@@ -777,7 +965,7 @@ shown as X1–X7.
 | T013, T015 | Service/client | Unit with injected boundaries | Unit/mock integration in same task | ✅ |
 | T016, T024–T025, T034–T039, T046 | Routes | Route integration | Route tests in same task | ✅ |
 | T017, T026–T027, T040–T041, T044, T046 | React | RTL | RTL in same task | ✅ |
-| T018–T019 | n8n protocol | Non-production contract | Smoke/contract in same task | ✅ |
+| T018–T019 | Official n8n protocol | Static map plus non-production contract | Mapping/smoke in T018 and executable HTTP suite in T019 | ✅ |
 | T047 | Performance | Approved production-like probes | Evidence in same task | ✅ |
 | T048 | Product flow | Browser E2E | E2E in same task | ✅ |
 | T049–T051 | Security/release | All applicable gates | All gates | ✅ |

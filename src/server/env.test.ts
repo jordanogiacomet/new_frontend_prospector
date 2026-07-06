@@ -19,11 +19,8 @@ const validEnvironment = {
   AUTH_OIDC_CLIENT_ID: "replace-with-oidc-client-id",
   AUTH_OIDC_CLIENT_SECRET: "replace-with-oidc-client-secret",
   AUTH_ALLOWED_ORG_ID: "replace-with-organization-id",
-  AUTH_ROLE_CLAIM: "https://prospecta.example.com/roles",
-  AUTH_ROLE_MAPPING:
-    '{"provider-reader":["reader"],"provider-manager":["manager","sensitive"]}',
   N8N_IMPORT_URL:
-    "https://automation.example.com/webhook/prospecta/imports/v1",
+    "https://automation.example.com/webhook/empresaqui/import",
   N8N_HMAC_KEY_ID: "replace-with-active-key-id",
   N8N_HMAC_SECRET: "replace-with-a-random-hmac-secret-of-at-least-32-bytes",
   IMPORT_MAX_BYTES: "10485760",
@@ -74,17 +71,58 @@ describe("server environment", () => {
     ).toThrow(/AUTH_OIDC_ISSUER/);
   });
 
+  it("requires the n8n import URL", () => {
+    const withoutImportUrl: Record<string, string | undefined> = {
+      ...validEnvironment,
+    };
+    delete withoutImportUrl.N8N_IMPORT_URL;
+
+    expect(() => environment.parseServerEnv(withoutImportUrl)).toThrow(
+      /N8N_IMPORT_URL is required/,
+    );
+  });
+
   it.each([
-    "http://automation.example.com/webhook/prospecta/imports/v1",
-    "https://automation.example.com/webhook/prospecta/imports/v1?token=secret",
+    "http://automation.example.com/webhook/empresaqui/import",
+    "https://user:password@automation.example.com/webhook/empresaqui/import",
+    "https://automation.example.com/webhook/empresaqui/import?token=secret",
+    "https://automation.example.com/webhook/empresaqui/import#fragment",
+    "https://automation.example.com/webhook/prospecta/imports/v1",
     "https://automation.example.com/another-webhook",
-  ])("rejects an unsafe ingress URL: %s", (N8N_IMPORT_URL) => {
+  ])("rejects an unsafe or unofficial ingress URL: %s", (N8N_IMPORT_URL) => {
     expect(() =>
       environment.parseServerEnv({
         ...validEnvironment,
         N8N_IMPORT_URL,
       }),
     ).toThrow(/N8N_IMPORT_URL/);
+  });
+
+  it.each([
+    "https://automation.example.com/webhook/empresaqui/import",
+    "https://automation.example.com/webhook-test/empresaqui/import",
+  ])("accepts an official n8n webhook URL form: %s", (N8N_IMPORT_URL) => {
+    expect(
+      environment.parseServerEnv({
+        ...validEnvironment,
+        N8N_IMPORT_URL,
+      }).N8N_IMPORT_URL,
+    ).toBe(N8N_IMPORT_URL);
+  });
+
+  it("accepts absent deferred HMAC settings", () => {
+    const withoutHmac: Record<string, string | undefined> = {
+      ...validEnvironment,
+    };
+    delete withoutHmac.N8N_HMAC_KEY_ID;
+    delete withoutHmac.N8N_HMAC_SECRET;
+
+    expect(environment.parseServerEnv(withoutHmac)).toMatchObject({
+      N8N_IMPORT_URL:
+        "https://automation.example.com/webhook/empresaqui/import",
+      N8N_HMAC_KEY_ID: undefined,
+      N8N_HMAC_SECRET: undefined,
+    });
   });
 
   it("rejects an HMAC secret shorter than 32 bytes", () => {
@@ -96,19 +134,57 @@ describe("server environment", () => {
     ).toThrow(/N8N_HMAC_SECRET/);
   });
 
+  it("starts without deferred role settings", () => {
+    const parsed = environment.parseServerEnv(validEnvironment);
+
+    expect(parsed).not.toHaveProperty("AUTH_ROLE_CLAIM");
+    expect(parsed).not.toHaveProperty("AUTH_ROLE_MAPPING");
+  });
+
+  it("starts without AUTH_ROLE_CLAIM when AUTH_ROLE_MAPPING is present", () => {
+    const parsed = environment.parseServerEnv({
+      ...validEnvironment,
+      AUTH_ROLE_MAPPING: "not-json",
+    });
+
+    expect(parsed).not.toHaveProperty("AUTH_ROLE_CLAIM");
+    expect(parsed).not.toHaveProperty("AUTH_ROLE_MAPPING");
+  });
+
+  it("starts without AUTH_ROLE_MAPPING when AUTH_ROLE_CLAIM is present", () => {
+    const parsed = environment.parseServerEnv({
+      ...validEnvironment,
+      AUTH_ROLE_CLAIM: " invalid role claim ",
+    });
+
+    expect(parsed).not.toHaveProperty("AUTH_ROLE_CLAIM");
+    expect(parsed).not.toHaveProperty("AUTH_ROLE_MAPPING");
+  });
+
   it.each([
     "not-json",
     "[]",
     '{"provider-reader":[]}',
-    '{"provider-reader":["reader","reader"]}',
-    '{" ":["reader"]}',
-  ])("rejects a malformed role map: %s", (AUTH_ROLE_MAPPING) => {
+    '{"provider-reader":["reader"]}',
+  ])("ignores deferred role settings: %s", (AUTH_ROLE_MAPPING) => {
+    const parsed = environment.parseServerEnv({
+      ...validEnvironment,
+      AUTH_ROLE_CLAIM: "https://prospecta.example.com/roles",
+      AUTH_ROLE_MAPPING,
+    });
+
+    expect(parsed).not.toHaveProperty("AUTH_ROLE_CLAIM");
+    expect(parsed).not.toHaveProperty("AUTH_ROLE_MAPPING");
+  });
+
+  it("does not require deferred role settings to be well formed", () => {
     expect(() =>
       environment.parseServerEnv({
         ...validEnvironment,
-        AUTH_ROLE_MAPPING,
+        AUTH_ROLE_CLAIM: " invalid role claim ",
+        AUTH_ROLE_MAPPING: "not-json",
       }),
-    ).toThrow(/AUTH_ROLE_MAPPING/);
+    ).not.toThrow();
   });
 
   it.each([
@@ -214,6 +290,7 @@ describe("server environment", () => {
       environment.parseServerEnv({
         ...validEnvironment,
         NEXT_PUBLIC_AUTH_DEV_BYPASS_ENABLED: "true",
+        NEXT_PUBLIC_FEATURE_IMPORTS_ENABLED: "true",
         NEXT_PUBLIC_N8N_HMAC_SECRET: leakedValue,
       }),
     ).toThrowError(
@@ -225,10 +302,13 @@ describe("server environment", () => {
 
   it("does not echo invalid values in validation errors", () => {
     const invalidSecret = "plain-text-secret-that-must-not-be-echoed";
+    const invalidUrl =
+      "https://url-value-must-not-be-echoed.example.com/unapproved";
 
     expect(() =>
       environment.parseServerEnv({
         ...validEnvironment,
+        N8N_IMPORT_URL: invalidUrl,
         N8N_HMAC_SECRET: invalidSecret,
         SENSITIVE_URL_HOSTS: "https://unsafe.example.com/private",
       }),
@@ -237,15 +317,22 @@ describe("server environment", () => {
         message: expect.not.stringContaining(invalidSecret),
       }),
     );
+
+    expect(() =>
+      environment.parseServerEnv({
+        ...validEnvironment,
+        N8N_IMPORT_URL: invalidUrl,
+      }),
+    ).toThrowError(
+      expect.objectContaining({
+        message: expect.not.stringContaining(invalidUrl),
+      }),
+    );
   });
 
   it("returns normalized validated server variables for valid input", () => {
     expect(environment.parseServerEnv(validEnvironment)).toEqual({
       ...validEnvironment,
-      AUTH_ROLE_MAPPING: {
-        "provider-reader": ["reader"],
-        "provider-manager": ["manager", "sensitive"],
-      },
       IMPORT_MAX_BYTES: 10_485_760,
       IMPORT_PRODUCER_TIMEOUT_MS: 15_000,
       SENSITIVE_URL_HOSTS: [
@@ -270,6 +357,12 @@ describe("server environment", () => {
     expect(source).toContain('import "server-only";');
     expect(parsed).not.toHaveProperty("NEXT_PUBLIC_DATABASE_URL");
     expect(parsed).not.toHaveProperty("NEXT_PUBLIC_N8N_HMAC_SECRET");
+    expect(parsed.N8N_HMAC_KEY_ID).toBe(
+      validEnvironment.N8N_HMAC_KEY_ID,
+    );
+    expect(parsed.N8N_HMAC_SECRET).toBe(
+      validEnvironment.N8N_HMAC_SECRET,
+    );
     expect(environment).not.toHaveProperty("clientEnv");
   });
 
@@ -289,8 +382,21 @@ describe("server environment", () => {
 
     expect(entries.map(([key]) => key)).toEqual(expectedEnvironmentKeys);
     expect(example).not.toContain("NEXT_PUBLIC_");
-    expect(valuesByKey.get("N8N_IMPORT_URL")).toContain("replace-");
+    expect(example).toContain(
+      "# Deferred external gate; not read by the application in this phase.",
+    );
+    expect(example).toContain("# AUTH_ROLE_CLAIM=");
+    expect(example).toContain("# AUTH_ROLE_MAPPING=");
+    expect(valuesByKey.has("AUTH_ROLE_CLAIM")).toBe(false);
+    expect(valuesByKey.has("AUTH_ROLE_MAPPING")).toBe(false);
+    expect(valuesByKey.get("N8N_IMPORT_URL")).toBe(
+      '"https://replace-n8n.example.com/webhook/empresaqui/import"',
+    );
     expect(valuesByKey.get("N8N_HMAC_SECRET")).toContain("replace-");
+    expect(example).toContain(
+      "# Deferred: optional and unused until T019 approves and tests authentication.",
+    );
+    expect(example).not.toContain("/webhook/prospecta/imports/v1");
     expect(valuesByKey.get("SENSITIVE_URL_HOSTS")).toBe(
       '"evidence.example.com,reports.example.com"',
     );

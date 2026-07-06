@@ -1,7 +1,7 @@
 # Batch Status Contract
 
-**Status:** APPROVED FOR IMPLEMENTATION — current workflow still cannot prove
-completion
+**Status:** APPROVED SEMANTIC TARGET — official webhook cannot yet prove
+durable acceptance or completion
 
 ## Principle
 
@@ -16,7 +16,7 @@ of a producer event is not success or failure, and an unavailable count is
 | `submissionId` | App | Stable app submission and audit identity |
 | `idempotencyKey` | App/producer contract | Replay identity; not shown in the main UI |
 | `fileSha256` | App/producer contract | Byte correlation; audit-only |
-| `producerBatchId` | Producer | Opaque producer batch identity |
+| `import_batch_id` | Producer | Batch identity returned by the official workflow |
 | `sourceRow` | Producer | Row position with approved header semantics |
 | `leadRunId` | Producer | Distinct analysis identity |
 
@@ -33,7 +33,7 @@ type BatchStatus =
 
 interface BatchSummary {
   submissionId: string;
-  producerBatchId: string | null;
+  import_batch_id: string | null;
   status: BatchStatus;
   submittedAt: string;
   acceptedAt: string | null;
@@ -76,7 +76,7 @@ advances to `COMPLETED` or chooses among conflicting facts.
 | State | Minimum evidence |
 | --- | --- |
 | `SUBMITTED` | Durable app submission exists; no validated producer acceptance |
-| `ACCEPTED` | Valid, durable `202` acceptance is stored |
+| `ACCEPTED` | Valid `202` response is backed by durable producer acceptance and is stored by the app |
 | `PROCESSING` | Acceptance exists and approved producer activity is observed, but batch completion is not proven |
 | `COMPLETED` | Producer has an explicit durable close fact and every accepted row identity has exactly one approved terminal outcome |
 | `INCOMPLETE` | Producer explicitly closes the batch while one or more accepted rows lack an approved terminal outcome |
@@ -96,13 +96,19 @@ approval and may differ by environment.
 - Counts are `null` when their source is absent, unavailable, or not approved.
 - Counts never derive from browser state.
 
-## Current Legacy Limitation
+## Current Official Workflow Limitation
 
-`company_validation_runs.import_batch_id` plus `source_row` can provide
-observations, but the current model has no batch master acceptance row or
-proven completion marker. Therefore it can support a clearly labeled legacy
-observation view, but not `SUBMITTED`, `ACCEPTED`, or `COMPLETED` under this
-contract.
+The official `EmpresaAqui_Webhook_Import_v1.json` workflow returns
+`import_batch_id` and `row_count` in a controlled `202` after extraction and
+normalization. Its response branch does not wait for a durable batch acceptance
+record. `company_validation_runs.import_batch_id` plus `source_row` can provide
+later observations, but the current model has no batch master acceptance row
+or proven completion marker.
+
+Therefore the response may be retained as an acknowledgement/correlation fact,
+but it cannot advance the batch to `ACCEPTED` or `COMPLETED` under this
+contract. `SUBMITTED` remains the last independently proven app status until
+durable acceptance evidence exists.
 
 ## Terminal Fact Contract
 

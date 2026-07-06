@@ -246,6 +246,7 @@ describe("GET /api/leads/:cnpj", () => {
       "validate-query",
       "repository",
     ]);
+    expect(requireApiSessionMock).toHaveBeenCalledOnce();
   });
 
   it("normalizes a formatted CNPJ and queries the default detail", async () => {

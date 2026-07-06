@@ -17,7 +17,15 @@ const {
     vi.fn<(query: LeadListQuery) => Promise<LeadListResult>>(),
   requireApiSessionMock:
     vi.fn<
-      () => Promise<{ readonly status: "authorized" }>
+      () => Promise<{
+        readonly status: "authorized";
+        readonly actor: {
+          readonly issuer: string;
+          readonly subject: string;
+          readonly organizationId: string;
+          readonly permissions: readonly [];
+        };
+      }>
     >(),
   validationObserver: vi.fn<(input: unknown) => void>(),
 }));
@@ -71,6 +79,15 @@ const syntheticLead: LeadSummary = {
   confidenceIndicator: "unknown",
   lastAnalysisAt: "2026-01-02T03:04:05.000Z",
 };
+const syntheticAuthorizationContext = {
+  status: "authorized",
+  actor: {
+    issuer: "https://issuer.example.test",
+    subject: "synthetic-route-subject",
+    organizationId: "synthetic-route-organization",
+    permissions: [],
+  },
+} as const;
 
 function createRequest(query = ""): NextRequest {
   return new NextRequest(`http://localhost/api/leads${query}`);
@@ -88,9 +105,7 @@ describe("GET /api/leads", () => {
     listLeadsMock.mockReset();
     validationObserver.mockReset();
 
-    requireApiSessionMock.mockResolvedValue({
-      status: "authorized",
-    });
+    requireApiSessionMock.mockResolvedValue(syntheticAuthorizationContext);
     listLeadsMock.mockResolvedValue({
       leads: [syntheticLead],
       total: 1,
@@ -139,7 +154,7 @@ describe("GET /api/leads", () => {
     const callOrder: string[] = [];
     requireApiSessionMock.mockImplementation(async () => {
       callOrder.push("authenticate");
-      return { status: "authorized" };
+      return syntheticAuthorizationContext;
     });
     validationObserver.mockImplementation(() => {
       callOrder.push("validate");
@@ -157,6 +172,7 @@ describe("GET /api/leads", () => {
       "validate",
       "repository",
     ]);
+    expect(requireApiSessionMock).toHaveBeenCalledOnce();
   });
 
   it("sends default pagination to the repository", async () => {
@@ -168,6 +184,16 @@ describe("GET /api/leads", () => {
       page: 1,
       pageSize: 20,
     });
+  });
+
+  it("does not serialize the server authorization actor", async () => {
+    const response = await routeModule.GET(createRequest());
+    const serialized = JSON.stringify(await response.json());
+
+    expect(response.status).toBe(200);
+    expect(serialized).not.toContain("synthetic-route-subject");
+    expect(serialized).not.toContain("synthetic-route-organization");
+    expect(serialized).not.toContain("https://issuer.example.test");
   });
 
   it("normalizes and forwards valid CNPJ, UF, and priority filters", async () => {

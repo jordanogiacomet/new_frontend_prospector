@@ -1,7 +1,7 @@
 # Authorization Policy
 
-**Status:** APPROVED FOR IMPLEMENTATION — identity-provider role assignment
-pending
+**Status:** AUTHENTICATION AND ORGANIZATION BOUNDARY IMPLEMENTED — granular
+authorization deferred
 
 ## Verified Actor Context
 
@@ -17,10 +17,15 @@ interface AuthorizedActor {
 ```
 
 Values come only from verified identity-provider claims and server-side policy.
-The current API context returns only `{ status: "authorized" }`; that is
-adequate for read-only access but not app-owned write auditing.
+The API guard now returns the verified actor to server-side route/service code;
+routes do not serialize that context into responses or errors.
 
-## Proposed Permissions
+In the current phase, only issuer, subject, and `AUTH_ALLOWED_ORG_ID` are used
+to authorize a private session. Provider role claims and client/token
+permission fields are ignored. `permissions` is retained as a future contract
+slot and is always `[]` for OIDC and development actors.
+
+## Deferred Permission Vocabulary
 
 | Permission | Capability |
 | --- | --- |
@@ -36,21 +41,32 @@ adequate for read-only access but not app-owned write auditing.
 Permissions are independent. `imports:create` does not imply
 `commercial:write` or `sensitive:read`.
 
-`commercial:write` permits stage, next action, activity, and note operations
-within the approved organization. Assignment changes additionally require
-`commercial:assign`.
+These names are reserved for the future granular-authorization gate. They do
+not grant capabilities in the current runtime, and no provider role is mapped
+to them.
 
 ## Enforcement Rules
 
 - Authentication and authorization run before body parsing, database work,
   hashing, file handling, or producer calls where the framework permits.
+- Current lead list/detail/history routes require a valid authenticated session
+  whose issuer and organization match server policy. They do not consume a
+  provider role or granular permission.
+- Mutation routes must apply the reusable same-origin guard after
+  current authentication/organization authorization and before body
+  processing. Once granular authorization is approved, its permission check
+  must occur in the same auth-first position. Missing, malformed, or
+  mismatched `Origin` headers fail closed; body fields are never an origin
+  authority.
 - Organization scope comes from the verified actor.
 - Client-supplied actor, organization, role, or permission fields are ignored
   and rejected when present in mutation payloads.
 - API and page authorization are both server-side.
-- Deny by default for unknown permissions and roles.
+- Provider roles are not requested, mapped, or trusted in this phase.
+- `requirePermission` remains deny-by-default infrastructure and is not used
+  by current lead routes while the permission source is unresolved.
 - Sensitive-content access is checked at response mapping, not only UI
-  rendering.
+  rendering after the granular-authorization and data-policy gates pass.
 - Private responses use `Cache-Control: private, no-store`.
 - Authorization failures return safe `401`/`403` envelopes.
 
@@ -70,31 +86,25 @@ Every app-owned write records:
 Do not audit secrets, session tokens, SQL parameters, CSV content, contact
 values, notes, report text, or evidence bodies in general-purpose logs.
 
-## Role Assignment
+## Deferred Granular Authorization Gate
 
-Application code consumes permissions, not provider-specific role names. The
-role claim name and role-to-permission assignment are server-owned
-configuration and deny by default. The following permission bundles are the
-implementation model; identity owners must map exact provider roles before
-integration:
+`AUTH_ROLE_CLAIM` and `AUTH_ROLE_MAPPING` are not runtime configuration in this
+phase. They are absent from the parsed environment, commented in
+`.env.example`, and must not be used to grant access.
 
-| Bundle | Permissions |
-| --- | --- |
-| Reader | `leads:read`, `imports:read`, `commercial:read` |
-| Seller | Reader + `commercial:write` |
-| Manager | Seller + `imports:create`, `commercial:assign` |
-| Auditor | `leads:read`, `imports:read`, `commercial:read`, `audit:read` |
-| Sensitive overlay | `sensitive:read`, assigned only after data-policy approval |
-
-No bundle automatically grants `sensitive:read` in production. Its provider
-assignment, revocation latency, emergency access, and audit-reader eligibility
-remain external approval gates.
+Before any route depends on a granular permission, identity and security owners
+must approve and test the permission source, assignment semantics, revocation
+latency, organization binding, emergency access, and audit behavior. That
+future mechanism may use provider roles or another server-owned source, but no
+choice is made by the current implementation.
 
 ## Verification
 
 - Missing and expired sessions return `401`.
-- Wrong issuer/organization and absent permissions return `403`.
+- Wrong issuer/organization returns `403`.
+- OIDC role claims and stale token permissions do not change current access or
+  populate actor permissions.
 - Identity fields survive from token validation to the audit transaction.
 - Cross-organization identifiers fail closed.
-- Sensitive mappers withhold content without `sensitive:read`.
-- Revoked permissions are not accepted after the approved session lifetime.
+- Sensitive and other granular capabilities remain feature-gated until their
+  permission source and revocation behavior are approved.

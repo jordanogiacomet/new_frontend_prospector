@@ -3,7 +3,7 @@ import "server-only";
 import type { JWT } from "next-auth/jwt";
 import type { NextAuthConfig, Profile } from "next-auth";
 
-import type { ProspectaServerEnv, ServerEnv } from "../env";
+import type { ServerEnv } from "../env";
 import {
   authorizeIdentityClaims,
   authorizeRetainedActor,
@@ -29,11 +29,7 @@ type ApplicationAuthConfig = NextAuthConfig & {
   };
 };
 
-type AuthEnvironment = ServerEnv &
-  Pick<
-    ProspectaServerEnv,
-    "AUTH_ROLE_CLAIM" | "AUTH_ROLE_MAPPING"
-  >;
+type AuthEnvironment = ServerEnv;
 
 export function createAuthorizationPolicy(
   environment: AuthEnvironment,
@@ -41,8 +37,6 @@ export function createAuthorizationPolicy(
   return {
     issuer: environment.AUTH_OIDC_ISSUER,
     organizationId: environment.AUTH_ALLOWED_ORG_ID,
-    roleClaim: environment.AUTH_ROLE_CLAIM,
-    roleBundles: environment.AUTH_ROLE_MAPPING,
   };
 }
 
@@ -51,7 +45,6 @@ function tokenActor(token: JWT): Record<string, unknown> {
     issuer: token.verifiedIssuer,
     subject: token.subject,
     organizationId: token.organizationId,
-    permissions: token.permissions,
   };
 }
 

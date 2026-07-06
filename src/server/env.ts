@@ -15,11 +15,9 @@ export interface ServerEnv {
 export interface ProspectaServerEnv {
   PRODUCER_DATABASE_URL: string;
   APP_DATABASE_URL: string;
-  AUTH_ROLE_CLAIM: string;
-  AUTH_ROLE_MAPPING: Readonly<Record<string, readonly string[]>>;
   N8N_IMPORT_URL: string;
-  N8N_HMAC_KEY_ID: string;
-  N8N_HMAC_SECRET: string;
+  N8N_HMAC_KEY_ID: string | undefined;
+  N8N_HMAC_SECRET: string | undefined;
   IMPORT_MAX_BYTES: number;
   IMPORT_PRODUCER_TIMEOUT_MS: number;
   SENSITIVE_URL_HOSTS: readonly string[];
@@ -34,7 +32,10 @@ export type ParsedServerEnv = ServerEnv & ProspectaServerEnv;
 type EnvironmentInput = Record<string, string | undefined>;
 
 const IMPORT_MAX_BYTES_LIMIT = 10 * 1024 * 1024;
-const IMPORT_PATH = "/webhook/prospecta/imports/v1";
+const N8N_IMPORT_PATHS = new Set([
+  "/webhook/empresaqui/import",
+  "/webhook-test/empresaqui/import",
+]);
 
 const serverOnlyNames = [
   "DATABASE_URL",
@@ -54,6 +55,10 @@ const serverOnlyNames = [
   "IMPORT_MAX_BYTES",
   "IMPORT_PRODUCER_TIMEOUT_MS",
   "SENSITIVE_URL_HOSTS",
+  "FEATURE_IMPORTS_ENABLED",
+  "FEATURE_BATCH_OBSERVATION_ENABLED",
+  "FEATURE_COMMERCIAL_ENABLED",
+  "FEATURE_SENSITIVE_CONTENT_ENABLED",
 ] as const;
 
 function readRequired(
@@ -69,6 +74,17 @@ function readRequired(
   }
 
   return value;
+}
+
+function readOptional(
+  input: EnvironmentInput,
+  name: string,
+): string | undefined {
+  const value = input[name];
+
+  return value === undefined || value.trim() === ""
+    ? undefined
+    : value;
 }
 
 function validateDatabaseUrl(
@@ -99,7 +115,7 @@ function validateHttpsUrl(
   name: string,
   value: string,
   errors: string[],
-  requiredPath?: string,
+  allowedPaths?: ReadonlySet<string>,
 ): void {
   try {
     const url = new URL(value);
@@ -111,12 +127,12 @@ function validateHttpsUrl(
       url.password ||
       url.search ||
       url.hash ||
-      (requiredPath !== undefined && url.pathname !== requiredPath)
+      (allowedPaths !== undefined && !allowedPaths.has(url.pathname))
     ) {
-      errors.push(`${name} must be an approved absolute HTTPS URL`);
+      errors.push(`${name} must be an approved HTTPS URL`);
     }
   } catch {
-    errors.push(`${name} must be an approved absolute HTTPS URL`);
+    errors.push(`${name} must be an approved HTTPS URL`);
   }
 }
 
@@ -163,56 +179,6 @@ function parseOptionalBoolean(
   errors: string[],
 ): boolean {
   return value === undefined ? false : parseBoolean(name, value, errors);
-}
-
-function parseRoleMapping(
-  value: string,
-  errors: string[],
-): Readonly<Record<string, readonly string[]>> {
-  try {
-    const parsed: unknown = JSON.parse(value);
-
-    if (
-      typeof parsed !== "object" ||
-      parsed === null ||
-      Array.isArray(parsed)
-    ) {
-      throw new Error();
-    }
-
-    const mapping: Record<string, readonly string[]> = {};
-
-    for (const [providerRole, bundles] of Object.entries(parsed)) {
-      if (
-        providerRole.trim() !== providerRole ||
-        providerRole.length === 0 ||
-        providerRole.length > 256 ||
-        !Array.isArray(bundles) ||
-        bundles.length === 0 ||
-        !bundles.every(
-          (bundle): bundle is string =>
-            typeof bundle === "string" &&
-            bundle.trim() === bundle &&
-            bundle.length > 0 &&
-            bundle.length <= 128,
-        ) ||
-        new Set(bundles).size !== bundles.length
-      ) {
-        throw new Error();
-      }
-
-      mapping[providerRole] = [...bundles];
-    }
-
-    if (Object.keys(mapping).length === 0) {
-      throw new Error();
-    }
-
-    return mapping;
-  } catch {
-    errors.push("AUTH_ROLE_MAPPING must be a valid role-to-bundle JSON object");
-    return {};
-  }
 }
 
 function normalizeHostname(value: string): string | null {
@@ -309,11 +275,9 @@ export function parseServerEnv(input: EnvironmentInput): ParsedServerEnv {
       "AUTH_ALLOWED_ORG_ID",
       errors,
     ),
-    AUTH_ROLE_CLAIM: readRequired(input, "AUTH_ROLE_CLAIM", errors),
-    AUTH_ROLE_MAPPING: readRequired(input, "AUTH_ROLE_MAPPING", errors),
     N8N_IMPORT_URL: readRequired(input, "N8N_IMPORT_URL", errors),
-    N8N_HMAC_KEY_ID: readRequired(input, "N8N_HMAC_KEY_ID", errors),
-    N8N_HMAC_SECRET: readRequired(input, "N8N_HMAC_SECRET", errors),
+    N8N_HMAC_KEY_ID: readOptional(input, "N8N_HMAC_KEY_ID"),
+    N8N_HMAC_SECRET: readOptional(input, "N8N_HMAC_SECRET"),
     IMPORT_MAX_BYTES: readRequired(input, "IMPORT_MAX_BYTES", errors),
     IMPORT_PRODUCER_TIMEOUT_MS: readRequired(
       input,
@@ -363,13 +327,6 @@ export function parseServerEnv(input: EnvironmentInput): ParsedServerEnv {
     validateHttpsUrl("AUTH_OIDC_ISSUER", raw.AUTH_OIDC_ISSUER, errors);
   }
 
-  if (
-    raw.AUTH_ROLE_CLAIM &&
-    (raw.AUTH_ROLE_CLAIM.length > 256 || /\s/.test(raw.AUTH_ROLE_CLAIM))
-  ) {
-    errors.push("AUTH_ROLE_CLAIM must be a valid claim name");
-  }
-
   const authDevelopmentBypassEnabled = parseOptionalBoolean(
     "AUTH_DEV_BYPASS_ENABLED",
     input.AUTH_DEV_BYPASS_ENABLED,
@@ -388,7 +345,7 @@ export function parseServerEnv(input: EnvironmentInput): ParsedServerEnv {
       "N8N_IMPORT_URL",
       raw.N8N_IMPORT_URL,
       errors,
-      IMPORT_PATH,
+      N8N_IMPORT_PATHS,
     );
   }
 
@@ -416,8 +373,6 @@ export function parseServerEnv(input: EnvironmentInput): ParsedServerEnv {
     AUTH_OIDC_CLIENT_SECRET: raw.AUTH_OIDC_CLIENT_SECRET,
     AUTH_ALLOWED_ORG_ID: raw.AUTH_ALLOWED_ORG_ID,
     AUTH_DEV_BYPASS_ENABLED: authDevelopmentBypassEnabled,
-    AUTH_ROLE_CLAIM: raw.AUTH_ROLE_CLAIM,
-    AUTH_ROLE_MAPPING: parseRoleMapping(raw.AUTH_ROLE_MAPPING, errors),
     N8N_IMPORT_URL: raw.N8N_IMPORT_URL,
     N8N_HMAC_KEY_ID: raw.N8N_HMAC_KEY_ID,
     N8N_HMAC_SECRET: raw.N8N_HMAC_SECRET,

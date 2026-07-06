@@ -15,16 +15,19 @@ not be retained merely for convenience.
 ## Decision
 
 - Do not store CSV bytes in PostgreSQL.
-- Accept one file up to 10 MiB and prefer direct server-side forwarding to the
-  early-accepting producer ingress.
+- Accept one file up to 10 MiB on the app side and prefer direct server-side
+  forwarding to the official EmpresaAqui webhook after its security and
+  runtime contract pass. Its current `202` is not proven durable acceptance.
 - If temporary storage is required, use an approved encrypted mechanism with a
   short fixed TTL and access limited to the import service role.
 - Store only allowlisted metadata in `import_submissions`: sanitized filename,
   byte count, approved MIME type, SHA-256, timestamps, actor, contract version,
-  and producer acceptance identifiers.
+  returned producer acknowledgement identifiers, plus durable-acceptance facts
+  only when independently proven.
 - The implementation baseline uses request-scoped memory only. Release byte
-  references immediately after validated acceptance, rejection, or request
-  termination.
+  references immediately after the validated workflow response, rejection, or
+  request termination; do not label that response durable acceptance unless
+  the producer contract later proves it.
 - If later approved temporary storage is required, delete bytes after durable
   acceptance or at the TTL, whichever
   occurs first, subject to an explicit rule for unknown acceptance.
