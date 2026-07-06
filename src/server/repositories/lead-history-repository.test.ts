@@ -8,11 +8,11 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("server-only", () => ({}));
-vi.mock("../db/client", () => ({
+vi.mock("../db/producer-client", () => ({
   query: mocks.query,
 }));
 
-import type { SqlStatement } from "../db/client";
+import type { SqlStatement } from "../db/producer-client";
 import { SafeApiError } from "../api/errors";
 import { listLeadHistory } from "./lead-history-repository";
 
@@ -407,7 +407,7 @@ describe("listLeadHistory", () => {
     );
 
     expect(repositorySource).toContain('import "server-only";');
-    expect(repositorySource).toContain('from "../db/client"');
+    expect(repositorySource).toContain('from "../db/producer-client"');
     expect(repositorySource).toContain("LeadHistoryQuery");
     expect(repositorySource).toContain("LeadHistoryItem");
     expect(repositorySource).toContain("LeadHistoryRow");
@@ -419,5 +419,6 @@ describe("listLeadHistory", () => {
     expect(repositorySource).not.toMatch(
       /from\s+["']pg["']|new\s+Pool|fetch\(|axios|n8n|webhook/i,
     );
+    expect(repositorySource).not.toContain("../db/app-client");
   });
 });

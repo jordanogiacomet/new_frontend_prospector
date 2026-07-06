@@ -2,8 +2,8 @@
 
 **Spec:** `.specs/features/prospecting-console/spec.md`  
 **Design:** `.specs/features/prospecting-console/design.md`  
-**Status:** IN PROGRESS — private access consolidated through T007; official
-n8n contract integration remains gated
+**Status:** IN PROGRESS — database boundary and app-owned schema migration
+consolidated through T009; official n8n contract integration remains gated
 
 **Historical baseline:** 31 Vitest files / 494 tests passing on 2026-07-03
 
@@ -117,6 +117,96 @@ n8n contract integration remains gated
 - `git diff --check`: passed.
 - No `/api/imports`, n8n client/call, database change, migration, granular
   role authorization, feature activation, or real data was introduced.
+
+## T008 Database Boundary Gate — 2026-07-06
+
+- T008 is complete for local/synthetic repository implementation: producer
+  reads use `src/server/db/producer-client.ts` with
+  `PRODUCER_DATABASE_URL`, `application_name=prospecta-producer-read`, and
+  bounded pool/timeouts; app-owned access uses
+  `src/server/db/app-client.ts` with `APP_DATABASE_URL`,
+  `application_name=prospecta-app-write`, and the same safe limits.
+- The former generic `src/server/db/client.ts` was removed so current modules
+  must choose producer-read or app-owned ownership explicitly.
+- Lead list, detail, and history repositories now import only the
+  producer-read client. Their SQL, DTO mapping, nullable behavior, guards, and
+  API-facing behavior were preserved by the existing repository tests.
+- Focused gate:
+  `pnpm vitest run src/server/db/producer-client.test.ts src/server/db/app-client.test.ts src/server/repositories/lead-list-repository.test.ts src/server/repositories/lead-detail-repository.test.ts src/server/repositories/lead-history-repository.test.ts`
+  passed: 5 files / 66 tests.
+- `pnpm typecheck`: passed.
+- `pnpm lint`: passed with the same two pre-existing unused-variable warnings
+  in `src/server/auth/auth.test.ts`.
+- `pnpm test`: passed: 33 files / 606 tests.
+- `pnpm build`: passed with process-only synthetic
+  `N8N_IMPORT_URL=https://build-placeholder.example.com/webhook/empresaqui/import`;
+  `.env.local` was not inspected or changed.
+- `git diff --check`: passed.
+- Limitation: no real PostgreSQL role/grant integration was executed; that
+  remains T009/T010 with disposable PostgreSQL target X2. `test:integration`
+  still does not exist in `package.json`.
+- The login shell still emits the pre-existing missing Snap/VS Code
+  profile-path warning; it did not change command exit status.
+- No `/api/imports`, n8n client/call, migration, producer write, real database
+  connection, production target, feature activation, or real data was used or
+  introduced.
+
+## T009 App Schema Migration Gate — 2026-07-06
+
+- T009 is complete for the authorized local/disposable X2 target. The migration
+  artifacts are reviewed SQL files under `db/app/`: forward, rollback, and
+  grants/role assumptions.
+- Forward migration creates the app-owned `prospecting_app` schema with:
+  `import_submissions`, `import_submission_events`, `lead_workspaces`,
+  `lead_activities`, `lead_notes`, and `commercial_audit_events`.
+- The schema enforces organization scope on every table, checked bounded text,
+  CNPJ/hash/status/stage/content-type constraints, app-scoped foreign keys with
+  `RESTRICT` and no cascade, organization-scoped import idempotency uniqueness,
+  organization-scoped producer batch uniqueness, active workspace uniqueness,
+  and read/write indexes for imports, workspaces, activities, notes, and audit.
+- Append-only design is enforced for `import_submission_events`,
+  `lead_activities`, `lead_notes`, and `commercial_audit_events` through
+  mutation-rejecting triggers. The grants file gives the assumed runtime role
+  `SELECT, INSERT` only on those append-only tables and grants no producer
+  object access.
+- Rollback was verified through the integration suite and drops only the
+  objects created by the forward migration, without `CASCADE`.
+- Target validation:
+  `PROSPECTA_APP_TEST_DATABASE_URL=postgresql://localhost:5432/prospecta_t009_test`
+  passed the localhost/database guard before DB tests. Authentication used
+  process-only `PGUSER=postgres` and redacted `PGPASSWORD`; no `.env.local`,
+  `APP_DATABASE_URL`, or `PRODUCER_DATABASE_URL` was used for migration tests.
+- RED check:
+  `PROSPECTA_APP_TEST_DATABASE_URL=postgresql://localhost:5432/prospecta_t009_test pnpm test:integration`
+  failed before SQL existed with `ENOENT` for
+  `db/app/001_app_schema_forward.sql`, proving the harness required the
+  migration artifact.
+- Initial DB run without credentials reached localhost PostgreSQL but failed
+  with SCRAM authentication, then the provided X2 password was used only as a
+  process variable. A grouped grants assertion then failed at 15/16 tests and
+  was corrected by making append-only table grants explicit per table.
+- Final DB gate:
+  `PGUSER=postgres PGPASSWORD=<redacted> PROSPECTA_APP_TEST_DATABASE_URL=postgresql://localhost:5432/prospecta_t009_test pnpm test:integration`
+  passed: 1 file / 16 tests.
+- Final rollback residue check:
+  `PGUSER=postgres PGPASSWORD=<redacted> psql -h localhost -p 5432 -d prospecta_t009_test -tAc "select to_regnamespace('prospecting_app') is null as schema_removed"`
+  returned `t`.
+- `pnpm typecheck`: passed.
+- `pnpm lint`: passed with the same two pre-existing unused-variable warnings
+  in `src/server/auth/auth.test.ts`.
+- `pnpm test`: passed: 33 files / 606 tests.
+- `pnpm build`: passed with process-only synthetic server env values; Next.js
+  reported `.env.local` presence during build loading, but the migration and
+  integration gate did not use `.env.local`.
+- Forbidden SQL reference scan:
+  `rg -n "REFERENCES\\s+(public|producer|company_|crm|n8n)|company_validations|company_validation_runs|company_strategic_research_reports|PRODUCER_DATABASE_URL|APP_DATABASE_URL|N8N|webhook" db/app`
+  returned no matches.
+- `git diff --check`: passed.
+- Limitation: the disposable DB proof used the local `postgres` login because
+  T010 role-isolation roles are not provisioned yet. T010 remains responsible
+  for proving least-privilege producer/app role denial. No production
+  migration, producer table, n8n workflow, app import route, repository
+  implementation, feature activation, real CSV, or real data was used.
 
 ## Execution Rules
 

@@ -5,8 +5,8 @@ import { Pool, type QueryResultRow } from "pg";
 import { getServerEnv } from "../env";
 
 const pool = new Pool({
-  connectionString: getServerEnv().DATABASE_URL,
-  application_name: "read-only-lead-browser",
+  connectionString: getServerEnv().APP_DATABASE_URL,
+  application_name: "prospecta-app-write",
   min: 0,
   max: 2,
   connectionTimeoutMillis: 1_000,

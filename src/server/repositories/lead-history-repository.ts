@@ -6,7 +6,10 @@ import {
 } from "../../lib/validators/lead-query";
 import type { LeadHistoryItem } from "../../types/leads";
 import { SafeApiError } from "../api/errors";
-import { query as databaseQuery, type SqlStatement } from "../db/client";
+import {
+  query as databaseQuery,
+  type SqlStatement,
+} from "../db/producer-client";
 import {
   mapLeadHistoryItem,
   type LeadHistoryRow,

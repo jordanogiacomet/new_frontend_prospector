@@ -8,11 +8,11 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("server-only", () => ({}));
-vi.mock("../db/client", () => ({
+vi.mock("../db/producer-client", () => ({
   query: mocks.query,
 }));
 
-import type { SqlStatement } from "../db/client";
+import type { SqlStatement } from "../db/producer-client";
 import { SafeApiError } from "../api/errors";
 import { listLeads } from "./lead-list-repository";
 
@@ -471,12 +471,12 @@ describe("listLeads", () => {
       "utf8",
     );
     const clientSource = readFileSync(
-      resolve(process.cwd(), "src/server/db/client.ts"),
+      resolve(process.cwd(), "src/server/db/producer-client.ts"),
       "utf8",
     );
 
     expect(repositorySource).toContain('import "server-only";');
-    expect(repositorySource).toContain('from "../db/client"');
+    expect(repositorySource).toContain('from "../db/producer-client"');
     expect(repositorySource).toContain("mapLeadSummary");
     expect(repositorySource).toContain("LeadSummaryRow");
     expect(repositorySource).toContain("LeadListQuery");
@@ -487,6 +487,7 @@ describe("listLeads", () => {
     expect(repositorySource).not.toMatch(
       /from\s+["']pg["']|new\s+Pool|fetch\(|axios|n8n|webhook/i,
     );
+    expect(repositorySource).not.toContain("../db/app-client");
     expect(clientSource).toMatch(/\bmax:\s*2\b/);
     expect(repositorySource).not.toMatch(/\bmax:\s*[3-9]\b/);
   });

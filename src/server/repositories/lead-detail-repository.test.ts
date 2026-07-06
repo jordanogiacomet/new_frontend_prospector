@@ -8,11 +8,11 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("server-only", () => ({}));
-vi.mock("../db/client", () => ({
+vi.mock("../db/producer-client", () => ({
   query: mocks.query,
 }));
 
-import type { SqlStatement } from "../db/client";
+import type { SqlStatement } from "../db/producer-client";
 import { getLeadDetail } from "./lead-detail-repository";
 
 const syntheticCnpj = "11222333000181";
@@ -344,12 +344,13 @@ describe("getLeadDetail", () => {
     );
 
     expect(repositorySource).toContain('import "server-only";');
-    expect(repositorySource).toContain('from "../db/client"');
+    expect(repositorySource).toContain('from "../db/producer-client"');
     expect(repositorySource).toContain("mapLeadDetail");
     expect(repositorySource).toContain("LeadDetailRow");
     expect(repositorySource).not.toMatch(/\bany\b/);
     expect(repositorySource).not.toMatch(
       /from\s+["']pg["']|new\s+Pool|fetch\(|axios|n8n|webhook/i,
     );
+    expect(repositorySource).not.toContain("../db/app-client");
   });
 });

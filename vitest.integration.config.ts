@@ -2,17 +2,12 @@ import { configDefaults, defineConfig } from "vitest/config";
 
 export default defineConfig({
   test: {
-    environment: "jsdom",
-    setupFiles: ["./vitest.setup.ts"],
-    include: [
-      "src/**/*.test.{ts,tsx}",
-      "tests/**/*.test.{ts,tsx}",
-    ],
+    environment: "node",
+    include: ["tests/integration/**/*.test.ts"],
     exclude: [
       ...configDefaults.exclude,
       "**/{.next,out,build,coverage}/**",
       "**/{dumps,production-dumps,real-data}/**",
-      "tests/integration/**",
       "docs/db/**",
       "**/*.{csv,dump,sql}",
     ],

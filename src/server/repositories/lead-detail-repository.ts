@@ -2,7 +2,10 @@ import "server-only";
 
 import { leadRunIdPattern } from "../../lib/validators/lead-query";
 import type { LeadDetail } from "../../types/leads";
-import { query as databaseQuery, type SqlStatement } from "../db/client";
+import {
+  query as databaseQuery,
+  type SqlStatement,
+} from "../db/producer-client";
 import {
   mapLeadDetail,
   type LeadDetailRow,

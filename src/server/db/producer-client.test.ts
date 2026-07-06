@@ -22,22 +22,26 @@ vi.mock("pg", () => ({ Pool: mocks.Pool }));
 vi.mock("../env", () => ({
   getServerEnv: () => ({
     DATABASE_URL:
-      "postgresql://readonly_user:sensitive-password@db.example.test/leads",
+      "postgresql://legacy_user:legacy-password@legacy.example.test/legacy",
+    PRODUCER_DATABASE_URL:
+      "postgresql://producer_reader:sensitive-password@producer.example.test/leads",
+    APP_DATABASE_URL:
+      "postgresql://prospecta_app:app-password@app.example.test/prospecta",
   }),
 }));
 
-import * as database from "./client";
+import * as database from "./producer-client";
 
-describe("server-only PostgreSQL client", () => {
+describe("producer PostgreSQL client", () => {
   beforeEach(() => {
     mocks.pool.query.mockReset();
   });
 
-  it("configures the approved bounded pool and statement timeouts", () => {
+  it("configures the producer-read pool with its own URL, name, and limits", () => {
     expect(mocks.Pool).toHaveBeenCalledWith({
       connectionString:
-        "postgresql://readonly_user:sensitive-password@db.example.test/leads",
-      application_name: "read-only-lead-browser",
+        "postgresql://producer_reader:sensitive-password@producer.example.test/leads",
+      application_name: "prospecta-producer-read",
       min: 0,
       max: 2,
       connectionTimeoutMillis: 1_000,
@@ -80,10 +84,10 @@ describe("server-only PostgreSQL client", () => {
     ).resolves.toEqual(rows);
   });
 
-  it("maps driver failures to a safe error", async () => {
+  it("maps driver failures to a safe error without credentials or causes", async () => {
     mocks.pool.query.mockRejectedValueOnce(
       new Error(
-        "connect ECONNREFUSED db.example.test with sensitive-password",
+        "connect ECONNREFUSED producer.example.test with sensitive-password",
       ),
     );
 
@@ -99,14 +103,14 @@ describe("server-only PostgreSQL client", () => {
       }),
     );
     expect(String(error)).not.toMatch(
-      /db\.example\.test|sensitive-password|ECONNREFUSED/,
+      /producer\.example\.test|sensitive-password|ECONNREFUSED/,
     );
     expect(error).not.toHaveProperty("cause");
   });
 
   it("is guarded as server-only and exposes no pool or mutation helper", () => {
     const source = readFileSync(
-      resolve(process.cwd(), "src/server/db/client.ts"),
+      resolve(process.cwd(), "src/server/db/producer-client.ts"),
       "utf8",
     );
 
@@ -120,5 +124,19 @@ describe("server-only PostgreSQL client", () => {
     expect(database).not.toHaveProperty("transaction");
     expect(database).not.toHaveProperty("migrate");
     expect(database).not.toHaveProperty("write");
+  });
+
+  it("does not use app ownership, browser APIs, n8n, fetch, or generic credentials", () => {
+    const source = readFileSync(
+      resolve(process.cwd(), "src/server/db/producer-client.ts"),
+      "utf8",
+    );
+
+    expect(source).toContain("PRODUCER_DATABASE_URL");
+    expect(source).not.toMatch(/\bAPP_DATABASE_URL\b|\bDATABASE_URL\b/);
+    expect(source).not.toMatch(
+      /from\s+["']\.\/app-client["']|fetch\(|XMLHttpRequest|window\.|document\.|localStorage|navigator\.|n8n|N8N|webhook/i,
+    );
+    expect(source).not.toContain("prospecta-app-write");
   });
 });
