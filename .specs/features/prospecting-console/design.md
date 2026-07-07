@@ -13,9 +13,10 @@ server-side PostgreSQL connection. The official current EmpresaAqui ingress is
 webhook, creates `import_batch_id` internally, returns a controlled `202`, and
 writes existing producer objects.
 
-The App API does not yet integrate with that webhook, and no app-owned write
-schema exists. Static workflow mapping does not establish a secured,
-non-production endpoint or production readiness.
+The App API does not yet integrate with that webhook. The app-owned schema and
+role isolation are implemented and tested locally, and the webhook has partial
+runtime evidence against the named internal target. The target is deliberately
+not treated as secured, durable, or production-ready.
 
 ## Target Architecture
 
@@ -33,9 +34,9 @@ flowchart LR
 ```
 
 This architecture is authorized for repository and synthetic/local
-implementation. Each external edge remains disabled until its target,
-credential, owner, and contract evidence are identified. Production activation
-is a separate approval.
+implementation. The identified internal n8n edge may be enabled after the
+upload slice passes its application tests and controlled UAT; it uses HTTP and
+zero authentication headers. Production activation is a separate approval.
 
 The App API, and only the App API, will call the official n8n webhook
 server-side. The frontend always calls Prospecta routes and never calls,
@@ -45,8 +46,8 @@ receives, logs, or embeds the n8n URL.
 
 | Boundary | Required control |
 | --- | --- |
-| Browser → App API | Current: OIDC session plus exact issuer/organization authorization; CSRF protections and validation. Granular permissions remain externally gated |
-| App API → official n8n webhook | Current shape is `POST` multipart `arquivo_csv`; HTTPS, authentication/HMAC, replay, idempotency, size/rate limits, and tested errors remain required gaps |
+| Browser → App API | Internal import MVP: OIDC session, exact issuer/subject/allowed organization, same-origin mutation guard, server-side feature flag, and validation. Granular permissions remain required for production and other capabilities |
+| App API → official n8n webhook | Internal profile: one HTTP `POST` multipart `arquivo_csv`, zero authentication headers, safe response mapping, and no automatic retry. HTTPS, authentication/replay, producer idempotency, and stronger limits/errors remain production hardening |
 | App API → producer database | Separate role with `SELECT` only on allowlisted sources |
 | App API → app schema | Separate role with minimum CRUD privileges and transaction-scoped audit |
 | Producer → producer database | Owned and operated outside this app |
@@ -100,9 +101,12 @@ These are contractual component boundaries, not implementation tasks.
   actual response, and persist only facts that the contract proves.
 - **Proposed location:** `src/server/imports/`.
 - **Key rule:** it never parses business rows or reproduces n8n semantics.
-- **Activation gate:** do not implement the client or route until T018/T019
-  prove a secured non-production contract and resolve acknowledgement versus
-  durable acceptance.
+- **Internal activation gate:** client, service, route, and UI may be
+  implemented now against the observed acknowledgement contract. The feature
+  remains off by default until their tests and controlled internal UAT pass.
+- **State rule:** app submission, workflow acknowledgement, durable acceptance,
+  and completion are separate facts. The internal profile currently supports
+  only the first two plus an unknown outcome.
 
 ### Official n8n integration configuration
 
@@ -113,11 +117,13 @@ These are contractual component boundaries, not implementation tasks.
 - **Deferred authentication settings:** `N8N_HMAC_KEY_ID` and
   `N8N_HMAC_SECRET` may remain optional and server-only, but are unused because
   the official workflow does not validate HMAC.
+- **Internal header rule:** emit zero authentication headers even if deferred
+  HMAC placeholders are configured.
 - **Exposure rule:** no n8n URL, key ID, secret, signature, or internal endpoint
   may use `NEXT_PUBLIC_*` or enter frontend bundles/responses.
-- **Activation rule:** `FEATURE_IMPORTS_ENABLED` remains `false` until T019
-  defines and proves the server-to-server authentication mechanism and the
-  remaining ingress contract.
+- **Activation rule:** `FEATURE_IMPORTS_ENABLED` remains `false` by default. It
+  may be enabled only for the identified internal target after T013–T017 and
+  controlled UAT pass. Production requires the deferred security contract.
 - **Current response:** HTTP `202` JSON with `accepted`, `message`,
   `import_batch_id`, `row_count`, and `source`.
 
@@ -153,9 +159,9 @@ Proposed future endpoints:
 
 | Endpoint | Purpose | Permission |
 | --- | --- | --- |
-| `POST /api/imports` | Submit one approved CSV | `imports:create` |
-| `GET /api/imports` | Paginated batch list | `imports:read` |
-| `GET /api/imports/:id` | Batch facts and correlated observations | `imports:read` |
+| `POST /api/imports` | Submit one approved CSV | Internal: verified allowed-organization actor + same-origin + feature flag; production: `imports:create` |
+| `GET /api/imports` | Paginated batch list | Internal: verified allowed-organization actor + feature flag; production: `imports:read` |
+| `GET /api/imports/:id` | Batch facts and correlated observations | Internal: verified allowed-organization actor + feature flag; production: `imports:read` |
 | `GET /api/work-queue` | Paginated commercial queue | `commercial:read` |
 | `PATCH /api/workspaces/:id` | Assignment/stage/next action | `commercial:write` |
 | `POST /api/workspaces/:id/activities` | Append commercial activity | `commercial:write` |
@@ -177,7 +183,7 @@ controlled error branch.
 | Idempotency key/hash conflict | `409` safe envelope | Submission conflicts with an earlier file |
 | File too large | `413` safe envelope | File exceeds approved limit |
 | Rate limited | `429` safe envelope | Try again later; no automatic retry |
-| Producer unavailable before acknowledgement | Safe mapped envelope after T019 | Submission recorded; producer outcome unknown |
+| Producer unavailable before acknowledgement | Safe generic app envelope; producer body withheld | Submission recorded; producer outcome unknown |
 | Producer data unavailable after acknowledgement | Safe envelope or nullable observation | Acknowledgement retained; durable acceptance/processing unavailable |
 | Optimistic commercial conflict | `409` safe envelope | Refresh before changing ownership/state |
 
@@ -191,19 +197,27 @@ controlled error branch.
 | CSV validation | Superficial only | Prevents duplicate qualification logic |
 | Browser upload body | Raw CSV bytes plus sanitized metadata headers | Avoids browser-to-n8n access and preserves exact bytes |
 | App-to-n8n upload body | `multipart/form-data` field/binary `arquivo_csv` | Matches the official workflow; it reads no prior proposed metadata fields |
-| Upload envelope | App-side 10 MiB/UTF-8/`.csv` baseline; producer limits unproven | Bounded app default still requires non-production compatibility evidence |
+| Upload envelope | App-side 10 MiB/UTF-8/`.csv` baseline; producer limits unproven | Bounded internal default; timeout or incompatible producer response remains unknown, with no retry |
 | Commercial history | Append-only events plus current workspace | Supports audit and efficient queue reads |
 | Producer status | Evidence-based nullable read model | Prevents false success/failure claims |
 | Feature release | Server-side flags per capability | Allows gradual rollout and independent rollback |
 
-## External Activation Conditions
+## Internal Upload Activation Conditions
 
-- Producer owners identify a named non-production endpoint and prove that its
-  imported workflow/version matches
-  `private-workflows/EmpresaAqui_Webhook_Import_v1.json`.
-- Security and producer owners resolve and test the current authentication,
+- T013–T017 application tests and full repository gates pass.
+- The server uses only the identified internal URL, sends zero authentication
+  headers, and keeps the feature flag disabled by default.
+- Controlled UAT uses only synthetic CSV data and verifies acknowledged,
+  unknown, conflict, invalid-file, and duplicate-app-request behavior.
+- Business copy says “workflow acknowledged” or “outcome unknown”; it never
+  says durable acceptance, processing, or completion without producer facts.
+- Rollback disables the import feature flag and performs no producer rewrite.
+
+## Production and Later-Phase Conditions
+
+- Security and producer owners resolve and test HTTPS, authentication,
   replay, upload-idempotency, byte-integrity, durable-acceptance, controlled
-  error, and timeout-reconciliation gaps before app client implementation.
+  error, and timeout-reconciliation gaps before production activation.
 - Producer owners prove batch terminal semantics in a named non-production
   environment; the current response does not prove completion.
 - Database owners approve targets, roles, grants, migration, backup, and

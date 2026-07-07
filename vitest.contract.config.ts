@@ -2,20 +2,17 @@ import { configDefaults, defineConfig } from "vitest/config";
 
 export default defineConfig({
   test: {
-    environment: "jsdom",
-    setupFiles: ["./vitest.setup.ts"],
-    include: [
-      "src/**/*.test.{ts,tsx}",
-      "tests/**/*.test.{ts,tsx}",
-    ],
+    environment: "node",
+    include: ["tests/contract/**/*.test.ts"],
     exclude: [
       ...configDefaults.exclude,
       "**/{.next,out,build,coverage}/**",
       "**/{dumps,production-dumps,real-data}/**",
-      "tests/integration/**",
-      "tests/contract/**",
       "docs/db/**",
       "**/*.{csv,dump,sql}",
     ],
+    testTimeout: 30_000,
+    hookTimeout: 30_000,
+    fileParallelism: false,
   },
 });

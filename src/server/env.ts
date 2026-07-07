@@ -115,7 +115,6 @@ function validateHttpsUrl(
   name: string,
   value: string,
   errors: string[],
-  allowedPaths?: ReadonlySet<string>,
 ): void {
   try {
     const url = new URL(value);
@@ -126,13 +125,32 @@ function validateHttpsUrl(
       url.username ||
       url.password ||
       url.search ||
-      url.hash ||
-      (allowedPaths !== undefined && !allowedPaths.has(url.pathname))
+      url.hash
     ) {
       errors.push(`${name} must be an approved HTTPS URL`);
     }
   } catch {
     errors.push(`${name} must be an approved HTTPS URL`);
+  }
+}
+
+function validateN8nImportUrl(value: string, errors: string[]): void {
+  try {
+    const url = new URL(value);
+
+    if (
+      (url.protocol !== "http:" && url.protocol !== "https:") ||
+      !url.hostname ||
+      url.username ||
+      url.password ||
+      url.search ||
+      url.hash ||
+      !N8N_IMPORT_PATHS.has(url.pathname)
+    ) {
+      errors.push("N8N_IMPORT_URL must be an approved HTTP or HTTPS URL");
+    }
+  } catch {
+    errors.push("N8N_IMPORT_URL must be an approved HTTP or HTTPS URL");
   }
 }
 
@@ -341,12 +359,7 @@ export function parseServerEnv(input: EnvironmentInput): ParsedServerEnv {
   }
 
   if (raw.N8N_IMPORT_URL) {
-    validateHttpsUrl(
-      "N8N_IMPORT_URL",
-      raw.N8N_IMPORT_URL,
-      errors,
-      N8N_IMPORT_PATHS,
-    );
+    validateN8nImportUrl(raw.N8N_IMPORT_URL, errors);
   }
 
   if (

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { getServerAuthorization, signOut } from "../../server/auth";
+import { PrivateNavigation } from "./private-navigation";
 
 export const dynamic = "force-dynamic";
 
@@ -50,22 +51,7 @@ export default async function PrivateLayout({
             <span>Inteligência comercial</span>
           </Link>
 
-          <nav
-            aria-label="Navegação principal"
-            className="ml-auto lg:ml-0 lg:mt-14"
-          >
-            <Link
-              href="/leads"
-              aria-current="page"
-              className="group flex min-h-11 items-center gap-3 border-b border-[oklch(48%_0.065_246)] px-1 py-2 text-sm font-bold transition-colors hover:border-[oklch(77%_0.09_174)] hover:text-[oklch(77%_0.09_174)] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[oklch(77%_0.09_174)] lg:border-b-0 lg:border-l lg:px-4 lg:py-3 motion-reduce:transition-none"
-            >
-              <span
-                aria-hidden="true"
-                className="size-1.5 rounded-full bg-[oklch(77%_0.09_174)]"
-              />
-              <span>Leads</span>
-            </Link>
-          </nav>
+          <PrivateNavigation />
         </div>
 
         <div className="mt-6 ml-auto flex items-center gap-4 border-l border-[oklch(38%_0.045_246)] pl-5 lg:mt-auto lg:ml-0 lg:block lg:border-t lg:border-l-0 lg:pt-6 lg:pl-0">

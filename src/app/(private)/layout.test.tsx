@@ -4,9 +4,15 @@ import { join, relative, resolve } from "node:path";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { getServerAuthorizationMock, redirectMock, signOutMock } = vi.hoisted(
+const {
+  getServerAuthorizationMock,
+  pathnameState,
+  redirectMock,
+  signOutMock,
+} = vi.hoisted(
   () => ({
     getServerAuthorizationMock: vi.fn(),
+    pathnameState: { value: "/leads" },
     redirectMock: vi.fn(),
     signOutMock: vi.fn(),
   }),
@@ -21,6 +27,7 @@ vi.mock("../../server/auth", () => ({
 
 vi.mock("next/navigation", () => ({
   redirect: redirectMock,
+  usePathname: () => pathnameState.value,
 }));
 
 import PrivateLayout, { dynamic } from "./layout";
@@ -58,6 +65,7 @@ function listAppSurface(directory: string, appRoot: string): string[] {
 describe("private application shell", () => {
   beforeEach(() => {
     getServerAuthorizationMock.mockReset();
+    pathnameState.value = "/leads";
     redirectMock.mockReset();
     redirectMock.mockImplementation(() => {
       throw new Error("NEXT_REDIRECT");
@@ -141,13 +149,18 @@ describe("private application shell", () => {
       name: "Navegação principal",
     });
     const leadsLink = screen.getByRole("link", { name: "Leads" });
+    const importsLink = screen.getByRole("link", { name: "Importações" });
     const signOutButton = screen.getByRole("button", { name: "Sair" });
     const skipLink = screen.getByRole("link", {
       name: "Pular para o conteúdo principal",
     });
 
     expect(navigation).toContainElement(leadsLink);
+    expect(navigation).toContainElement(importsLink);
     expect(leadsLink).toHaveAttribute("href", "/leads");
+    expect(importsLink).toHaveAttribute("href", "/imports");
+    expect(leadsLink).toHaveAttribute("aria-current", "page");
+    expect(importsLink).not.toHaveAttribute("aria-current");
     expect(skipLink).toHaveAttribute("href", "#conteudo-principal");
     expect(screen.getByText("Sessão autorizada")).toBeInTheDocument();
     expect(screen.getByRole("main")).toHaveAttribute(
@@ -164,6 +177,22 @@ describe("private application shell", () => {
     expect(document.body).not.toHaveTextContent(
       /identity\.internal|synthetic-organization|synthetic-subject|org_id|claims?|token|provider|issuer/i,
     );
+  });
+
+  it("marks the import route as current without changing authorization", async () => {
+    pathnameState.value = "/imports";
+    getServerAuthorizationMock.mockResolvedValue({ status: "authorized" });
+
+    render(await PrivateLayout({ children: <PrivateContent /> }));
+
+    expect(screen.getByRole("link", { name: "Importações" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    expect(screen.getByRole("link", { name: "Leads" })).not.toHaveAttribute(
+      "aria-current",
+    );
+    expect(screen.getByText("Conteúdo privado sintético")).toBeInTheDocument();
   });
 
   it("signs out on the server with the login destination", async () => {
@@ -186,25 +215,27 @@ describe("private application shell", () => {
     expect(dynamic).toBe("force-dynamic");
   });
 
-  it("keeps the current private pages and API routes on the authenticated lead surface", () => {
+  it("keeps private pages and API routes limited to the authorized surfaces", () => {
     const appRoot = resolve(process.cwd(), "src/app");
     const surface = listAppSurface(appRoot, appRoot).sort();
 
     expect(
       surface.filter((file) => file.startsWith("(private)/")),
     ).toEqual([
+      "(private)/imports/page.tsx",
       "(private)/layout.tsx",
       "(private)/leads/[cnpj]/page.tsx",
       "(private)/leads/page.tsx",
     ]);
     expect(surface.filter((file) => file.startsWith("api/"))).toEqual([
       "api/auth/[...nextauth]/route.ts",
+      "api/imports/route.ts",
       "api/leads/[cnpj]/history/route.ts",
       "api/leads/[cnpj]/route.ts",
       "api/leads/route.ts",
     ]);
     expect(surface.join("\n")).not.toMatch(
-      /(?:api\/imports|api\/work-queue|api\/workspaces|\(private\)\/imports|\(private\)\/work)/,
+      /(?:api\/work-queue|api\/workspaces|\(private\)\/work)/,
     );
   });
 });

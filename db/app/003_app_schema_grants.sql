@@ -32,6 +32,11 @@ BEGIN
       prospecting_app.commercial_audit_events
     TO prospecta_app_rw;
 
+    GRANT EXECUTE ON FUNCTION
+      prospecting_app.text_is_present(text, integer),
+      prospecting_app.jsonb_has_only_keys(jsonb, text[])
+    TO prospecta_app_rw;
+
     REVOKE DELETE ON ALL TABLES IN SCHEMA prospecting_app FROM prospecta_app_rw;
     REVOKE UPDATE, DELETE ON TABLE
       prospecting_app.import_submission_events,

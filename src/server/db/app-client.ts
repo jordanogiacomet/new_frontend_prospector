@@ -1,6 +1,6 @@
 import "server-only";
 
-import { Pool, type QueryResultRow } from "pg";
+import { Pool, type PoolClient, type QueryResultRow } from "pg";
 
 import { getServerEnv } from "../env";
 
@@ -25,6 +25,10 @@ export interface SqlStatement {
   readonly values: readonly unknown[];
 }
 
+export interface AppDatabaseTransaction {
+  query<Row extends QueryResultRow>(statement: SqlStatement): Promise<Row[]>;
+}
+
 export class DatabaseUnavailableError extends Error {
   readonly code = "DATABASE_UNAVAILABLE";
 
@@ -38,13 +42,51 @@ export async function query<Row extends QueryResultRow>(
   statement: SqlStatement,
 ): Promise<Row[]> {
   try {
-    const result = await pool.query<Row>({
-      text: statement.text,
-      values: [...statement.values],
-    });
-
-    return result.rows;
+    return await runQuery(pool, statement);
   } catch {
     throw new DatabaseUnavailableError();
   }
+}
+
+export async function transaction<Result>(
+  callback: (client: AppDatabaseTransaction) => Promise<Result>,
+): Promise<Result> {
+  let client: PoolClient | undefined;
+
+  try {
+    client = await pool.connect();
+    await client.query("BEGIN");
+    const connectedClient = client;
+
+    const result = await callback({
+      query: (statement) => runQuery(connectedClient, statement),
+    });
+
+    await client.query("COMMIT");
+    return result;
+  } catch {
+    if (client !== undefined) {
+      try {
+        await client.query("ROLLBACK");
+      } catch {
+        // The original database failure is already being mapped to a safe error.
+      }
+    }
+
+    throw new DatabaseUnavailableError();
+  } finally {
+    client?.release();
+  }
+}
+
+async function runQuery<Row extends QueryResultRow>(
+  client: Pick<Pool | PoolClient, "query">,
+  statement: SqlStatement,
+): Promise<Row[]> {
+  const result = await client.query<Row>({
+    text: statement.text,
+    values: [...statement.values],
+  });
+
+  return result.rows;
 }

@@ -14,9 +14,10 @@ activation/configuration, deployment, and release remain separately gated.
 The current read-only lead browser exposes retained n8n qualification results,
 but it does not support audited batch submission or commercial follow-up. The
 official EmpresaAqui workflow now provides a webhook and controlled `202`
-acknowledgement, but it still lacks the secured, durable, replay-safe
-acceptance and batch-completion evidence required for the app to add upload
-safely.
+acknowledgement. For the simple internal MVP, the owner accepts its missing
+transport authentication, producer idempotency, durable acceptance, and batch
+completion facts as explicit limitations; the app must display only its own
+submission and the observed workflow acknowledgement.
 
 The contract package is now the implementation baseline. External producer,
 identity, database, data-policy, and production evidence gates remain explicit
@@ -27,8 +28,10 @@ dependencies rather than being silently assumed.
 - [x] Define an approvable boundary between producer data and app-owned data.
 - [x] Map the official n8n webhook request, extraction, response, correlation,
   and producer writes from its operational source file.
-- [ ] Reconcile and execute the required authentication, replay safety,
-  upload-idempotency, and durable-acceptance contract against non-production.
+- [x] Decide the internal authentication profile: HTTP, zero authentication
+  headers, no automatic retry, and acknowledgement-only semantics.
+- [ ] Define and verify HTTPS, authentication, replay safety, and durable
+  acceptance before any production use.
 - [x] Define honest batch states that do not infer success or failure.
 - [x] Define actor identity, permissions, and append-only write auditing.
 - [x] Define CSV retention and sensitive-content policies.
@@ -44,11 +47,11 @@ Integration or production activation may not cross a pending external gate:
 | --- | --- | --- |
 | PC-G01 | Repository product authority | Approved for staged development; LGPD owner still required for production sensitive content |
 | PC-G02 | Controlling repository instructions | Approved; formalized in `AGENTS.md` |
-| PC-G03 | Official versioned webhook rather than legacy form ingress | Official file identified and statically mapped; non-production n8n owner/target proof pending |
-| PC-G04 | Authentication, idempotency, and durable acceptance contract | Official `202` response mapped; HMAC is deferred hardening and no authentication/replay, upload idempotency, or durable acceptance is currently evidenced, so app integration remains blocked |
+| PC-G03 | Official webhook rather than legacy form ingress | Official file mapped and behaviorally matched to the named internal target; exact remote identity/version remains a production hardening gate |
+| PC-G04 | Authentication, idempotency, and durable acceptance contract | Internal profile approved with zero authentication headers, app-owned idempotency, no retry after unknown outcome, and acknowledgement-only semantics; production remains blocked |
 | PC-G05 | Batch/row/terminal correlation and completion semantics | Contract finalized; producer persistence/view proof pending |
 | PC-G06 | App-owned schema and separate roles | Local/non-production design authorized; production target/grants/migration approval pending |
-| PC-G07 | Actor and permission model | Authentication and allowed-organization actor context implemented; provider roles are out of scope and granular permission sourcing remains an external gate |
+| PC-G07 | Actor and permission model | Authentication and allowed-organization actor context implemented; scoped internal imports may use it with same-origin and feature flag, while granular permission sourcing remains a production/other-capability gate |
 | PC-G08 | CSV retention | Direct-forwarding baseline authorized; operations/data-policy production approval pending |
 | PC-G09 | Sensitive content | Deny-by-default mechanism authorized; exact production field/host/contact allowlists pending |
 | PC-G10 | Query scale, indexes, and production-like performance envelope | Pending |
@@ -69,33 +72,37 @@ Integration or production activation may not cross a pending external gate:
 
 ## User Stories
 
-### P1: Approve a safe producer ingress contract
+### P1: Deliver an honest internal producer ingress
 
-**User Story:** As the integration owner, I want a versioned and authenticated
-batch acceptance contract so that every accepted upload has stable correlation
-and replay semantics.
+**User Story:** As an internal manager, I want to submit one EmpresaAqui CSV
+through Prospecta so that the workflow can receive it without the UI inventing
+security, durability, or progress.
 
 **Acceptance Criteria:**
 
-1. WHEN the contract is approved THEN it SHALL identify the producer endpoint,
-   owner, authentication method, request limits, and contract version.
-2. WHEN the same idempotency key and file hash are replayed THEN the producer
-   SHALL return the original acceptance without creating another batch.
-3. WHEN the same idempotency key is paired with a different hash THEN the
-   producer SHALL reject it with `409`.
+1. WHEN the internal import feature is enabled THEN the server SHALL call only
+   the identified internal endpoint and SHALL send zero authentication headers.
+2. WHEN the same organization, app idempotency key, and file hash are submitted
+   again THEN Prospecta SHALL return its original app result without another
+   producer call.
+3. WHEN the same app idempotency key is paired with a different hash THEN
+   Prospecta SHALL reject it with `409`.
 4. WHEN the official workflow returns its current `202` THEN the app SHALL
    validate `accepted`, `message`, `import_batch_id`, `row_count`, and `source`
    and treat them as acknowledgement facts only.
-5. WHEN the producer cannot prove durable acceptance THEN the app SHALL not
-   display the batch as accepted.
+5. WHEN the producer response is lost or times out THEN the app SHALL retain an
+   unknown outcome and SHALL not retry automatically.
+6. WHEN the producer cannot prove durable acceptance or completion THEN the
+   app SHALL not display either state.
 
-The official workflow currently satisfies only part of this target story: it
-provides the webhook shape, `import_batch_id`, response fields, and controlled
-`202`. Authentication, upload replay/conflict, durable acceptance, and
-acceptance-unknown recovery remain unmet.
+The official workflow provides the webhook shape, `import_batch_id`, response
+fields, and controlled `202`. Prospecta supplies app-owned idempotency and
+honest state labels; producer authentication, replay prevention, durable
+acceptance, and timeout reconciliation remain future production capabilities.
 
-**Independent Test:** Execute contract tests against a non-production producer
-endpoint and verify replay, conflict, authentication, and safe errors.
+**Independent Test:** With synthetic data, verify one server-side multipart
+call, the exact acknowledgement mapping, app idempotency/conflict behavior,
+safe generic failures, and no automatic retry.
 
 ### P1: Preserve the producer/app data boundary
 
@@ -182,10 +189,10 @@ handling, sanitization, and deletion-event recording.
 
 ### P2: Deliver a controlled import experience
 
-After the relevant external integration gates pass, an authorized manager can
-submit one valid EmpresaAqui CSV through the App API, receive the tested
-workflow acknowledgement, and monitor only correlation/progress facts that are
-durably proven.
+In the approved internal profile, an authenticated member of the allowed
+organization can submit one valid EmpresaAqui CSV through the App API and see
+only the app submission, workflow acknowledgement, or unknown outcome.
+Granular import permissions remain a future production capability.
 
 ### P2: Deliver a commercial work queue
 
@@ -202,18 +209,18 @@ separate, policy-gated features.
 
 | Requirement ID | Requirement | Artifact | Status |
 | --- | --- | --- | --- |
-| PC-01 | Versioned authenticated ingress | `contracts/n8n-import-webhook.md` | Official webhook mapped; authentication/runtime proof pending |
-| PC-02 | Replay-safe upload idempotency | `contracts/n8n-import-webhook.md` | Not present in official workflow; blocks app integration |
+| PC-01 | Profile-appropriate server ingress | `contracts/n8n-import-webhook.md` | Internal behavioral contract approved; authenticated production contract pending |
+| PC-02 | Replay-safe upload idempotency | `contracts/n8n-import-webhook.md` | App-owned idempotency authorized internally; producer replay protection pending for production |
 | PC-03 | Honest batch status | `contracts/batch-status-contract.md` | Approved; producer proof pending |
 | PC-04 | Producer/app write isolation | `decisions/producer-app-boundary.md` | Approved |
 | PC-05 | Actor identity and permissions | `contracts/authorization-policy.md` | Authentication/organization boundary implemented; granular permission source deferred |
 | PC-06 | App-owned commercial model | `contracts/app-write-model.md` | Approved for local/non-production |
 | PC-07 | CSV retention and deletion | `decisions/csv-retention.md` | Approved baseline; production policy pending |
 | PC-08 | Sensitive-content policy | `decisions/sensitive-content-policy.md` | Approved framework; production allowlists pending |
-| PC-09 | Current producer evidence | `evidence/current-workflow-map.md` | Official export statically verified; runtime proof pending |
+| PC-09 | Current producer evidence | `evidence/current-workflow-map.md` | Static export plus partial internal runtime behavior recorded; exact version proof pending |
 | PC-10 | Current database evidence | `evidence/database-source-map.md` | Verified locally |
 | PC-11 | Scale and query evidence | `evidence/query-performance-gates.md` | External gate pending |
-| PC-12 | Superficial exact-byte upload validation | `contracts/n8n-import-webhook.md` | App baseline defined; producer hash/limit proof pending |
+| PC-12 | Superficial exact-byte upload validation | `contracts/n8n-import-webhook.md` | App baseline implemented; producer hash/limit remain accepted internal limitations |
 | PC-13 | Batch list/detail | `contracts/batch-status-contract.md` | Approved for implementation |
 | PC-14 | Commercial queue and optimistic assignment | `contracts/app-write-model.md` | Approved for implementation |
 | PC-15 | Append-only activities, notes, and audit | `contracts/app-write-model.md` | Approved for implementation |
@@ -221,9 +228,9 @@ separate, policy-gated features.
 | PC-17 | UAT, security review, gradual rollout and rollback | `tasks.md` | Planned |
 
 **Coverage:** 17 requirements mapped to contracts, decisions, evidence, and
-atomic tasks. The official webhook is now mapped, but security, durable
-acceptance, runtime contract, completion, and performance evidence remain
-pending.
+atomic tasks. The internal upload slice may proceed with acknowledgement-only
+semantics; production security, durable acceptance, completion, and
+performance evidence remain pending.
 
 ## Success Criteria
 
@@ -232,6 +239,7 @@ pending.
 - [x] `AGENTS.md` conflicts are resolved.
 - [x] A feature task list records dependencies and external gates.
 - [ ] Every external gate has a named accountable owner and target before use.
-- [ ] Non-production contract/integration evidence passes.
+- [ ] The internal upload slice passes synthetic application tests and a
+      controlled smoke/UAT before its feature flag is enabled.
 - [ ] Production migration, activation, deployment, and rollout receive
       separate explicit approval.

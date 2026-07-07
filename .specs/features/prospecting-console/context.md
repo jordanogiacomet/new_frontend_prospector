@@ -16,6 +16,14 @@ It does not identify a production target or authorize a production migration,
 n8n activation, secret change, deployment, or release. Those actions remain
 external gates.
 
+On 2026-07-06 the owner further directed that Prospecta remain a simple
+internal application now, while preserving a path to stronger production
+controls later. For the identified internal target, missing HMAC/replay,
+durable producer acceptance, exact workflow-version attestation, and batch
+completion are accepted limitations rather than blockers for the upload
+vertical slice. They must remain visible as limitations and must not be
+represented as implemented security or producer progress.
+
 ## Feature Boundary
 
 The proposed product extends the current read-only lead browser into a private
@@ -80,16 +88,30 @@ fail-closed.
 - Report, evidence, contact, CRM, and URL content is withheld until semantically
   approved.
 
-## External Decisions and Evidence Still Required
+## Accepted Internal MVP Limitations
 
-- Non-production and production targets/owners for the official n8n webhook;
-  the reviewed workflow file will not be changed or activated by app work.
-- Executed non-production proof that the deployed workflow/version matches the
-  official file and honors the mapped request and response.
+- The named target is behaviorally compatible with the reviewed workflow, but
+  its exact remote workflow ID/version is not independently attested.
+- HTTP and zero authentication headers are used only for this internal target.
+- The workflow `202` is an acknowledgement, not durable acceptance.
+- Producer upload replay prevention and reconciliation after an unknown
+  outcome do not exist; Prospecta performs one call and never retries
+  automatically.
+- Producer failures do not have a stable safe envelope; Prospecta maps
+  malformed, non-`202`, timeout, and unavailable responses to safe app-owned
+  outcomes without exposing producer bodies.
+- The 10 MiB producer compatibility bound is not stable evidence. Prospecta
+  enforces its own limit, and a producer timeout remains an unknown outcome.
+- Batch completion and exact counts remain unavailable until X4 facts exist.
+
+These limitations allow T013–T017 implementation and internal UAT. They do not
+authorize production or truthful batch-completion claims.
+
+## External Decisions and Evidence Still Required for Production or Later Phases
+
 - Webhook authentication, HMAC/replay controls, upload-level idempotency,
   exact-byte hash verification, durable acceptance, controlled errors, and
-  timeout reconciliation. These are not evidenced in the official export and
-  remain blockers rather than assumed behavior.
+  timeout reconciliation.
 - Who owns the product, producer contract, security review, and LGPD policy.
 - Exact producer terminal results and batch-completion evidence.
 - Operations confirmation that the approved direct-forwarding, 10 MiB,
@@ -116,9 +138,16 @@ fail-closed.
   forwarding; PostgreSQL stores metadata only.
 - HMAC remains deferred hardening: the official export does not validate it,
   and the optional server-only `N8N_HMAC_KEY_ID`/`N8N_HMAC_SECRET` settings
-  are unused in this phase. T019 must define and test the approved
-  server-to-server authentication mechanism before `/api/imports` is
-  implemented or `FEATURE_IMPORTS_ENABLED` can leave `false`.
+  are unused in this phase. The internal client sends zero authentication
+  headers. A production client remains blocked until the remote endpoint
+  implements and proves an approved server-to-server mechanism.
+- Internal import pages and routes may authorize the existing verified
+  issuer/subject/allowed-organization actor plus same-origin and the
+  server-side import feature flag. This scoped exception grants no sensitive,
+  commercial, assignment, or audit permission.
+- `FEATURE_IMPORTS_ENABLED` remains `false` by default. It may be enabled only
+  for the identified internal target after T013–T017 tests and controlled UAT;
+  production enablement remains separately gated.
 - App-owned schema name is `prospecting_app`.
 - Commercial notes and activities are append-only in MVP 1.
 - Workspace mutations use optimistic version checks.

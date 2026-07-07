@@ -30,6 +30,23 @@ an object
 | `lead_mark_stage_status` | Producer event mutation | App must not call it directly |
 | `lead_save_decision` and strict variant | Producer decision mutation | App must not call it directly |
 
+## X4 Batch Observation Adapter
+
+T022 approves `public.prospecta_import_batch_observations_v1` as a
+producer-owned read adapter over the structured objects above. The adapter is
+defined in `db/producer/001_batch_observation_source.sql` and documented in
+`.specs/features/prospecting-console/evidence/x4-producer-batch-observations.md`.
+
+The adapter exposes only approved observation fields for Prospecta:
+`import_batch_id`, `fact_type`, `source_row`, `lead_run_id`,
+`producer_result`, `observed_at`, and `closed_at`. It does not expose raw rows,
+normalized payloads, decision payloads, snapshots, reports, prompts, search
+queries, n8n execution IDs, costs, or errors.
+
+`company_validation_runs` may contribute only retained legacy observations.
+It does not prove durable acceptance, close, terminal completeness, failure, or
+confirmed zero counts.
+
 ## Field Exposure Direction
 
 ### Candidate business fields

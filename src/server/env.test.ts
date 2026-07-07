@@ -83,7 +83,7 @@ describe("server environment", () => {
   });
 
   it.each([
-    "http://automation.example.com/webhook/empresaqui/import",
+    "ftp://automation.example.com/webhook/empresaqui/import",
     "https://user:password@automation.example.com/webhook/empresaqui/import",
     "https://automation.example.com/webhook/empresaqui/import?token=secret",
     "https://automation.example.com/webhook/empresaqui/import#fragment",
@@ -101,6 +101,8 @@ describe("server environment", () => {
   it.each([
     "https://automation.example.com/webhook/empresaqui/import",
     "https://automation.example.com/webhook-test/empresaqui/import",
+    "http://automation.internal/webhook/empresaqui/import",
+    "http://192.168.0.20:30098/webhook/empresaqui/import",
   ])("accepts an official n8n webhook URL form: %s", (N8N_IMPORT_URL) => {
     expect(
       environment.parseServerEnv({

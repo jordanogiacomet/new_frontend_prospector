@@ -4,12 +4,18 @@ import { resolve } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => {
+  const client = {
+    query: vi.fn(),
+    release: vi.fn(),
+  };
   const pool = {
+    connect: vi.fn(),
     on: vi.fn(),
     query: vi.fn(),
   };
 
   return {
+    client,
     pool,
     Pool: vi.fn(function Pool() {
       return pool;
@@ -34,6 +40,9 @@ import * as database from "./app-client";
 
 describe("app-owned PostgreSQL client", () => {
   beforeEach(() => {
+    mocks.client.query.mockReset();
+    mocks.client.release.mockReset();
+    mocks.pool.connect.mockReset();
     mocks.pool.query.mockReset();
   });
 
@@ -65,6 +74,87 @@ describe("app-owned PostgreSQL client", () => {
       text: "SELECT id FROM prospecting_app.workspaces WHERE id = $1",
       values: ["workspace-synthetic-001"],
     });
+  });
+
+  it("runs app-owned work inside an explicit transaction", async () => {
+    mocks.pool.connect.mockResolvedValueOnce(mocks.client);
+    mocks.client.query
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ id: "submission-synthetic-001" }] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    const result = await database.transaction(async (client) => {
+      const [row] = await client.query<{ id: string }>({
+        text: "INSERT INTO prospecting_app.import_submissions (submission_id) VALUES ($1) RETURNING submission_id AS id",
+        values: ["submission-synthetic-001"],
+      });
+
+      return row?.id;
+    });
+
+    expect(result).toBe("submission-synthetic-001");
+    expect(mocks.client.query).toHaveBeenNthCalledWith(1, "BEGIN");
+    expect(mocks.client.query).toHaveBeenNthCalledWith(2, {
+      text: "INSERT INTO prospecting_app.import_submissions (submission_id) VALUES ($1) RETURNING submission_id AS id",
+      values: ["submission-synthetic-001"],
+    });
+    expect(mocks.client.query).toHaveBeenNthCalledWith(3, "COMMIT");
+    expect(mocks.client.release).toHaveBeenCalledTimes(1);
+  });
+
+  it("rolls back a failed transaction and maps details to a safe error", async () => {
+    mocks.pool.connect.mockResolvedValueOnce(mocks.client);
+    mocks.client.query
+      .mockResolvedValueOnce({ rows: [] })
+      .mockRejectedValueOnce(
+        new Error("violates constraint with private-sql-param"),
+      )
+      .mockResolvedValueOnce({ rows: [] });
+
+    const error = await database
+      .transaction(async (client) => {
+        await client.query({
+          text: "INSERT INTO prospecting_app.import_submission_events (metadata) VALUES ($1)",
+          values: [{ rawProducerBody: "must-not-leak" }],
+        });
+      })
+      .catch((caught: unknown) => caught);
+
+    expect(mocks.client.query).toHaveBeenNthCalledWith(1, "BEGIN");
+    expect(mocks.client.query).toHaveBeenNthCalledWith(3, "ROLLBACK");
+    expect(mocks.client.query).not.toHaveBeenCalledWith("COMMIT");
+    expect(mocks.client.release).toHaveBeenCalledTimes(1);
+    expect(error).toEqual(
+      expect.objectContaining({
+        name: "DatabaseUnavailableError",
+        code: "DATABASE_UNAVAILABLE",
+        message: "Database temporarily unavailable.",
+      }),
+    );
+    expect(String(error)).not.toMatch(
+      /private-sql-param|rawProducerBody|must-not-leak/,
+    );
+  });
+
+  it("maps connection failures to a safe error without a rollback attempt", async () => {
+    mocks.pool.connect.mockRejectedValueOnce(
+      new Error("connect failed with sensitive-password"),
+    );
+
+    const error = await database
+      .transaction(async () => "unreachable")
+      .catch((caught: unknown) => caught);
+
+    expect(error).toEqual(
+      expect.objectContaining({
+        name: "DatabaseUnavailableError",
+        code: "DATABASE_UNAVAILABLE",
+        message: "Database temporarily unavailable.",
+      }),
+    );
+    expect(mocks.client.query).not.toHaveBeenCalled();
+    expect(mocks.client.release).not.toHaveBeenCalled();
+    expect(String(error)).not.toMatch(/sensitive-password|connect failed/);
   });
 
   it("returns typed rows without exposing the driver result", async () => {
@@ -123,10 +213,10 @@ describe("app-owned PostgreSQL client", () => {
     expect(Object.keys(database).sort()).toEqual([
       "DatabaseUnavailableError",
       "query",
+      "transaction",
     ]);
     expect(database).not.toHaveProperty("pool");
     expect(database).not.toHaveProperty("connect");
-    expect(database).not.toHaveProperty("transaction");
     expect(database).not.toHaveProperty("migrate");
     expect(database).not.toHaveProperty("writeProducer");
   });

@@ -2,8 +2,9 @@
 
 **Spec:** `.specs/features/prospecting-console/spec.md`  
 **Design:** `.specs/features/prospecting-console/design.md`  
-**Status:** IN PROGRESS — database boundary and app-owned schema migration
-consolidated through T009; official n8n contract integration remains gated
+**Status:** IN PROGRESS — database boundary, app-owned schema migration, and
+role isolation consolidated through T010; the acknowledgement-only internal
+upload slice is unblocked for T013–T017
 
 **Historical baseline:** 31 Vitest files / 494 tests passing on 2026-07-03
 
@@ -34,9 +35,8 @@ consolidated through T009; official n8n contract integration remains gated
 - The 2026-07-06 documentation review did not rerun implementation gates and
   does not fabricate updated test counts.
 - Static mapping of
-  `private-workflows/EmpresaAqui_Webhook_Import_v1.json` is recorded, but T018
-  and T019 are not complete because no named non-production endpoint or
-  executed contract test was provided.
+  `private-workflows/EmpresaAqui_Webhook_Import_v1.json` was recorded at this
+  gate; the later partial runtime evidence is recorded below.
 
 ## T004/T007 Correction Gate — 2026-07-06
 
@@ -61,8 +61,9 @@ consolidated through T009; official n8n contract integration remains gated
   passed completely; `.env.local` was not inspected or changed.
 - `git diff --check`: passed after the implementation and documentation
   updates.
-- T018 remains in progress from static mapping only. T019, the n8n client,
-  `/api/imports`, upload behavior, and import enablement remain blocked.
+- At this correction gate, T018 had only static mapping and T019 plus the app
+  import slice remained blocked. The later internal-profile decision supersedes
+  that implementation blocker.
 
 ## Role-claim Deferral Gate — 2026-07-06
 
@@ -208,9 +209,79 @@ consolidated through T009; official n8n contract integration remains gated
   migration, producer table, n8n workflow, app import route, repository
   implementation, feature activation, real CSV, or real data was used.
 
+## T010 Database Role Isolation Gate — 2026-07-06
+
+- T010 is complete for the authorized local/disposable X2 target. The
+  integration harness now creates and removes the synthetic roles
+  `prospecta_app_rw` and `prospecta_t010_producer_read`, the synthetic schema
+  `prospecta_t010_producer_like`, and the synthetic table
+  `prospecta_t010_producer_like.approved_leads`.
+- The disposable setup grants only `CONNECT` on
+  `prospecta_t009_test` to the synthetic roles, applies the app-owned
+  migration and grants, and grants the producer-read role `USAGE` plus
+  `SELECT` only on the producer-like allowlisted table.
+- The app-owned grants now include the minimum required `EXECUTE` on
+  `prospecting_app.text_is_present(text, integer)` and
+  `prospecting_app.jsonb_has_only_keys(jsonb, text[])` so runtime inserts can
+  satisfy schema constraints after `PUBLIC` function execution is revoked.
+  `reject_append_only_mutation()` remains ungranted for direct execution.
+- Role-isolation coverage proves:
+  app role `SELECT/INSERT/UPDATE` on mutable app-owned tables and denied
+  `DELETE`; app role `SELECT/INSERT` on append-only tables with denied
+  `UPDATE/DELETE` by privilege; append-only triggers still deny elevated owner
+  `UPDATE/DELETE`; producer-read role can `SELECT` only the synthetic
+  producer-like allowlist and cannot `INSERT/UPDATE/DELETE` producer-like
+  rows; producer-read cannot access or write app-owned objects; app role cannot
+  access or mutate producer-like objects.
+- DSN guard coverage accepts only
+  `postgresql://localhost:5432/prospecta_t009_test` without query/hash and
+  rejects tested non-X2 protocol, host, port, database, query, and fragment
+  variants.
+- Target validation before integration tests:
+  `PGUSER=postgres PGPASSWORD=12345 PROSPECTA_APP_TEST_DATABASE_URL=postgresql://localhost:5432/prospecta_t009_test node -e '<X2 URL guard>'`
+  returned `X2 target validated: localhost:5432/prospecta_t009_test`.
+- Focused role-isolation gate:
+  `PGUSER=postgres PGPASSWORD=12345 PROSPECTA_APP_TEST_DATABASE_URL=postgresql://localhost:5432/prospecta_t009_test pnpm vitest run --config vitest.integration.config.ts tests/integration/app-schema-migration.test.ts -t "database role isolation|disposable database URL guard"`
+  passed: 1 file / 11 tests, with 16 unrelated migration tests skipped.
+- Full DB gate:
+  `PGUSER=postgres PGPASSWORD=12345 PROSPECTA_APP_TEST_DATABASE_URL=postgresql://localhost:5432/prospecta_t009_test pnpm test:integration`
+  passed: 1 file / 27 tests.
+- Cleanup residue check:
+  `PGUSER=postgres PGPASSWORD=12345 psql -h localhost -p 5432 -d prospecta_t009_test -tAc "select to_regnamespace('prospecting_app') is null as app_schema_removed, to_regnamespace('prospecta_t010_producer_like') is null as producer_like_removed, not exists (select 1 from pg_roles where rolname in ('prospecta_app_rw', 'prospecta_t010_producer_read')) as roles_removed"`
+  returned `t|t|t`.
+- `pnpm typecheck`: passed.
+- `pnpm lint`: passed with the same two pre-existing unused-variable warnings
+  in `src/server/auth/auth.test.ts`.
+- `pnpm test`: passed: 33 files / 606 tests.
+- `pnpm build`: passed with process-only synthetic server env values and
+  `N8N_IMPORT_URL=https://build-placeholder.example.com/webhook/empresaqui/import`;
+  Next.js reported `.env.local` presence during build loading, but the command
+  supplied synthetic process values and no `.env.local`, real
+  `APP_DATABASE_URL`, or real `PRODUCER_DATABASE_URL` was used for T010.
+- Forbidden SQL reference scan:
+  `rg -n "REFERENCES\\s+(public|producer|company_|crm|n8n)|company_validations|company_validation_runs|company_strategic_research_reports|PRODUCER_DATABASE_URL|APP_DATABASE_URL|N8N|webhook" db/app`
+  returned no matches.
+- Real-producer grant/object scan:
+  `rg -n "CREATE\\s+(SCHEMA|TABLE)\\s+(company_|public\\.|producer\\.)|GRANT\\s+[^;]*(company_validations|company_validation_runs|company_strategic_research_reports|public\\.|producer\\.)|REFERENCES\\s+(company_|public\\.|producer\\.)" db/app tests/integration/app-schema-migration.test.ts`
+  returned no matches.
+- Import/n8n implementation scan over changed DB integration artifacts:
+  `rg -n "/api/imports|arquivo_csv|ingress-client|submit-import|upload-file|fetch\\(|N8N_IMPORT_URL" db/app tests/integration/app-schema-migration.test.ts`
+  returned no matches.
+- `git diff --check`: passed.
+- Limitations: this is a local disposable PostgreSQL proof only. Production
+  targets, production grants, backup/restore ownership, and rollout remain
+  externally gated. The producer source is synthetic and no real producer
+  schema, table, grant, row, workflow, CSV, credential, or production data was
+  touched.
+- No T011 upload validation, `/api/imports`, n8n client/call/workflow,
+  commercial repository, feature activation, producer write, production
+  migration, deployment, or rollout was introduced.
+
 ## Execution Rules
 
 - Execute in topological order and stop at each phase gate.
+- For the internal upload slice, use the scoped Phase 2 internal gate; pending
+  T018/T019 hardening evidence does not block T013–T017.
 - No sub-agent or parallel-agent execution is authorized.
 - Every code task includes its own tests; test work is never deferred.
 - Use only synthetic data.
@@ -273,10 +344,10 @@ deletion is a failure.
 
 | Gate | Required input | Blocks |
 | --- | --- | --- |
-| X1 Identity | Approved granular-authorization source, permission assignments, organization binding, revocation policy, and security tests | Any route/capability that depends on granular permissions |
+| X1 Identity | Approved granular-authorization source, permission assignments, organization binding, revocation policy, and security tests | Production imports and every sensitive/commercial/audit capability; the scoped internal import route may use the verified allowed-organization actor |
 | X2 App database | Named disposable/non-production target now; production target, roles, grants, backup owner later | DB integration; production commercial writes |
-| X3 n8n ingress | Named non-production deployment of the official file, URL, authentication contract/credentials, owner, safe test window, deployment/rollback process | Runtime contract proof and every app upload/client task |
-| X4 Producer facts | Batch/row/close read source and exact result-to-terminal mapping | Producer observation repository and truthful completion |
+| X3 n8n ingress | Named non-production deployment, URL, authentication profile decision, owner, safe test window, and rollback process | Satisfied for internal acknowledgement-only implementation; exact identity/security gaps still block production |
+| X4 Producer facts | Batch/row/close read source and exact result-to-terminal mapping | Producer observation repository and truthful acceptance/processing/completion; not the internal upload acknowledgement |
 | X5 Performance | Production-like scale, latency/timeout/index budgets, approved plans | Queue/batch production enablement and guard removal |
 | X6 Data policy | Exact field/JSON-path and hostname allowlists; LGPD owner | Production sensitive-content enablement |
 | X7 Rollout | Deployment target, secret owners, monitoring, incident and rollback owners | Production release |
@@ -295,10 +366,10 @@ T002 → T009 → T010
 
 Phase 2:
 T002 → T018
-T018 + X3 + X4 → T019
-T004 + T019 → T011
-T004 + T019 → T012
-T011 + T012 + T019 → T013
+T018 + X3 → T019 (X4 applies only to completion cases)
+T004 + observed T019 compatibility → T011
+T004 + observed target security profile → T012
+T011 + T012 + observed request/response contract → T013
 T008 + T009 → T014
 T013 + T014 → T015
 T007 + T015 → T016 → T017
@@ -486,10 +557,16 @@ allowlisted work. No production DSN is accepted.
 
 #### T011: Validate and hash exact CSV bytes
 
+**Status:** COMPLETE LOCALLY on 2026-07-06 by explicit owner decision to
+execute this isolated validator despite T019 remaining pending. This exception
+now contributes to the approved internal T013–T017 path.
+
 **What/where:** Add `src/server/imports/upload-file.ts` and tests for filename,
 media type, 10 MiB limit, UTF-8, NUL, non-empty header, and SHA-256.
 
-**Depends on:** T004, T019. **Requirements:** PC-12. **Tools:** CORE.
+**Depends on:** T004 and observed T019 compatibility evidence. T019 completion
+is not required for the internal profile. **Requirements:** PC-12. **Tools:**
+CORE.
 
 **Tests/gate:** Unit, minimum 18 cases / UNIT.
 
@@ -500,48 +577,108 @@ tested to verify it.
 
 **Verify:** focused upload-file tests and source scan for business parsing.
 
+**Recorded gate:** 40 colocated upload-file cases passed; exact bytes and
+SHA-256 are retained without row/CNPJ/business parsing. The app environment
+also accepts the approved internal HTTP n8n URL while keeping it server-only.
+
 **Commit:** `feat(prospecta): validate exact csv uploads`
 
-#### T012: Implement the approved server-to-server authentication contract
+#### T012: Decide and, when applicable, implement server-to-server authentication
 
-**What/where:** After X3 resolves the official endpoint's security gap, add the
-approved HMAC/canonicalization/replay client support under
-`src/server/imports/` with golden vectors and malformed-input tests. Do not
-claim that the current export already supports those headers.
+**Status:** `NOT APPLICABLE` for the approved internal non-production profile
+on 2026-07-06; `PENDING` for production.
 
-**Depends on:** T004, T019. **Requirements:** PC-01, PC-02. **Tools:** CORE.
+**Decision evidence:** The official export and the authorized target implement
+no credential, HMAC, canonical request, timestamp, nonce, replay store,
+constant-time comparison, authentication error contract, or official test
+vectors. The runtime endpoint accepted a synthetic request with no
+credentials. Client-calculated headers or environment placeholders would not
+create remote authentication.
 
-**Tests/gate:** Unit, minimum 20 cases / UNIT.
+**Internal disposition:** Do not implement cryptographic authentication for
+this profile. A future T013 client must send zero authentication headers.
+T013 and later import tasks may proceed using safe generic outcomes and
+acknowledgement-only semantics. T012 does not invent workflow identity/version,
+safe producer errors, durable acceptance, persistence ordering, timeout
+reconciliation, size compatibility, or X4 facts.
 
-**Done when:** Output exactly matches the tested non-production authentication
-contract and URL path; secrets/signatures never enter client responses, errors,
-or logs.
+**Production disposition:** Keep T012 pending until an approved, remotely
+verifiable contract defines the algorithm, canonical format, key ID,
+timestamp, clock tolerance, nonce, replay storage/expiry, constant-time
+comparison, error codes, and official test vectors. Then add only that tested
+support under `src/server/imports/`, with at least 20 colocated tests and no
+route, UI, persistence, or complete ingress client.
 
-**Verify:** focused HMAC tests and typecheck.
+**Tests/gate:** Documentation/evidence review for the internal decision; zero
+new T012 unit tests because no authentication implementation exists. The
+future production implementation retains the minimum 20-case UNIT gate.
+
+**Done when:** The internal profile is recorded without fabricated security,
+and production remains explicitly blocked on a verifiable authentication
+contract.
+
+**Verify:** scoped contract/evidence scan, existing focused tests, full gates,
+and `git diff --check`.
+
+**Recorded gate:** Focused environment/upload tests passed: 2 files / 90
+tests. `pnpm lint` passed with zero errors and the same two pre-existing
+unused-variable warnings in `src/server/auth/auth.test.ts`; `pnpm typecheck`
+passed; `pnpm test` passed: 34 files / 648 tests; `pnpm build` passed with
+synthetic process-only server settings; `git diff --check` passed. No T012
+authentication source or unit test was added because the target has no
+verifiable authentication contract.
 
 **Commit:** `feat(prospecta): implement ingress hmac contract`
 
 #### T013: Implement the typed n8n ingress client
 
-**What/where:** Add `src/server/imports/ingress-client.ts` with injected fetch,
-multipart `arquivo_csv`, the T012 authentication contract, timeout, exact
-official response validation, and tests.
+**Status:** COMPLETE LOCALLY for the approved internal profile on 2026-07-06;
+production variant pending.
 
-**Depends on:** T011, T012, T019. **Requirements:** PC-01, PC-02. **Tools:**
-CORE, CURRENT-DOCS.
+**What/where:** Add `src/server/imports/ingress-client.ts` with injected fetch, multipart
+`arquivo_csv`, zero authentication headers for the scoped internal profile,
+timeout, exact official response validation, and tests.
+
+**Depends on:** T011, T012, and the observed T018/T019 request/response
+behavior. T019 completion is not required for the internal profile.
+**Requirements:** PC-01, PC-02. **Tools:** CORE, CURRENT-DOCS.
 
 **Tests/gate:** Unit/integration mock, minimum 18 cases / UNIT.
 
 **Done when:** Only the tested `202` fields `accepted`, `message`,
 `import_batch_id`, `row_count`, and `source` are recognized; acknowledgement
-is distinct from durable acceptance; safe mappings cover only status/error
-behavior proven by T019 plus timeout/unknown.
+is distinct from durable acceptance; the client emits zero authentication
+headers; once the producer call begins, malformed, non-`202`, unavailable, and
+timeout outcomes map to unknown without producer bodies or automatic retry.
 
 **Verify:** focused client tests and typecheck.
+
+**Recorded gate:** The server-only client uses only the validated
+`N8N_IMPORT_URL`, injects `fetch`, sends one `POST` with only multipart
+`arquivo_csv`, preserves validated bytes/filename/media type, emits no manual
+`Content-Type` or authentication headers, ignores deferred HMAC placeholders,
+and performs no retry. Its discriminated result retains either the exact
+validated five-field workflow acknowledgement or a detail-free `unknown`;
+neither result claims durable acceptance.
+
+The focused gate passed: 1 file / 41 tests. `pnpm typecheck` passed.
+`pnpm lint` passed with zero errors and the same two pre-existing
+unused-variable warnings in `src/server/auth/auth.test.ts`. `pnpm test`
+passed: 35 files / 689 tests. `pnpm build` passed with synthetic process-only
+server settings and imports disabled; `.env.local` was not inspected or
+changed. `git diff --check` passed. No contract test, real endpoint call,
+credential, production action, persistence, route, UI, workflow change, or
+commit was performed. HTTPS, remotely verified authentication/replay,
+producer idempotency, durable acceptance, timeout reconciliation, controlled
+producer errors, and exact deployed workflow identity remain pending for
+production.
 
 **Commit:** `feat(prospecta): add producer ingress client`
 
 #### T014: Persist idempotent app submissions and producer acknowledgement
+
+**Status:** COMPLETE LOCALLY on 2026-07-07 for the approved disposable
+PostgreSQL target.
 
 **What/where:** Add the import repository under
 `src/server/repositories/imports/` with transactional events and tests.
@@ -557,9 +694,48 @@ without relabeling them durable producer acceptance.
 
 **Verify:** focused repository tests and `pnpm test:integration`.
 
+**Recorded gate:** The app-owned repository now exposes
+`recordImportSubmissionIntent` and `recordProducerAcknowledgement` under
+`src/server/repositories/imports/`. It uses only `APP_DATABASE_URL` through the
+app client, inserts submission intent plus append-only event transactionally,
+and updates acknowledgement plus append-only event transactionally. Same
+organization + idempotency key + file hash returns the original app record;
+same organization + key with a different hash returns a safe
+`IMPORT_IDEMPOTENCY_CONFLICT` result mappable to `409`; the same key in another
+organization is independent. The acknowledgement persistence retains
+`import_batch_id` and observed `row_count` under workflow acknowledgement
+semantics only; it does not expose or invent `acceptedAt`, `schemaVersion`,
+`producerBatchId`, `rowCountAccepted`, durable `ACCEPTED`, processing,
+completion, retry, reprocessing, route, UI, or n8n calls.
+
+Focused repository gate:
+`pnpm vitest run src/server/repositories/imports/import-submissions-repository.test.ts`
+passed: 1 file / 27 tests. Focused app-client + repository gate:
+`pnpm vitest run src/server/repositories/imports/import-submissions-repository.test.ts src/server/db/app-client.test.ts`
+passed: 2 files / 36 tests.
+
+Disposable PostgreSQL gate:
+`PGUSER=postgres PGPASSWORD=<redacted> PROSPECTA_APP_TEST_DATABASE_URL=postgresql://localhost:5432/prospecta_t009_test pnpm test:integration`
+passed: 1 file / 31 tests. Cleanup residue check:
+`PGPASSWORD=<redacted> psql -h localhost -p 5432 -U postgres -d prospecta_t009_test -tAc "select to_regnamespace('prospecting_app') is null as app_schema_removed, to_regnamespace('prospecta_t010_producer_like') is null as producer_like_removed, not exists (select 1 from pg_roles where rolname in ('prospecta_app_rw', 'prospecta_t010_producer_read')) as roles_removed"`
+returned `t|t|t`.
+
+`pnpm typecheck`: passed. `pnpm lint`: passed with the same two pre-existing
+unused-variable warnings in `src/server/auth/auth.test.ts`. `pnpm test`:
+passed: 36 files / 719 tests. `pnpm build`: passed with synthetic process-only
+server settings and imports disabled; `.env.local` was not inspected or
+changed. `git diff --check`: passed. Source scans over the implementation
+found no `PRODUCER_DATABASE_URL`, producer client, fetch/n8n path, retry,
+reprocess, raw CSV/body persistence, or logging path. No production target,
+real CSV, external call, n8n endpoint call, migration outside the disposable
+target, deploy, credential change, or commit was performed.
+
 **Commit:** `feat(prospecta): persist import submission facts`
 
 #### T015: Orchestrate submission without automatic retry
+
+**Status:** COMPLETE LOCALLY on 2026-07-07 for the acknowledgement-only
+internal profile.
 
 **What/where:** Add `src/server/imports/submit-import.ts` and tests for actor,
 hash, durable intent, one ingress call, acknowledgement, conflict, and unknown
@@ -575,9 +751,48 @@ calls the producer again.
 
 **Verify:** focused service tests asserting exact call order/count.
 
+**Recorded gate:** The import service now lives in
+`src/server/imports/submit-import.ts` and accepts only a verified actor,
+organization, idempotency key, upload file, and injected ingress client
+dependency. It validates and hashes bytes with `validateAndHashUploadFile`
+before persistence, records intent with `recordImportSubmissionIntent` before
+the ingress call, returns the repository's safe `IMPORT_IDEMPOTENCY_CONFLICT`
+result for same-org/key/different-hash without calling ingress, and returns
+same-key/hash duplicates without calling ingress. New submissions call
+`submitToN8nIngress` exactly once. Validated acknowledgements are persisted
+with `recordProducerAcknowledgement`; unknown ingress outcomes are persisted
+with the new app-owned `recordProducerOutcomeUnknown` status/event. The
+service preserves `import_batch_id` and observed `row_count` only as workflow
+acknowledgement facts and does not expose or invent `ACCEPTED`,
+`DURABLE_ACCEPTED`, `COMPLETED`, `PROCESSING`, `producerBatchId`,
+`rowCountAccepted`, retry, reprocessing, HMAC, route, UI, direct `fetch`, raw
+producer bodies, CSV bytes, SQL parameters, secrets, stack traces, producer
+database access, or producer client use.
+
+Focused service gate:
+`pnpm vitest run src/server/imports/submit-import.test.ts` passed: 1 file / 19
+tests. Focused repository gate, required because unknown persistence was added:
+`pnpm vitest run src/server/repositories/imports/import-submissions-repository.test.ts`
+passed: 1 file / 33 tests.
+
+`pnpm typecheck`: passed. `pnpm lint`: passed with zero errors and the same
+two pre-existing unused-variable warnings in `src/server/auth/auth.test.ts`.
+`pnpm test`: passed: 37 files / 744 tests. `pnpm build`: passed with
+synthetic process-only server settings and imports disabled; Next.js reported
+`.env.local` presence during build loading, but `.env.local` was not inspected
+or changed. `git diff --check`: passed before this evidence update.
+`pnpm test:contract` was intentionally not run for T015.
+
+No production target, real CSV, real data, real credential, external n8n call,
+contract test, production migration, deployment, feature activation, workflow
+change, producer write, or commit was performed.
+
 **Commit:** `feat(prospecta): orchestrate controlled import`
 
 #### T016: Add `POST /api/imports`
+
+**Status:** COMPLETE LOCALLY on 2026-07-07 for the acknowledgement-only
+internal profile.
 
 **What/where:** Implement the raw-body upload route and route tests.
 
@@ -585,16 +800,55 @@ calls the producer again.
 
 **Tests/gate:** Route integration, minimum 18 cases / UNIT.
 
-**Done when:** Auth/permission/origin run first; body is bounded; response is
+**Done when:** Verified allowed-organization actor, internal import feature
+flag, and same-origin checks run first; body is bounded; response is
 safe/private and distinguishes app submission, workflow acknowledgement,
-durable acceptance, and unknown outcome. This task remains blocked until T019
-passes against a named non-production endpoint.
+durable acceptance, and unknown outcome. Production later replaces the scoped
+internal authorization exception with `imports:create`.
 
 **Verify:** focused route tests and typecheck.
+
+**Recorded gate:** The route now lives at `src/app/api/imports/route.ts` and
+exports only `POST`. It requires `requireApiSession`, `requireSameOrigin`, and
+`FEATURE_IMPORTS_ENABLED=true` before reading multipart body bytes or calling
+the import service. It uses the verified actor organization and subject, reads
+the app idempotency key from the server-side `Idempotency-Key` header, accepts
+exactly one multipart file in `arquivo_csv`, and calls `submitImport` once for
+a valid request. Successful submitted and duplicate app records return safe
+`202` envelopes with app submission status, workflow acknowledgement or
+unknown outcome, and `durableAcceptance: null`; idempotency conflicts return a
+safe `409` envelope. Upload validation, malformed multipart, feature-disabled,
+auth, origin, and unexpected failures are mapped to safe private no-store
+responses without raw producer bodies, CSV bytes, SQL parameters, secrets,
+stacks, n8n URLs, actor identifiers, organization identifiers, file hashes, or
+idempotency keys.
+
+Focused route gate:
+`pnpm vitest run src/app/api/imports/route.test.ts` passed: 1 file / 25 tests.
+The affected surface/service guard gate:
+`pnpm vitest run src/app/api/imports/route.test.ts 'src/app/(private)/layout.test.tsx' src/server/imports/submit-import.test.ts`
+passed: 3 files / 51 tests.
+
+`pnpm typecheck`: passed. `pnpm lint`: passed with zero errors and the same
+two pre-existing unused-variable warnings in `src/server/auth/auth.test.ts`.
+`pnpm test`: passed: 38 files / 769 tests. `pnpm build`: passed with
+synthetic process-only server settings and imports disabled; Next.js reported
+`.env.local` presence during build loading, but `.env.local` was not inspected
+or changed. `git diff --check`: passed before this evidence update.
+`pnpm test:contract` was intentionally not run for T016.
+
+No UI, `GET /api/imports`, batch list/detail, HMAC, signature, timestamp,
+nonce, replay control, retry, reprocessing, direct route `fetch`,
+browser-to-n8n call, producer database/client access, real n8n endpoint call,
+external call, real CSV, real data, real credential, production migration,
+deployment, workflow change, feature activation, or commit was performed.
 
 **Commit:** `feat(prospecta): expose controlled import endpoint`
 
 #### T017: Build the controlled upload page
+
+**Status:** COMPLETE LOCALLY on 2026-07-07 for the acknowledgement-only
+internal profile.
 
 **What/where:** Add private import page/component with one-file selection,
 client hints, stable UUID idempotency key, and
@@ -605,15 +859,64 @@ loading/error/unknown/acknowledged states.
 **Tests/gate:** RTL, minimum 14 cases / UNIT.
 
 **Done when:** Browser calls only `/api/imports`, never n8n; no automatic retry
-UI or row qualification logic exists.
+UI or row qualification logic exists; copy says acknowledged or unknown and
+never claims durable acceptance, processing, or completion.
 
 **Verify:** focused component/page tests plus source scan for n8n URLs.
+
+**Recorded gate:** The private upload surface now lives at
+`src/app/(private)/imports/page.tsx` and is reached through the existing
+private layout. The private shell navigation was split into
+`src/app/(private)/private-navigation.tsx` so `/imports` and `/leads` can be
+marked current without weakening the server-side layout authorization.
+
+The page accepts exactly one `.csv` file, keeps a stable browser-generated UUID
+idempotency key for the current attempt, posts only `multipart/form-data` to
+`/api/imports` with field `arquivo_csv` and header `Idempotency-Key`, and
+requires an explicit `Nova tentativa` action before generating a new key. The
+UI covers idle, selected, loading, acknowledged, unknown, conflict,
+validation, access, and generic states with concise business copy. It does not
+show n8n URLs, secrets, hashes, idempotency keys, raw CSV content, producer
+payloads, stack traces, SQL, durable acceptance, processing, completion, batch
+list/detail, or imported-lead claims.
+
+Focused RTL gate:
+`pnpm vitest run 'src/app/(private)/imports/page.test.tsx'`
+passed: 1 file / 17 tests. Affected surface tests were updated for the newly
+authorized private route and the pre-existing server-only service guard.
+
+Final T017 gates:
+`pnpm typecheck` passed.
+`pnpm lint` passed with the same two pre-existing unused-variable warnings in
+`src/server/auth/auth.test.ts`.
+`pnpm test` passed: 39 files / 787 tests.
+`pnpm build` passed with process-only synthetic server settings and imports
+disabled. Next.js reported `.env.local` as a detected environment file during
+build loading; it was not opened or changed by this task.
+`git diff --check` passed.
+
+Focused executable-UI source scan:
+`rg -n "N8N_IMPORT_URL|webhook|192\\.168\\.0\\.20|n8n|HMAC|signature|canonical|timestamp|nonce|replay|retry|reprocess|method:\\s*['\\\"]GET['\\\"]|cnpj|finalScore|score|qualifica|file\\.text|arrayBuffer|FileReader|console\\." 'src/app/(private)/imports/page.tsx' 'src/app/(private)/private-navigation.tsx'`
+returned no matches.
+
+`pnpm test:contract` was intentionally not run. No `GET /api/imports`, batch
+list/detail, HMAC, signature, timestamp, nonce, replay control, retry,
+reprocessing, browser-to-n8n call, real n8n endpoint call, external call,
+workflow change, producer write, real CSV, real data, real credential,
+production migration, deployment, feature activation, commit, or production
+action was performed.
 
 **Commit:** `feat(prospecta): add controlled import experience`
 
 #### T018: Map and validate the official n8n ingress
 
-**Status:** IN PROGRESS — static map recorded; runtime validation pending.
+**Status:** IN PROGRESS — static map and partial non-production runtime
+validation recorded; workflow identity/version and the remaining T019 evidence
+gaps are pending. A 2026-07-07 parse of the read-only official export confirms
+local `id` `6HM8Era5svuUN24x`, local `versionId`
+`4be457b8-ccd1-47f9-9d0e-a1fbb38edc7e`, `active: false`, 69 nodes, and 75
+directed connection edges; those local export facts still do not prove the
+same workflow/version is deployed in the named target.
 
 **What/where:** Treat
 `private-workflows/EmpresaAqui_Webhook_Import_v1.json` as read-only source of
@@ -625,8 +928,8 @@ workflow under `integrations/` and do not change `private-workflows/`.
 **Depends on:** T002. **Requirements:** PC-01–PC-03, PC-09, PC-12. **Tools:**
 DOCS, N8N-TEST.
 
-**Tests/gate:** Static JSON/contract review now; import/version validation and
-non-production smoke after X3 / DOC + CTR.
+**Tests/gate:** Static JSON/contract review now; deployment identity/version
+validation and non-production smoke after X3 / DOC + CTR.
 
 **Done when:** Static mapping matches the official file, every difference from
 the previous proposal is explicit, gaps have owners/dispositions, and the same
@@ -640,8 +943,9 @@ non-production import/version/smoke evidence without real data or credentials.
 
 #### T019: Prepare and execute official ingress contract tests
 
-**Status:** PENDING — no named non-production endpoint/test execution
-evidenced.
+**Status:** PENDING — partially executed against the named internal
+non-production endpoint; the latest run passed 29 of 43 cases and the
+remaining evidence gaps still block completion.
 
 **What/where:** Add `test:contract` and synthetic HTTP tests for the exact
 official path, multipart field/binary, CSV extraction options, five-field
@@ -655,23 +959,37 @@ facts.
 
 **Tests/gate:** Contract integration, minimum 24 cases / CTR + FULL.
 
-**Done when:** The suite passes against the named non-production deployment of
-the official workflow; authentication/replay, acknowledgement versus durable
+**Done when:** The applicable suite passes against the named non-production
+deployment of the official workflow; acknowledgement versus durable
 acceptance, timeout, redaction, repeated request, `import_batch_id`/row/run
-correlation, and approved closure cases are evidenced. Unimplemented security
-or completion behavior remains a failing/blocking gap, not a waived test.
+correlation, and approved closure cases are evidenced. Absence of
+authentication/replay is the expected result only for the explicitly liberal
+internal profile; production security remains a separate failing/blocking
+gate. Unimplemented completion or other applicable behavior is not waived.
+
+T019 completion is a hardening/batch-evidence gate, not a dependency for the
+approved acknowledgement-only internal T013–T017 slice.
 
 **Verify:** `pnpm test:contract && FULL`, with target/version and redacted
 results recorded.
 
 **Commit:** `test(prospecta): verify official n8n ingress contract`
 
-**Phase 2 gate:** `FULL && DB && CTR`; CTR remains explicitly blocked by X3
-and completion cases by X4. No app import/client/route task may bypass T019.
+**Phase 2 internal upload gate:** focused T013–T017 tests plus `FULL && DB`,
+followed by controlled synthetic UAT before enabling the internal feature
+flag. The known failing CTR cases must remain recorded but do not block this
+acknowledgement-only slice.
+
+**Phase 2 production/batch gate:** `FULL && DB && CTR`; CTR remains incomplete
+because of the recorded T019 gaps, with completion cases additionally blocked
+by X4.
 
 ### Phase 3 — Evidence-based batches
 
 #### T020: Implement the batch status mapper
+
+**Status:** COMPLETE LOCALLY on 2026-07-07 for the pure mapper slice; producer
+observation repositories and X4 completion proof remain pending.
 
 **What/where:** Add batch domain types and a pure evidence mapper with tests.  
 **Depends on:** T002. **Requirements:** PC-03, PC-13. **Tools:** CORE.  
@@ -679,9 +997,48 @@ and completion cases by X4. No app import/client/route task may bypass T019.
 **Done when:** Every state/basis/count follows the contract; duplicates,
 conflicts, excess terminals, missing close, and unavailable data fail closed.  
 **Verify:** focused mapper tests and typecheck.  
+
+**Recorded gate:** Batch status domain types were added to `src/types/imports.ts`
+and the pure mapper was added at `src/server/mappers/batch-status-mapper.ts`.
+The mapper accepts named app submission, acknowledgement/correlation, durable
+acceptance, approved producer observation, explicit close, terminal outcome,
+retained legacy observation, and freshness facts. It returns the contract
+`BatchSummary` with approved status/status-basis/observation-basis codes only.
+
+The mapper keeps acknowledgement and retained legacy observations from proving
+durable acceptance, processing, or completion. Producer-derived counts stay
+`null` when facts are absent, unavailable, inconsistent, or lack durable
+acceptance; confirmed zero is emitted only from an explicit available
+observation source. Duplicate accepted rows and duplicate same-class terminal
+events are deduplicated. Excess accepted/terminal identities and conflicting
+terminal outcomes fail closed to the last independently proven acceptance
+status with `INCONSISTENT` observation status. `COMPLETED` requires durable
+acceptance, explicit close, and exactly one terminal outcome for every accepted
+row; explicit close with missing rows or terminals maps to `INCOMPLETE`. Stale
+accepted/processing observations map to `NO_UPDATE` only through the provided
+freshness policy and never through a hidden timer.
+
+Focused mapper gate:
+`pnpm vitest run src/server/mappers/batch-status-mapper.test.ts` passed: 1 file
+/ 32 tests.
+
+`pnpm lint`: passed with zero errors and the same two pre-existing
+unused-variable warnings in `src/server/auth/auth.test.ts`. `pnpm typecheck`:
+passed. `pnpm test`: passed: 40 files / 819 tests. `pnpm build`: passed with
+synthetic process-only server settings and Prospecta features disabled; Next.js
+reported `.env.local` presence during build loading, but `.env.local` was not
+inspected or changed. `git diff --check`: passed. Scoped source scan
+`rg -n "n8n|fetch\\s*\\(|Date\\.now|setTimeout|setInterval|PRODUCER_DATABASE_URL|APP_DATABASE_URL|\\b(SELECT|INSERT|UPDATE|DELETE|UPSERT|MERGE)\\b|recordProducer|producer.*mutat|mutat.*producer" src/server/mappers/batch-status-mapper.ts src/types/imports.ts`
+returned no matches. No n8n call, fetch, SQL, database read/write, producer
+mutation, route, UI, workflow artifact, real data, external call, or production
+action was performed. T021, T022, T023, and X4 remain pending.
+
 **Commit:** `feat(prospecta): map evidence based batch status`
 
 #### T021: Read app-owned submission list and detail
+
+**Status:** COMPLETE LOCALLY on 2026-07-07 for the approved disposable
+PostgreSQL target.
 
 **What/where:** Add paginated app-submission repository functions and
 PostgreSQL tests.  
@@ -690,9 +1047,50 @@ PostgreSQL tests.
 **Done when:** Organization isolation, stable ordering, nullable acceptance,
 and bounded pagination are proven.  
 **Verify:** focused repository tests and DB gate.  
+
+**Recorded gate:** The import submissions repository now exposes
+`listImportSubmissions` and `getImportSubmissionDetail` under
+`src/server/repositories/imports/import-submissions-repository.ts`. The read
+functions use only the app-owned client with `APP_DATABASE_URL`, scope every
+query by caller-supplied verified organization input, use parameterized SQL
+against `prospecting_app.import_submissions`, and keep pagination server-side
+with bounded page/pageSize and stable `submitted_at DESC, submission_id DESC`
+ordering.
+
+The public read model returns app submission facts, workflow acknowledgement
+facts, nullable durable acceptance facts, and safe `not_found`; it does not
+return idempotency keys, file hashes, raw CSV, producer payloads, processing,
+completion, or producer observations. Workflow acknowledgement remains
+separate from durable acceptance and does not become `ACCEPTED`.
+
+Focused repository gate:
+`pnpm vitest run src/server/repositories/imports/import-submissions-repository.test.ts`
+passed: 1 file / 51 tests. Focused disposable PostgreSQL repository gate:
+`PGUSER=postgres PGPASSWORD=<redacted> PROSPECTA_APP_TEST_DATABASE_URL=postgresql://localhost:5432/prospecta_t009_test pnpm vitest run --config vitest.integration.config.ts tests/integration/app-schema-migration.test.ts -t "import submission repository integration"`
+passed: 1 file / 7 tests, 27 skipped. Full disposable PostgreSQL gate:
+`PGUSER=postgres PGPASSWORD=<redacted> PROSPECTA_APP_TEST_DATABASE_URL=postgresql://localhost:5432/prospecta_t009_test pnpm test:integration`
+passed: 1 file / 34 tests. Cleanup residue check returned `t|t|t`.
+
+`pnpm typecheck`: passed. `pnpm lint`: passed with the same two pre-existing
+unused-variable warnings in `src/server/auth/auth.test.ts`. `pnpm test`:
+passed: 40 files / 837 tests. `pnpm build`: passed with process-only
+synthetic server settings and Prospecta features disabled; Next.js reported
+`.env.local` presence during build loading, but `.env.local` was not inspected
+or changed. `git diff --check`: passed. Scoped source scans over the T021
+repository implementation returned no matches for n8n/fetch, producer database
+access, or producer-table mutation patterns.
+
+No route, UI, T022 producer observation repository, T023 batch composition,
+n8n call, producer database read, producer mutation, workflow artifact,
+production migration, real CSV, real data, deployment, feature activation, or
+commit was performed. X4 and the producer completion evidence remain pending.
+
 **Commit:** `feat(prospecta): read app submission facts`
 
 #### T022: Read approved producer batch observations
+
+**Status:** COMPLETE LOCALLY on 2026-07-07 for the approved local/non-production
+X4 producer observation source.
 
 **What/where:** Add producer observation repository using only X4-approved
 views/fields and parameterized batch IDs.  
@@ -702,9 +1100,54 @@ DB-TEST.
 **Done when:** Missing source is unavailable, not zero; no legacy event absence
 creates completion.  
 **Verify:** focused tests, SQL allowlist review, DB integration.  
+
+**Recorded gate:** X4 local/non-production evidence was added at
+`.specs/features/prospecting-console/evidence/x4-producer-batch-observations.md`.
+The approved producer-owned read source is
+`public.prospecta_import_batch_observations_v1`, with exact approved fields,
+row identity through `source_row`, explicit close through
+`fact_type = 'BATCH_CLOSED'` and `closed_at`, and exact terminal mapping for
+`LEAD_DECISION_SAVED`, `PRE_VALIDATION_BLOCKED`, `CRM_REJECTED`, and
+`PROCESSING_FAILED`. Unknown producer results remain non-terminal.
+
+Producer-owned source DDL was added under `db/producer/` as an adapter view
+over the structured `docs/db/schema.sql` objects and is not an app-owned
+migration. The T022 repository was added at
+`src/server/repositories/imports/producer-batch-observations-repository.ts`.
+It reads only the approved view via `src/server/db/producer-client.ts`, uses
+parameterized `import_batch_id`, validates invalid input before database work,
+returns `availability: "UNAVAILABLE"` on producer-source failure, preserves
+empty accepted-row facts as empty observation facts rather than confirmed zero,
+deduplicates accepted rows and terminal outcomes, and keeps retained legacy
+observations informational only.
+
+Focused unit gate:
+`pnpm vitest run src/server/repositories/imports/producer-batch-observations-repository.test.ts`
+passed: 1 file / 18 tests. Disposable PostgreSQL focused gate:
+`PROSPECTA_PRODUCER_TEST_DATABASE_URL=postgresql://postgres@localhost:55432/prospecta_t022_producer_test pnpm vitest run --config vitest.integration.config.ts tests/integration/producer-batch-observations.test.ts`
+passed: 1 file / 5 tests against a temporary local cluster created with
+`initdb`/`pg_ctl`. Full disposable PostgreSQL gate:
+`PGUSER=postgres PGPASSWORD=<synthetic> PROSPECTA_APP_TEST_DATABASE_URL=postgresql://postgres@localhost:55432/prospecta_t009_test PROSPECTA_PRODUCER_TEST_DATABASE_URL=postgresql://postgres@localhost:55432/prospecta_t022_producer_test pnpm test:integration`
+passed: 2 files / 39 tests.
+
+`pnpm lint`: passed with the same two pre-existing unused-variable warnings in
+`src/server/auth/auth.test.ts`. `pnpm typecheck`: passed. `pnpm test`: passed:
+41 files / 855 tests. `pnpm build`: passed with process-only synthetic server
+settings and Prospecta features disabled; Next.js reported `.env.local`
+presence during build loading, but `.env.local` was not inspected or changed.
+
+No route, UI, T023 batch composition, n8n call, fetch, app database use by the
+T022 repository, producer mutation by the repository, production migration,
+real CSV, real data, deployment, workflow artifact, or feature activation was
+performed. Production X4 rollout, grants, and target creation remain separate
+approval items.
+
 **Commit:** `feat(prospecta): read producer batch observations`
 
 #### T023: Compose the batch read service
+
+**Status:** COMPLETE LOCALLY on 2026-07-07 for the server-only composition
+service slice.
 
 **What/where:** Add list/detail composition under `src/server/imports/` with
 tests for app facts plus nullable producer observations.  
@@ -714,6 +1157,43 @@ CORE.
 **Done when:** Proven acceptance survives producer outage and status provenance
 is preserved.  
 **Verify:** focused service tests and typecheck.  
+
+**Recorded gate:** The batch read composition service was added at
+`src/server/imports/batch-read-service.ts` with list/detail functions for
+future API use. It reads app-owned submission facts only through
+`listImportSubmissions` and `getImportSubmissionDetail`, reads producer
+observations only through `readProducerBatchObservations`, and uses
+`mapBatchStatus` as the sole status/count derivation path.
+
+The service validates organization, pagination, and detail identifiers before
+repository work. It maps app submissions, workflow acknowledgements, nullable
+durable acceptance, and nullable producer observations into the T020 mapper
+input without promoting acknowledgement to durable acceptance. Producer reads
+run only when a correlated `workflowAcknowledgement.import_batch_id` exists.
+Producer unavailability preserves durable `ACCEPTED` facts while keeping
+producer-derived counts `null`; inconsistent producer evidence fails closed
+through the mapper. No freshness policy is invented.
+
+Focused service gate:
+`pnpm vitest run src/server/imports/batch-read-service.test.ts` passed: 1 file
+/ 26 tests.
+
+`pnpm lint`: passed with zero errors and the same two pre-existing
+unused-variable warnings in `src/server/auth/auth.test.ts`. `pnpm typecheck`:
+passed. `pnpm test`: passed: 42 files / 881 tests. `pnpm build`: passed with
+synthetic process-only server settings; Next.js reported `.env.local`
+presence during build loading, but `.env.local` was not inspected or changed.
+`git diff --check`: passed. Scoped source scan over the T023 service returned
+no matches for n8n/fetch, route/UI APIs, direct app/producer DB clients,
+database URLs, app/producer SQL objects, or SQL mutation/read keywords. Scoped
+usage scan confirmed the service imports the T021 app-owned repository, T022
+producer observation repository, and T020 mapper.
+
+No route, UI, page, n8n call, fetch, app-schema write, producer write, direct
+producer read outside T022, workflow artifact, production migration, real CSV,
+real data, deployment, feature activation, or commit was performed. T024,
+T025, routes, and UI remain pending.
+
 **Commit:** `feat(prospecta): compose batch read model`
 
 #### T024: Add paginated `GET /api/imports`
@@ -1034,7 +1514,7 @@ The dependency diagram and task bodies were compared directly:
 | --- | --- | --- |
 | T001–T003 | None → T001 → T002 → T003 | ✅ |
 | T004–T010 | T003 branches; T004+T005→T006→T007; T004→T008; T002→T009; T008+T009→T010 | ✅ |
-| T011–T019 | T002→T018; T018+X3+X4→T019; T019 gates T011/T012→T013; T014; T013+T014→T015→T016→T017 | ✅ |
+| T011–T019 | T002→T018; T018+X3→T019 with X4 only for completion; T011+T012+observed contract→T013; T014; T013+T014→T015→T016→T017 | ✅ |
 | T020–T027 | T020/T021/T022→T023→T024/T025→T026/T027 | ✅ |
 | T028–T041 | T028 and T010 feed repositories; repositories feed routes; routes feed two UI tasks | ✅ |
 | T042–T046 | T042→T043/T044/T045→T046 | ✅ |
@@ -1048,7 +1528,8 @@ shown as X1–X7.
 | Tasks | Layer | Matrix requires | Task says | Status |
 | --- | --- | --- | --- | --- |
 | T001–T003, T050 | Docs | Structural | DOC in same task | ✅ |
-| T004–T005, T011–T012, T020, T028, T042–T043 | Pure policy/validator/mapper | Unit | Unit in same task | ✅ |
+| T004–T005, T011, T020, T028, T042–T043 | Pure policy/validator/mapper | Unit | Unit in same task | ✅ |
+| T012 internal decision | Contract/evidence disposition | Structural | No crypto code or fabricated unit vectors | ✅ |
 | T006–T007 | Auth | Integration | Auth/guard integration in same task | ✅ |
 | T008, T014, T021–T023, T029–T033, T045 | DB/repository | Unit + disposable integration | Unit/integration in same task | ✅ |
 | T009–T010 | Migration/roles | Disposable PostgreSQL integration | Integration in each task | ✅ |

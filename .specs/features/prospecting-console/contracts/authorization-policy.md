@@ -1,7 +1,7 @@
 # Authorization Policy
 
-**Status:** AUTHENTICATION AND ORGANIZATION BOUNDARY IMPLEMENTED — granular
-authorization deferred
+**Status:** AUTHENTICATION AND ORGANIZATION BOUNDARY IMPLEMENTED — scoped
+internal import access approved; granular authorization deferred
 
 ## Verified Actor Context
 
@@ -45,6 +45,22 @@ These names are reserved for the future granular-authorization gate. They do
 not grant capabilities in the current runtime, and no provider role is mapped
 to them.
 
+## Scoped Internal Import Access
+
+For the identified single-organization internal MVP only, import pages and
+routes may use the existing verified issuer, subject, and
+`AUTH_ALLOWED_ORG_ID` actor as their server-side access policy. Mutations also
+require the same-origin guard, and every import route requires the server-side
+import feature flag.
+
+This exception:
+
+- applies only to import submission and app-owned import facts;
+- grants no sensitive, commercial, assignment, or audit capability;
+- does not trust provider roles, token permissions, or request-body actor/org
+  fields;
+- remains disabled by default and is not a production authorization model.
+
 ## Enforcement Rules
 
 - Authentication and authorization run before body parsing, database work,
@@ -52,6 +68,8 @@ to them.
 - Current lead list/detail/history routes require a valid authenticated session
   whose issuer and organization match server policy. They do not consume a
   provider role or granular permission.
+- Internal import routes may use the same actor boundary only under the scoped
+  internal import access policy above.
 - Mutation routes must apply the reusable same-origin guard after
   current authentication/organization authorization and before body
   processing. Once granular authorization is approved, its permission check
@@ -76,7 +94,7 @@ Every app-owned write records:
 
 - issuer and subject;
 - organization;
-- permission-authorized action;
+- authorized action and authorization-policy basis;
 - target type and app-owned target ID;
 - referenced `lead_run_id`, when applicable;
 - UTC timestamp;
@@ -98,6 +116,9 @@ latency, organization binding, emergency access, and audit behavior. That
 future mechanism may use provider roles or another server-owned source, but no
 choice is made by the current implementation.
 
+The scoped internal import policy does not depend on or populate a granular
+permission and therefore does not claim to satisfy this gate.
+
 ## Verification
 
 - Missing and expired sessions return `401`.
@@ -106,5 +127,7 @@ choice is made by the current implementation.
   populate actor permissions.
 - Identity fields survive from token validation to the audit transaction.
 - Cross-organization identifiers fail closed.
+- Internal import routes require the allowed-organization actor, feature flag,
+  and same-origin guard before file, database, hashing, or producer work.
 - Sensitive and other granular capabilities remain feature-gated until their
   permission source and revocation behavior are approved.

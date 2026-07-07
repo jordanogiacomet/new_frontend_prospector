@@ -8,9 +8,15 @@
 - `AGENTS.next.md` is superseded by this file and is retained only as proposal
   history.
 - Repository development and synthetic/local verification are authorized.
-- Integration requires an identified non-production target and credentials.
+- Integration requires an identified non-production target and credentials
+  only when that target's approved profile uses them.
 - Production migrations, n8n activation, deployment, and rollout require a
   separately identified target, credentials, accountable owner, and approval.
+- On 2026-07-06 the repository owner approved a simple internal MVP profile
+  for `http://192.168.0.20:30098/webhook/empresaqui/import`: HTTP and no
+  server-to-server authentication/replay control are accepted limitations for
+  this target only. This profile is not evidence of security and does not
+  relax production requirements.
 
 ## Product
 
@@ -86,6 +92,11 @@ Prospecta API → approved, versioned n8n import ingress over HTTPS + HMAC
 Approved n8n ingress/producer → producer PostgreSQL
 ```
 
+For the identified internal MVP target only, the n8n edge may use HTTP with
+zero authentication headers. A future production edge still requires HTTPS
+and an approved, remotely verified server-to-server authentication and replay
+mechanism.
+
 Not allowed:
 
 ```text
@@ -107,8 +118,9 @@ the current productive workflow while developing it.
 2. Separate producer-read and app-schema PostgreSQL connections.
 3. Reviewed app-owned schema and local/non-production migrations.
 4. Server-side CSV upload with superficial validation, exact-byte SHA-256,
-   HMAC-authenticated producer submission, upload idempotency, and durable
-   `202 Accepted` handling.
+   app-owned upload idempotency, one producer submission, and honest handling
+   of the observed workflow `202` acknowledgement. The internal profile sends
+   zero authentication headers; production authentication remains deferred.
 5. Evidence-based batch list/detail with nullable counts.
 6. Commercial queue, assignment, stage, next action, append-only activities,
    append-only notes, and transactional audit.
@@ -141,8 +153,11 @@ the current productive workflow while developing it.
 - The app must forward the exact accepted bytes and must not normalize rows,
   validate business CNPJ rules, map aliases, enrich, score, or qualify.
 - Hash the exact transmitted bytes with SHA-256.
-- Sign the canonical request with the approved HMAC contract; secrets, key IDs,
-  and endpoint URLs remain server-only.
+- Under the identified internal profile, send zero authentication headers.
+  Do not fabricate HMAC, canonicalization, nonce, timestamp, or replay
+  protection that the target does not verify.
+- If a future target exposes an approved and remotely tested authentication
+  contract, keep its secrets, key IDs, and endpoint URLs server-only.
 - Persist app submission intent before calling the producer.
 - Persist only a validated, correlated producer acceptance.
 - Return `202` only for a durable app record; distinguish submission recorded
@@ -204,6 +219,11 @@ the current productive workflow while developing it.
   - `commercial:assign`
   - `sensitive:read`
   - `audit:read`
+- For the identified single-organization internal MVP, import pages/routes may
+  use the existing verified issuer, subject, allowed-organization, same-origin,
+  and server-side feature-flag boundary while granular permission sourcing is
+  deferred. This exception applies only to imports; it grants no sensitive,
+  audit, assignment, or commercial capability.
 - Cross-organization identifiers fail closed.
 - Private responses use `Cache-Control: private, no-store`.
 - Use CSRF protections appropriate to authenticated mutation routes and verify
@@ -350,8 +370,9 @@ internal endpoints.
   rows in tests.
 - Co-locate tests with changed validators, mappers, repositories, services,
   routes, permissions, and components.
-- Test HMAC canonicalization/signature/replay window, upload idempotency,
-  app-producer correlation, and explicit completion semantics.
+- Test HMAC canonicalization/signature/replay behavior only after a remote
+  contract implementing those controls exists. Always test upload idempotency,
+  app-producer correlation, and explicit completion semantics where applicable.
 - Test database role isolation and cross-organization denial against a
   disposable PostgreSQL target.
 - Test authorization before file/database/producer work.

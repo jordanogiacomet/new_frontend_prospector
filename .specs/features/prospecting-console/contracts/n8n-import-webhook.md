@@ -1,7 +1,8 @@
 # n8n EmpresaAqui Import Webhook Contract
 
-**Status:** CURRENT WORKFLOW MAPPED — app integration and production use
-blocked by the gaps below
+**Status:** CURRENT WORKFLOW MAPPED AND PARTIALLY EXERCISED IN NON-PRODUCTION
+— internal acknowledgement-only app integration is authorized; T018/T019
+completion and production use remain pending
 
 **Operational source of truth:**
 `private-workflows/EmpresaAqui_Webhook_Import_v1.json`
@@ -9,16 +10,61 @@ blocked by the gaps below
 **Workflow name:** `EmpresaAqui - Webhook Import v1 -
 StrictOneTokenDomainGate`
 
-**Observed workflow active flag in the export:** `false`
+**Static local export identity parsed on 2026-07-07:**
+
+| Field | Observed value |
+| --- | --- |
+| Workflow `id` | `6HM8Era5svuUN24x` |
+| Workflow `versionId` | `4be457b8-ccd1-47f9-9d0e-a1fbb38edc7e` |
+| Export `active` flag | `false` |
+| Nodes | `69` |
+| Directed connection edges | `75` |
 
 This document records the behavior present in the official workflow export. A
 statement under **Observed contract** is evidenced by that file. A statement
 under **Required before implementation/production** is a pending requirement,
 not behavior attributed to the workflow.
 
+The local `id` and `versionId` are static export facts. They are not remote
+attestation: the authorized public webhook response and headers do not expose
+workflow identity/version, and no authorized administrative inspection channel
+has been supplied.
+
 The official ingress is no longer the legacy form trigger. The legacy
 qualification export remains historical producer evidence, but it is not the
 current EmpresaAqui app-ingress contract.
+
+## Internal Non-Production Test Profile
+
+On 2026-07-06 the repository owner approved a liberal transport profile only
+for the identified internal non-production target:
+
+```text
+http://192.168.0.20:30098/webhook/empresaqui/import
+```
+
+Under this test profile:
+
+- plain HTTP is accepted for direct contract-test traffic on the private
+  network;
+- no credential, HMAC, timestamp, nonce, or replay check is expected;
+- a future Prospecta ingress client for this profile must send zero
+  authentication headers; optional HMAC environment placeholders must not be
+  converted into outbound headers;
+- byte-identical repeated requests may be accepted and processed again;
+- content type and filename are producer hints rather than ingress gates;
+- all payloads and resulting producer writes must remain synthetic.
+
+This is an explicit scoped contract decision, not evidence that HTTP or an
+unauthenticated endpoint is secure. The owner subsequently approved the same
+HTTP allowance for the internal Prospecta server configuration. It does not
+approve production use. HTTPS and an approved server-to-server
+authentication/replay mechanism remain production requirements.
+
+The liberal profile does not invent workflow identity/version proof, safe
+producer errors, durable acceptance, response/persistence ordering, or X4
+accepted-row/terminal/close facts. Those facts remain unavailable; the
+internal app handles them as limitations or unknown outcomes.
 
 ## Trust Boundary
 
@@ -67,21 +113,43 @@ export does not consume `submission_id`, upload-level `idempotency_key`,
 ## Current App Configuration Boundary
 
 - `N8N_IMPORT_URL` is the only required n8n setting in this phase.
-- It must be an absolute HTTPS URL without credentials, query, or fragment,
-  and use the standard n8n production
+- It may be an absolute HTTP or HTTPS URL without credentials, query, or
+  fragment, and must use the standard n8n production
   `/webhook/empresaqui/import` or test
   `/webhook-test/empresaqui/import` form.
 - `N8N_HMAC_KEY_ID` and `N8N_HMAC_SECRET` are optional, server-only, unused
   deferred-hardening placeholders. Their presence does not mean the current
-  workflow authenticates or validates HMAC.
+  workflow authenticates or validates HMAC and must not cause a client to emit
+  authentication headers under the internal profile.
 - `IMPORT_MAX_BYTES` and `IMPORT_PRODUCER_TIMEOUT_MS` are app controls, not
   observed workflow guarantees.
-- `FEATURE_IMPORTS_ENABLED` remains `false`. It cannot be enabled before T019
-  and definition/testing of the approved server-to-server authentication
+- `FEATURE_IMPORTS_ENABLED` remains `false` by default. It may be enabled only
+  for the identified internal target after T013–T017 application tests and
+  controlled synthetic UAT pass. Production additionally requires definition
+  and testing of an approved server-to-server authentication and replay
   mechanism.
 
+The direct T019 harness uses `N8N_CONTRACT_URL` and requires
+`N8N_CONTRACT_ALLOW_INSECURE_HTTP=true` for the scoped internal HTTP target.
+`N8N_IMPORT_URL` now accepts the same internal HTTP URL without an additional
+flag. Both settings remain server-only.
+
+Run it with process-only test configuration:
+
+```sh
+N8N_CONTRACT_URL=<AUTHORIZED_NON_PRODUCTION_URL> \
+N8N_CONTRACT_ALLOW_INSECURE_HTTP=true \
+pnpm test:contract
+```
+
+The suite keeps runtime workflow identity/version, correlation, durable
+acceptance, persistence timing, and X4 as explicit missing evidence.
+Their `N8N_CONTRACT_*_EVIDENCE` attestations must not be set from owner
+assertion alone; each requires the independently inspected non-production
+fact named by the test.
+
 This configuration validation does not implement an n8n client, authorize a
-call, or satisfy the runtime contract gate.
+call, or by itself enable the internal feature.
 
 ## Binary Handling and CSV Extraction
 
@@ -184,7 +252,8 @@ acceptance-unknown timeout is not evidenced.
 ## Observed Producer Reads and Writes
 
 The official workflow keeps the existing producer-owned qualification
-behavior. Its PostgreSQL nodes evidence:
+behavior. The export contains seven PostgreSQL nodes, all configured as
+`executeQuery`, and they evidence:
 
 | Producer object | Observed operation |
 | --- | --- |
@@ -192,6 +261,16 @@ behavior. Its PostgreSQL nodes evidence:
 | `company_validation_runs` | Insert `RECEBIDO`, blocked, cache, CRM-decision, and final run observations |
 | `company_strategic_research_reports` | Read cached report; conditionally insert/upsert the strategic report |
 | `crm_find_company_matches(...)` | Read producer CRM matching/history through the producer function |
+
+| PostgreSQL node | Observed read/write |
+| --- | --- |
+| `Select Cache in PGSQL` | Reads `company_validations` and `company_strategic_research_reports` |
+| `Select Histórico CRM in PGSQL` | Reads CRM matching/history through `crm_find_company_matches(...)` |
+| `Log Run - RECEBIDO` | Inserts a `company_validation_runs` observation |
+| `Log Run - BLOQUEADO_PRE_VALIDACAO` | Inserts a `company_validation_runs` observation |
+| `Log Run - USOU_CACHE` | Inserts a `company_validation_runs` observation |
+| `Log Run - CRM_DECIDIU` | Inserts a `company_validation_runs` observation |
+| `Insert in PGSQL` | Upserts `company_validations`, inserts final `company_validation_runs`, and conditionally upserts `company_strategic_research_reports` |
 
 The workflow carries `import_batch_id`, `source_row`, `lead_run_id`,
 lead-oriented `idempotency_key`, `cnpj_normalizado`, `source_hash`, and
@@ -220,6 +299,43 @@ Within the static workflow definition, it:
 These static observations do not prove that a deployed endpoint is active,
 reachable, secured, or configured identically.
 
+## 2026-07-06 Non-Production Runtime Observation
+
+The authorized internal target was exercised with synthetic data only:
+
+- `GET /webhook/empresaqui/import` returned `404` and stated that the webhook
+  is registered for `POST`;
+- one `POST multipart/form-data` request using `arquivo_csv` returned the
+  official five-field JSON with HTTP `202`, `row_count: 1`, and a generated
+  `import_batch_id`;
+- the smoke response arrived in 659 ms;
+- the endpoint accepted requests without credentials;
+- the `/webhook-test/empresaqui/import` form was not registered and required
+  an administrative canvas action, so it was not used for the repeatable
+  suite.
+
+The stable endpoint's behavior matches the local export's entry and response
+shape, but the public webhook does not expose workflow ID or `versionId`.
+Without administrative inspection, this is a behavioral match rather than
+proof that the effective remote artifact is the same version.
+
+The first 43-case contract run passed 28 cases and failed 15. A second run,
+after adding sanitized response diagnostics and correcting the exact 10 MiB
+fixture length, passed 29 and failed 14. Observed functional gaps were:
+
+- missing `arquivo_csv`: HTTP `200` with an empty body rather than a safe
+  client error;
+- wrong multipart field: accepted with the official HTTP `202`;
+- empty file: HTTP `500`;
+- malformed quote and invalid UTF-8: HTTP `200` with an empty body rather than
+  a controlled acceptance or client error;
+- exact 10 MiB: timed out once at 20 seconds, then passed on the second run,
+  so the compatibility bound is not stable evidence.
+
+Independent workflow identity/version, producer correlation, durable
+acceptance, response/persistence timing, and X4 evidence were unavailable and
+remained explicit failures.
+
 ## What the Official Workflow Does Not Guarantee
 
 The export does not evidence:
@@ -245,6 +361,13 @@ The export does not evidence:
 Internal lead/run identities and keyed merges do not close these upload-level
 gaps.
 
+For the approved internal non-production profile, absent transport
+authentication and replay prevention are accepted observed behavior rather
+than T019 pass/fail gates. They remain documented gaps and production
+blockers. The other items remain explicit limitations; durable
+acceptance/completion and X4-dependent UI remain blocked, but the
+acknowledgement-only upload slice may proceed.
+
 ## Difference Map: Previous Contract vs Official Workflow
 
 | Concern | Previous documented proposal | Official workflow evidence | Consequence |
@@ -254,7 +377,7 @@ gaps.
 | Path | `/webhook/prospecta/imports/v1` | Configured path `empresaqui/import` | App must use only the environment URL for the official path |
 | Body | File plus five metadata fields | One multipart file field `arquivo_csv` | Previous request DTO is incompatible |
 | Binary | Exact-byte hash-bound upload | Direct `arquivo_csv` binary hand-off only | Exact-byte integrity is unproven |
-| Authentication | Detailed HMAC v1 contract | No webhook authentication in export | Security gap blocks app integration |
+| Authentication | Detailed HMAC v1 contract | No webhook authentication in export or runtime observation | T012 is not applicable to the scoped internal profile; production remains blocked |
 | Idempotency | Organization/key/hash replay contract | Only lead-oriented key after parsing | Upload retries can duplicate work |
 | Success schema | Versioned acceptance object | Five unversioned response fields | Client schema must match reality after gaps are resolved |
 | Batch ID | `producerBatchId` | `import_batch_id` | Preserve the producer's real identifier |
@@ -263,28 +386,39 @@ gaps.
 | Completion | Batch/row/close facts required | No batch master or close fact | `COMPLETED` remains unavailable |
 | Errors | Safe versioned status/envelope | No controlled error branch evidenced | Error contract remains pending |
 
-## Pending Before Implementing `/api/imports`
+## Accepted Limitations for the Internal `/api/imports`
 
-- Name a non-production n8n target, endpoint owner, credentials owner, and
-  safe test window.
-- Import/inspect the official file in that target and prove its effective
-  request and response behavior without production data.
-- Decide and implement an approved server-to-server authentication mechanism;
-  the repository HMAC/replay baseline is not present in the workflow.
-- Decide whether the current unversioned response is retained or upgraded, and
-  publish the exact tested schema.
-- Add or approve durable upload acceptance/idempotency, or explicitly redesign
-  app state so acknowledgement can never be mistaken for durable acceptance.
-- Define timeout/reconciliation behavior without automatic retry.
-- Prove request size, content-type, filename, encoding, and infrastructure
-  limits.
-- Define safe controlled error behavior.
-- Reconcile `row_count` with an approved accepted-row fact.
-- Execute T018/T019 contract evidence; static JSON inspection alone is not a
-  passing integration test.
+- Remote identity/version is behaviorally matched but not attested.
+- The unversioned five-field `202` is retained and validated exactly.
+- App-owned idempotency prevents duplicate app calls for a known key/hash, but
+  producer replay protection is absent.
+- Once the producer call begins, a timeout or malformed/non-`202` response
+  produces a safe app-owned unknown outcome without exposing the producer body
+  and without automatic retry.
+- App file controls are enforced locally; producer/infrastructure limits are
+  not represented as proven.
+- `row_count` remains a workflow response count, not durable accepted rows.
+- No batch processing/completion state is shown without X4 evidence.
 
-Until these items are resolved, app client, `POST /api/imports`, and upload UI
-tasks remain blocked.
+T012 does not add an internal blocker: the scoped profile's explicit decision
+is to use no authentication mechanism and send zero authentication headers.
+That decision is not a security control and does not satisfy production.
+
+These dispositions unblock T013–T017 for repository implementation and
+synthetic testing. Live internal enablement still requires those tasks and a
+controlled synthetic UAT; production remains separately blocked.
+
+## Open Gaps and Disposition
+
+| Gap | Owner/input needed | Disposition |
+| --- | --- | --- |
+| Remote workflow identity/version | Deployment/n8n owner must provide an authorized inspection result proving the effective workflow `id`, `versionId`, activation state, and webhook path for the named target | Blocks T018 completion and production; does not block acknowledgement-only T019 probes |
+| Production transport and server-to-server auth | Security/deployment owners must approve and remotely test HTTPS plus authentication/replay controls | Blocks production; not expected under the approved internal HTTP/no-auth profile |
+| Durable producer acceptance before `202` | Producer owner must expose an approved batch/row acceptance fact source or transaction evidence | Blocks durable `ACCEPTED`, completion cases, and X4-dependent UI; does not block app-owned submission recording |
+| Response-to-persistence timing and timeout recovery | Producer/deployment owners must provide observable synthetic evidence for persistence timing and lost-response reconciliation | Blocks T019 completion and production hardening |
+| Batch close and terminal row outcomes | Producer owner must identify approved close/terminal facts and exact mappings | Blocks X4 and any `COMPLETED`/`INCOMPLETE` status claims |
+| Safe failure envelope for malformed/missing inputs | n8n/producer owner must implement or approve controlled failure behavior in a non-production target | Blocks T019 completion and production hardening; current app must map non-`202`/malformed responses to safe unknown outcomes |
+| Size, logging, and infrastructure limits | Deployment/security owners must provide body-limit, timeout, logging/redaction, and monitoring evidence | Blocks production hardening; app-side limits remain local controls only |
 
 ## Additional Pending Before Production
 
@@ -315,7 +449,8 @@ target:
 - response timing relative to producer persistence;
 - timeout before and after the response branch;
 - repeated identical requests and resulting duplicate behavior;
-- authentication/replay behavior after the security gap is resolved;
+- absence of authentication/replay controls under the explicit internal
+  profile, and their behavior after production security is implemented;
 - safe/redacted failures;
 - producer object writes with synthetic rows only;
 - explicit proof that no browser request targets n8n;

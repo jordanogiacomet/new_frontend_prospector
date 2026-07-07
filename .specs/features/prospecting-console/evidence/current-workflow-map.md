@@ -1,7 +1,8 @@
 # Current Official Workflow Evidence
 
-**Status:** STATICALLY VERIFIED against the official local export on
-2026-07-06; runtime/non-production proof pending
+**Status:** STATICALLY VERIFIED against the official local export and
+PARTIALLY EXERCISED against the authorized non-production target on
+2026-07-06; identity, durability, and X4 proof pending
 
 **Operational source of truth:**
 `private-workflows/EmpresaAqui_Webhook_Import_v1.json`
@@ -9,11 +10,93 @@
 **Workflow name:** `EmpresaAqui - Webhook Import v1 -
 StrictOneTokenDomainGate`
 
+**Static local export identity parsed on 2026-07-07:**
+
+| Field | Observed value |
+| --- | --- |
+| Workflow `id` | `6HM8Era5svuUN24x` |
+| Workflow `versionId` | `4be457b8-ccd1-47f9-9d0e-a1fbb38edc7e` |
+| Export `active` flag | `false` |
+| Nodes | `69` |
+| Directed connection edges | `75` |
+
 This is integration evidence, not authorization to edit, activate, or invoke
 n8n. The export's `active` field is `false`; the file alone does not prove the
 state or configuration of any deployed target.
 
+The local `id` and `versionId` above are not remote proof. The authorized
+non-production webhook did not expose those values in its public response or
+headers, and no authorized n8n administrative inspection result was available.
+
+## Authorized Non-Production Runtime Evidence
+
+Target:
+
+```text
+http://192.168.0.20:30098/webhook/empresaqui/import
+```
+
+Scope and disposition:
+
+- the target is internal and explicitly identified as non-production;
+- the owner approved synthetic HTTP calls and producer writes;
+- the owner separately selected a liberal internal profile that accepts HTTP,
+  no authentication, and no replay protection for this target only;
+- production still requires HTTPS and approved server-to-server
+  authentication/replay controls;
+- no administrative credential or inspection mechanism was available.
+
+Observed:
+
+- `GET` returned `404` with a method hint for `POST`, showing the stable
+  webhook path was registered;
+- a synthetic `POST multipart/form-data` request with `arquivo_csv` returned
+  HTTP `202` and exactly `accepted`, `message`, `import_batch_id`, `row_count`,
+  and `source`;
+- the smoke returned `row_count: 1`, source `EmpresaAqui`, and completed in
+  659 ms;
+- the endpoint accepted the request without credentials;
+- the provided `/webhook-test/empresaqui/import` endpoint returned an
+  unregistered-webhook error requiring a canvas action and was not suitable
+  for the repeatable contract suite.
+
+The stable endpoint is behaviorally compatible with the local export's
+webhook and response nodes. The effective remote workflow ID and version
+remain unproved because neither the response nor headers attest them and no
+authorized administrative read mechanism was supplied.
+
+The first executable T019 run collected 43 cases: 28 passed and 15 failed. A
+second run collected the same 43 cases: 29 passed and 14 failed. Sanitized
+diagnostics showed missing-file `200`/empty, wrong-field `202`, empty-file
+`500`, and malformed-quote/invalid-UTF-8 `200`/empty outcomes. The exact
+10 MiB case timed out once at 20 seconds and passed once, which is not stable
+compatibility evidence. Runtime identity/version attestation, persisted
+correlation, durable acceptance/timing, and X4 accepted-row/close/terminal
+facts remained missing.
+
 ## Entry, Binary, and Response Map
+
+The full export contains this node inventory:
+
+| Node type | Count |
+| --- | ---: |
+| `n8n-nodes-base.code` | 33 |
+| `n8n-nodes-base.extractFromFile` | 1 |
+| `n8n-nodes-base.httpRequest` | 4 |
+| `n8n-nodes-base.if` | 5 |
+| `n8n-nodes-base.merge` | 6 |
+| `n8n-nodes-base.noOp` | 3 |
+| `n8n-nodes-base.postgres` | 7 |
+| `n8n-nodes-base.respondToWebhook` | 1 |
+| `n8n-nodes-base.splitInBatches` | 1 |
+| `n8n-nodes-base.stickyNote` | 6 |
+| `n8n-nodes-base.wait` | 1 |
+| `n8n-nodes-base.webhook` | 1 |
+
+The static connection map has 75 directed edges. The ingress edge is exactly
+`Webhook EmpresaAqui Import` -> `Extract From File`; the response branch is
+`Normalizar EmpresaAqui` -> `Preparar Resposta Aceite Webhook` ->
+`Responder Webhook - Aceite`.
 
 ```text
 Webhook EmpresaAqui Import
@@ -78,7 +161,7 @@ idempotency.
 
 ## Observed Producer Persistence
 
-The PostgreSQL nodes reference:
+The seven PostgreSQL nodes are all `executeQuery` nodes and reference:
 
 | Node | Observed target/use |
 | --- | --- |
@@ -109,11 +192,22 @@ and SQL text. It does not prove:
 - batch master, accepted-row set, terminal-row uniqueness, or explicit batch
   closure.
 
+Reachability, stable-path registration, POST/multipart behavior, the
+five-field `202`, delimiter/row-count behavior, UTF-8 accents, BOM, CRLF,
+liberal media type/filename handling, and repeated-request behavior now have
+runtime coverage. Deployment identity/version, safe failure semantics, the
+10 MiB compatibility bound, persistence ordering, and X4 facts do not.
+
 Accordingly, current app configuration requires only the server-side
-`N8N_IMPORT_URL` for the exact `empresaqui/import` webhook path. Optional HMAC
-settings are unused deferred hardening and do not establish authentication.
-`FEATURE_IMPORTS_ENABLED` remains `false`; no client or `/api/imports` route is
-unblocked by this static evidence.
+`N8N_IMPORT_URL` for the exact `empresaqui/import` webhook path and accepts
+HTTP or HTTPS under the owner's internal-use decision. Optional HMAC settings
+are unused deferred hardening and do not establish authentication. A future
+client operating under this profile must send zero authentication headers;
+client-generated HMAC-like headers would not be verified by the target.
+This evidence plus the owner's explicit limitation acceptance unblocks
+T013–T017 repository implementation. `FEATURE_IMPORTS_ENABLED` remains `false`
+by default and may be enabled for the named internal target only after those
+tasks and controlled synthetic UAT pass.
 
 The existing keyed integrity validators protect internal producer merges.
 They do not establish upload-level acceptance or completion.
@@ -136,18 +230,23 @@ lineage, but it is no longer the authority for the current ingress.
 | Upload authentication/idempotency | Not evidenced | Still not evidenced |
 | Batch completion | Not evidenced | Still not evidenced |
 
-## Evidence Still Required
+## Evidence Still Required for Batch Facts, Hardening, or Production
 
-Before app integration:
+| Gap | Owner/input needed | Disposition |
+| --- | --- | --- |
+| Exact deployment identity | Deployment/n8n owner must provide authorized inspection evidence for target workflow `id`, `versionId`, activation state, and path | Blocks T018 completion and production |
+| Production security profile | Security/deployment owners must approve and test HTTPS plus authentication/replay controls | Blocks production; not required by the internal HTTP/no-auth profile |
+| Stable producer error mapping | n8n/producer owner must provide controlled response behavior for missing, wrong, empty, malformed, invalid-UTF-8, and oversized inputs | Blocks T019 completion and production hardening |
+| Durable producer acceptance/idempotency | Producer owner must expose an approved durable acceptance and upload/idempotency fact source | Blocks durable `ACCEPTED`; current app may only record acknowledgement/unknown |
+| Response/persistence timing and timeout reconciliation | Producer/deployment owners must provide observable synthetic evidence | Blocks T019 completion and production hardening |
+| X4 batch/row/close/terminal facts | Producer owner must identify approved accepted-row, terminal-row, and close facts plus mappings | Blocks X4 and any completion status |
+| Size, logging, and infrastructure limits | Deployment/security owners must provide body-limit, timeout, logging/redaction, monitoring, and rollback evidence | Blocks production hardening |
 
-- named non-production target, owner, URL, credentials, and test window;
-- imported workflow/version/configuration proof;
-- effective request/response and failure tests;
-- authentication and replay-control decision and implementation;
-- durable acceptance/idempotency or an approved redesign of app state;
-- response/persistence timing and timeout-reconciliation tests;
-- safe size, content, error, and logging behavior.
-
-Before production, also require deployment/activation approval, exact version
-attestation, security review, batch completion evidence, monitoring, rollback,
-and accountable production owners.
+The authentication decision for this internal profile is explicitly “none”,
+so T012 is not applicable to it. Internal upload behavior is deliberately
+limited to app submission, workflow acknowledgement, and unknown outcome.
+Before production, require HTTPS plus a
+separately approved and remotely testable server-to-server authentication and
+replay mechanism, deployment/activation approval, exact version attestation,
+security review, batch completion evidence, monitoring, rollback, and
+accountable production owners.
