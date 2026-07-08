@@ -179,8 +179,8 @@ describe("private application shell", () => {
     );
   });
 
-  it("marks the import route as current without changing authorization", async () => {
-    pathnameState.value = "/imports";
+  it("marks import routes as current without changing authorization", async () => {
+    pathnameState.value = "/imports/batches";
     getServerAuthorizationMock.mockResolvedValue({ status: "authorized" });
 
     render(await PrivateLayout({ children: <PrivateContent /> }));
@@ -222,6 +222,7 @@ describe("private application shell", () => {
     expect(
       surface.filter((file) => file.startsWith("(private)/")),
     ).toEqual([
+      "(private)/imports/batches/page.tsx",
       "(private)/imports/page.tsx",
       "(private)/layout.tsx",
       "(private)/leads/[cnpj]/page.tsx",

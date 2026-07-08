@@ -1293,12 +1293,50 @@ change, feature activation, retry, or reprocessing was performed.
 
 #### T026: Build the batch list page
 
+**Status:** COMPLETE LOCALLY on 2026-07-08 for the private batch list UI.
+
 **What/where:** Add private batch list UI with filters supported by evidence,
 pagination, and loading/empty/error/unavailable states.  
 **Depends on:** T024. **Requirements:** PC-13. **Tools:** UI.  
 **Tests/gate:** RTL, minimum 12 cases / UNIT.  
 **Done when:** Unknown metrics render unavailable, never zero/progress.  
 **Verify:** focused page/component tests.  
+
+**Recorded gate:** The private batch list page now lives at
+`src/app/(private)/imports/batches/page.tsx` and is linked from the existing
+private import upload page without replacing that T017 flow. It uses only
+`GET /api/imports` with supported `page` and `pageSize` query parameters,
+sanitizes unsupported URL query text out of the API request, and never calls
+`GET /api/imports/:id`, n8n, external endpoints, mutation methods, retry, or
+reprocessing actions.
+
+The UI renders loading, empty, safe generic error, API-unavailable, row-level
+observation-unavailable, known-total pagination, nullable-total pagination,
+status/basis labels, Brazilian dates, and nullable count metrics. Unknown
+`rowCountAccepted`, `terminalCount`, `blockedCount`, `failedCount`, and
+`leadCount` render as unavailable through `Não disponível`; explicit numeric
+zero remains visible only when returned by the API. The page does not expose
+app submission UUIDs, actor or organization internals, hashes, idempotency
+keys, SQL, producer payloads, n8n URLs, or workflow technical details.
+
+Focused RTL gate:
+`pnpm vitest run 'src/app/(private)/imports/batches/page.test.tsx'` passed:
+1 file / 14 tests. Affected private UI surface gate:
+`pnpm vitest run 'src/app/(private)/imports/batches/page.test.tsx' 'src/app/(private)/imports/page.test.tsx' 'src/app/(private)/layout.test.tsx'`
+passed: 3 files / 39 tests.
+
+`pnpm lint`: passed with the same two pre-existing unused-variable warnings in
+`src/server/auth/auth.test.ts`. `pnpm typecheck`: passed. `pnpm test` passed:
+44 files / 932 tests. `pnpm build`: passed; Next.js detected `.env.local`
+during build loading and listed `/imports/batches`, but `.env.local` was not
+inspected or changed. `git diff --check`: passed.
+
+No T027 detail page, `GET /api/imports/:id` browser call, client-only producer
+filter, n8n call, external fetch, database change, producer mutation, raw CSV,
+real data, credential change, production migration, deployment, workflow
+change, feature activation, export, analytics, CRM, retry, or reprocessing was
+performed.
+
 **Commit:** `feat(prospecta): add batch list`
 
 #### T027: Build the batch detail page

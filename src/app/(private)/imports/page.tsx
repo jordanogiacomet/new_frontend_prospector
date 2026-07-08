@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRef, useState } from "react";
 
 const uploadEndpoint = "/api/imports";
@@ -207,6 +208,15 @@ export default function ImportUploadPage() {
           Envie uma lista por vez pelo Prospecta. A tela registra a tentativa e
           mostra apenas o retorno confirmado.
         </p>
+        <Link
+          href="/imports/batches"
+          className="mt-7 inline-flex min-h-11 items-center border-b border-[oklch(45%_0.105_174)] px-1 text-sm font-bold text-[oklch(37%_0.095_174)] transition-colors hover:border-[oklch(24%_0.035_252)] hover:text-[oklch(24%_0.035_252)] focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-[oklch(45%_0.105_174)] motion-reduce:transition-none"
+        >
+          Ver importações registradas
+          <span aria-hidden="true" className="ml-1">
+            →
+          </span>
+        </Link>
       </header>
 
       <div className="mt-10 grid gap-10 xl:grid-cols-[minmax(0,1fr)_22rem]">
