@@ -1341,12 +1341,58 @@ performed.
 
 #### T027: Build the batch detail page
 
+**Status:** COMPLETE LOCALLY on 2026-07-08 for the private batch detail UI.
+
 **What/where:** Add batch facts, provenance, count, and state presentation.  
 **Depends on:** T025. **Requirements:** PC-13. **Tools:** UI.  
 **Tests/gate:** RTL, minimum 14 cases / UNIT.  
 **Done when:** `NO_UPDATE`, incomplete, source unavailable, and explicit
 completion are distinct; raw telemetry is absent.  
 **Verify:** focused page/component tests.  
+
+**Recorded gate:** The private batch detail page now lives at
+`src/app/(private)/imports/batches/[id]/page.tsx`. It uses only
+`GET /api/imports/:id` with `Accept: application/json`, `cache: "no-store"`,
+and same-origin credentials, validates the `{ data }` envelope defensively,
+and never calls n8n, external endpoints, mutation methods, upload/retry paths,
+or database APIs from the browser.
+
+The UI renders loading, not-found, safe generic error, page-level unavailable,
+and observation-source unavailable states. It presents batch facts,
+provenance, nullable dates, nullable counts, and status basis labels in
+business Portuguese with Brazilian dates. `NO_UPDATE`, `INCOMPLETE`, explicit
+`COMPLETED`, and producer-source `UNAVAILABLE` observations have distinct
+copy. Metrics returned as `null` render as `Não disponível`; confirmed zero
+is shown only when the API returns explicit zero. The page does not render
+actor or organization internals, SQL, secrets, hashes, idempotency keys, raw
+telemetry, raw producer payloads, n8n execution IDs, or technical workflow
+details.
+
+Focused RTL gate:
+`pnpm vitest run 'src/app/(private)/imports/batches/[id]/page.test.tsx'`
+passed: 1 file / 16 tests. Affected private-surface gate:
+`pnpm vitest run 'src/app/(private)/imports/batches/[id]/page.test.tsx' 'src/app/(private)/layout.test.tsx'`
+passed: 2 files / 24 tests.
+
+`pnpm lint`: passed with the same two pre-existing unused-variable warnings in
+`src/server/auth/auth.test.ts`. `pnpm typecheck`: passed. `pnpm test` passed:
+45 files / 948 tests. `pnpm build`: passed and listed
+`/imports/batches/[id]`; Next.js detected `.env.local` during build loading,
+but `.env.local` was not inspected or changed. Local disposable DB phase gate:
+`PGUSER=postgres PGPASSWORD=<redacted> PROSPECTA_APP_TEST_DATABASE_URL=postgresql://localhost:5432/prospecta_t009_test PROSPECTA_PRODUCER_TEST_DATABASE_URL=postgresql://localhost:5432/prospecta_t022_producer_test pnpm test:integration`
+passed: 2 files / 39 tests. The missing local disposable
+`prospecta_t022_producer_test` database was created on `localhost:5432` before
+that DB gate; cleanup residue checks returned `t|t|t` for app schemas/roles
+and `t|t` for the producer-observation target. `git diff --check`: passed.
+
+No T028 or commercial workspace, queue, assignment, sensitive content, UAT,
+performance work, export, analytics, CRM, retry, reprocessing, n8n call,
+external fetch, producer mutation, app-schema write, endpoint change, raw CSV,
+real data, credential change, production migration, deployment, workflow
+change, or feature activation was performed. The login shell still emits the
+pre-existing missing Snap/VS Code profile-path warning; it did not change
+command exit status.
+
 **Commit:** `feat(prospecta): add batch detail`
 
 **Phase 3 gate:** `FULL && DB`; producer integration remains blocked until X4.

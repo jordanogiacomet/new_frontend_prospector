@@ -222,6 +222,7 @@ describe("private application shell", () => {
     expect(
       surface.filter((file) => file.startsWith("(private)/")),
     ).toEqual([
+      "(private)/imports/batches/[id]/page.tsx",
       "(private)/imports/batches/page.tsx",
       "(private)/imports/page.tsx",
       "(private)/layout.tsx",
