@@ -4,6 +4,7 @@ import {
   ApiValidationError,
   SafeApiError,
   mapApiError,
+  paginatedSuccessResponse,
   successResponse,
   type ValidationErrorDetail,
 } from "../../../server/api/errors";
@@ -12,6 +13,7 @@ import {
   requireSameOrigin,
 } from "../../../server/auth/require-api-session";
 import { getServerEnv } from "../../../server/env";
+import { listImportBatches } from "../../../server/imports/batch-read-service";
 import {
   submitImport,
   type SubmitImportProducerOutcome,
@@ -26,10 +28,19 @@ import type { ImportSubmissionRecord } from "../../../server/repositories/import
 const uploadFieldName = "arquivo_csv";
 const idempotencyHeaderName = "idempotency-key";
 const maximumMultipartBytes = MAX_UPLOAD_BYTES + 64 * 1024;
+const defaultPage = 1;
+const defaultPageSize = 20;
+const maximumPage = 10_000;
+const maximumPageSize = 100;
 
 const privateNoStoreHeaders = {
   "Cache-Control": "private, no-store",
 } as const;
+
+interface ImportListQuery {
+  readonly page: number;
+  readonly pageSize: number;
+}
 
 interface ImportSubmissionResponse {
   readonly submissionId: string;
@@ -54,6 +65,36 @@ interface ImportRouteErrorResponse {
       readonly details?: readonly ValidationErrorDetail[];
     };
   };
+}
+
+export async function GET(request: NextRequest): Promise<NextResponse> {
+  try {
+    const authorization = await requireApiSession();
+    requireImportsFeatureEnabled();
+
+    const query = parseImportListQuery(request.nextUrl.searchParams);
+    const result = await listImportBatches({
+      organizationId: authorization.actor.organizationId,
+      page: query.page,
+      pageSize: query.pageSize,
+    });
+
+    return NextResponse.json(
+      paginatedSuccessResponse(result.batches, {
+        page: result.page,
+        pageSize: result.pageSize,
+        total: result.total,
+      }),
+      { headers: privateNoStoreHeaders },
+    );
+  } catch (error) {
+    const { body, status } = mapApiError(error);
+
+    return NextResponse.json(body, {
+      status,
+      headers: privateNoStoreHeaders,
+    });
+  }
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
@@ -91,6 +132,64 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       headers: privateNoStoreHeaders,
     });
   }
+}
+
+function parseImportListQuery(searchParams: URLSearchParams): ImportListQuery {
+  for (const key of searchParams.keys()) {
+    if (key !== "page" && key !== "pageSize") {
+      throw validationError(key);
+    }
+  }
+
+  if (searchParams.getAll("page").length > 1) {
+    throw validationError("page");
+  }
+
+  if (searchParams.getAll("pageSize").length > 1) {
+    throw validationError("pageSize");
+  }
+
+  return {
+    page: parsePositiveIntegerQuery(
+      searchParams.get("page"),
+      "page",
+      defaultPage,
+      maximumPage,
+    ),
+    pageSize: parsePositiveIntegerQuery(
+      searchParams.get("pageSize"),
+      "pageSize",
+      defaultPageSize,
+      maximumPageSize,
+    ),
+  };
+}
+
+function parsePositiveIntegerQuery(
+  value: string | null,
+  field: string,
+  fallback: number,
+  maximum: number,
+): number {
+  if (value === null) {
+    return fallback;
+  }
+
+  if (!/^\d+$/.test(value)) {
+    throw validationError(field);
+  }
+
+  const parsed = Number(value);
+
+  if (
+    !Number.isSafeInteger(parsed) ||
+    parsed < 1 ||
+    parsed > maximum
+  ) {
+    throw validationError(field);
+  }
+
+  return parsed;
 }
 
 function requireImportsFeatureEnabled(): void {

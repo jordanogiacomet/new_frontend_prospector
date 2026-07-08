@@ -1,16 +1,21 @@
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-import type { NextRequest } from "next/server";
+import { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ApiAuthorizationContext } from "../../../server/auth/require-api-session";
+import type {
+  ListImportBatchesInput,
+  ListImportBatchesResult,
+} from "../../../server/imports/batch-read-service";
 import type {
   SubmitImportDependencies,
   SubmitImportInput,
   SubmitImportResult,
 } from "../../../server/imports/submit-import";
 import type { ImportSubmissionRecord } from "../../../server/repositories/imports/import-submissions-repository";
+import type { BatchSummary } from "../../../types/imports";
 
 type ImportsFeatureEnvironment = {
   readonly FEATURE_IMPORTS_ENABLED: boolean;
@@ -21,6 +26,8 @@ const mocks = vi.hoisted(() => ({
     vi.fn<() => Promise<ApiAuthorizationContext>>(),
   requireSameOrigin: vi.fn<(request: Pick<Request, "headers" | "url">) => void>(),
   getServerEnv: vi.fn<() => ImportsFeatureEnvironment>(),
+  listImportBatches:
+    vi.fn<(input: ListImportBatchesInput) => Promise<ListImportBatchesResult>>(),
   submitImport:
     vi.fn<
       (
@@ -37,6 +44,9 @@ vi.mock("../../../server/auth/require-api-session", () => ({
 }));
 vi.mock("../../../server/env", () => ({
   getServerEnv: mocks.getServerEnv,
+}));
+vi.mock("../../../server/imports/batch-read-service", () => ({
+  listImportBatches: mocks.listImportBatches,
 }));
 vi.mock("../../../server/imports/submit-import", () => ({
   submitImport: mocks.submitImport,
@@ -158,6 +168,63 @@ async function post(request: SyntheticRouteRequest): Promise<Response> {
   return routeModule.POST(request as unknown as NextRequest);
 }
 
+function get(
+  query = "",
+  headers?: HeadersInit,
+): Promise<Response> {
+  return routeModule.GET(
+    new NextRequest(`${routeUrl}${query}`, { headers }),
+  );
+}
+
+function batchSummary(
+  overrides: Partial<BatchSummary> = {},
+): BatchSummary {
+  return {
+    submissionId: overrides.submissionId ?? submissionId,
+    import_batch_id:
+      overrides.import_batch_id === undefined
+        ? null
+        : overrides.import_batch_id,
+    status: overrides.status ?? "SUBMITTED",
+    submittedAt: overrides.submittedAt ?? submittedAt.toISOString(),
+    acceptedAt:
+      overrides.acceptedAt === undefined ? null : overrides.acceptedAt,
+    lastObservedAt:
+      overrides.lastObservedAt === undefined
+        ? null
+        : overrides.lastObservedAt,
+    rowCountAccepted:
+      overrides.rowCountAccepted === undefined
+        ? null
+        : overrides.rowCountAccepted,
+    terminalCount:
+      overrides.terminalCount === undefined ? null : overrides.terminalCount,
+    blockedCount:
+      overrides.blockedCount === undefined ? null : overrides.blockedCount,
+    failedCount:
+      overrides.failedCount === undefined ? null : overrides.failedCount,
+    leadCount: overrides.leadCount === undefined ? null : overrides.leadCount,
+    statusBasis: overrides.statusBasis ?? "SUBMISSION_RECORDED",
+    observationStatus: overrides.observationStatus ?? "AVAILABLE",
+    observationBasis:
+      overrides.observationBasis === undefined
+        ? null
+        : overrides.observationBasis,
+  };
+}
+
+function batchListResult(
+  overrides: Partial<ListImportBatchesResult> = {},
+): ListImportBatchesResult {
+  return {
+    batches: overrides.batches ?? [batchSummary()],
+    page: overrides.page ?? 1,
+    pageSize: overrides.pageSize ?? 20,
+    total: overrides.total === undefined ? 1 : overrides.total,
+  };
+}
+
 function submission(
   overrides: Partial<ImportSubmissionRecord> = {},
 ): ImportSubmissionRecord {
@@ -267,6 +334,7 @@ beforeEach(() => {
   mocks.getServerEnv.mockReturnValue({
     FEATURE_IMPORTS_ENABLED: true,
   });
+  mocks.listImportBatches.mockResolvedValue(batchListResult());
   mocks.submitImport.mockResolvedValue(submittedAcknowledgedResult());
   vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
     throw new Error("Unexpected external fetch.");
@@ -277,10 +345,311 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+describe("GET /api/imports", () => {
+  it("exports only GET and POST so unsupported methods are not implemented here", () => {
+    expect(Object.keys(routeModule).sort()).toEqual(["GET", "POST"]);
+    expect(routeSource()).not.toMatch(
+      /\bexport\s+async\s+function\s+(?:PUT|PATCH|DELETE)\b/,
+    );
+  });
+
+  it("requires authentication before feature, validation, or service work", async () => {
+    mocks.requireApiSession.mockRejectedValueOnce(
+      new SafeApiError("AUTHENTICATION_REQUIRED"),
+    );
+
+    const response = await get("?page=invalid");
+
+    expect(response.status).toBe(401);
+    expect(await response.json()).toEqual({
+      error: {
+        code: "AUTHENTICATION_REQUIRED",
+        message: "Entre para acessar os dados.",
+      },
+    });
+    expect(mocks.getServerEnv).not.toHaveBeenCalled();
+    expect(mocks.listImportBatches).not.toHaveBeenCalled();
+    expect(mocks.submitImport).not.toHaveBeenCalled();
+    expect(mocks.requireSameOrigin).not.toHaveBeenCalled();
+    expectPrivateNoStore(response);
+  });
+
+  it("requires the allowed-organization session before listing batches", async () => {
+    mocks.requireApiSession.mockRejectedValueOnce(
+      new SafeApiError("ACCESS_DENIED"),
+    );
+
+    const response = await get();
+
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({
+      error: {
+        code: "ACCESS_DENIED",
+        message: "Você não tem acesso a esta área.",
+      },
+    });
+    expect(mocks.getServerEnv).not.toHaveBeenCalled();
+    expect(mocks.listImportBatches).not.toHaveBeenCalled();
+    expectPrivateNoStore(response);
+  });
+
+  it("requires the server-side import feature flag before validation or service work", async () => {
+    mocks.getServerEnv.mockReturnValueOnce({
+      FEATURE_IMPORTS_ENABLED: false,
+    });
+
+    const response = await get("?page=invalid");
+
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({
+      error: {
+        code: "ACCESS_DENIED",
+        message: "Você não tem acesso a esta área.",
+      },
+    });
+    expect(mocks.listImportBatches).not.toHaveBeenCalled();
+    expectPrivateNoStore(response);
+  });
+
+  it("authenticates, checks the feature flag, and lists in order", async () => {
+    const events: string[] = [];
+    mocks.requireApiSession.mockImplementationOnce(async () => {
+      events.push("auth");
+      return authorizationContext;
+    });
+    mocks.getServerEnv.mockImplementationOnce(() => {
+      events.push("feature");
+      return { FEATURE_IMPORTS_ENABLED: true };
+    });
+    mocks.listImportBatches.mockImplementationOnce(async () => {
+      events.push("service");
+      return batchListResult();
+    });
+
+    const response = await get();
+
+    expect(response.status).toBe(200);
+    expect(events).toEqual(["auth", "feature", "service"]);
+  });
+
+  it("uses default pagination and the verified actor organization", async () => {
+    const response = await get("", {
+      "X-Organization-Id": "org-from-header",
+    });
+
+    expect(response.status).toBe(200);
+    expect(mocks.listImportBatches).toHaveBeenCalledOnce();
+    expect(mocks.listImportBatches).toHaveBeenCalledWith({
+      organizationId,
+      page: 1,
+      pageSize: 20,
+    });
+  });
+
+  it("normalizes valid pagination and keeps organization out of the response", async () => {
+    mocks.listImportBatches.mockResolvedValueOnce(
+      batchListResult({ page: 2, pageSize: 50, total: 51 }),
+    );
+
+    const response = await get("?page=2&pageSize=50");
+    const body = await response.json();
+    const serialized = JSON.stringify(body);
+
+    expect(response.status).toBe(200);
+    expect(mocks.listImportBatches).toHaveBeenCalledWith({
+      organizationId,
+      page: 2,
+      pageSize: 50,
+    });
+    expect(body).toMatchObject({
+      meta: { page: 2, pageSize: 50, total: 51 },
+    });
+    expect(serialized).not.toContain(organizationId);
+    expect(serialized).not.toContain(actor.subject);
+    expect(serialized).not.toContain(actor.issuer);
+  });
+
+  it.each([
+    ["zero page", "?page=0", "page"],
+    ["oversized page", "?page=10001", "page"],
+    ["fractional page size", "?pageSize=1.5", "pageSize"],
+    ["oversized page size", "?pageSize=101", "pageSize"],
+    ["repeated page", "?page=1&page=2", "page"],
+    ["unknown organization query", "?organizationId=org-from-query", "organizationId"],
+  ] as const)(
+    "rejects invalid list query without service work: %s",
+    async (_label, query, field) => {
+      const response = await get(query);
+
+      expect(response.status).toBe(400);
+      expect(await response.json()).toMatchObject({
+        error: {
+          code: "VALIDATION_ERROR",
+          details: [{ field, message: "Valor inválido." }],
+        },
+      });
+      expect(mocks.listImportBatches).not.toHaveBeenCalled();
+      expectPrivateNoStore(response);
+    },
+  );
+
+  it("returns a paginated batch list envelope with nullable totals and counts", async () => {
+    const batch = batchSummary({
+      import_batch_id: importBatchId,
+      status: "ACCEPTED",
+      acceptedAt: acknowledgedAt.toISOString(),
+      rowCountAccepted: null,
+      terminalCount: null,
+      leadCount: null,
+      statusBasis: "ACCEPTANCE_CONFIRMED",
+    });
+    mocks.listImportBatches.mockResolvedValueOnce(
+      batchListResult({ batches: [batch], total: null }),
+    );
+
+    const response = await get();
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      data: [batch],
+      meta: {
+        page: 1,
+        pageSize: 20,
+        total: null,
+      },
+    });
+    expectPrivateNoStore(response);
+  });
+
+  it("returns an empty list without converting zero totals to unavailable", async () => {
+    mocks.listImportBatches.mockResolvedValueOnce(
+      batchListResult({ batches: [], total: 0 }),
+    );
+
+    const response = await get();
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      data: [],
+      meta: {
+        page: 1,
+        pageSize: 20,
+        total: 0,
+      },
+    });
+    expectPrivateNoStore(response);
+  });
+
+  it("maps data-source failures to a safe 503 envelope", async () => {
+    mocks.listImportBatches.mockRejectedValueOnce(
+      new SafeApiError("DATA_SOURCE_UNAVAILABLE"),
+    );
+
+    const response = await get();
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({
+      error: {
+        code: "DATA_SOURCE_UNAVAILABLE",
+        message: "Não foi possível consultar os dados agora.",
+      },
+    });
+    expectPrivateNoStore(response);
+  });
+
+  it("maps unexpected failures without exposing internals", async () => {
+    const failure = Object.assign(
+      new Error(
+        "SELECT file_sha256, idempotency_key FROM internal_table with secret-token",
+      ),
+      {
+        sql: "SELECT file_sha256, idempotency_key FROM internal_table",
+        endpoint: "http://192.168.0.20:30098/webhook/empresaqui/import",
+        secret: "secret-token",
+        organizationId,
+        idempotencyKey,
+      },
+    );
+    failure.stack = "internal stack at route.ts:1";
+    mocks.listImportBatches.mockRejectedValueOnce(failure);
+
+    const response = await get();
+    const serialized = JSON.stringify(await response.json());
+
+    expect(response.status).toBe(500);
+    expect(serialized).toContain("UNEXPECTED_ERROR");
+    for (const fragment of [
+      "SELECT",
+      "file_sha256",
+      "idempotency_key",
+      "internal_table",
+      "secret-token",
+      "192.168.0.20",
+      "webhook",
+      "internal stack",
+      organizationId,
+      idempotencyKey,
+    ]) {
+      expect(serialized).not.toContain(fragment);
+    }
+    expectPrivateNoStore(response);
+  });
+
+  it("uses private no-store caching for success and GET error responses", async () => {
+    const success = await get();
+    const validation = await get("?page=invalid");
+    mocks.requireApiSession.mockRejectedValueOnce(
+      new SafeApiError("AUTHENTICATION_REQUIRED"),
+    );
+    const authentication = await get();
+    mocks.listImportBatches.mockRejectedValueOnce(
+      new SafeApiError("DATA_SOURCE_UNAVAILABLE"),
+    );
+    const unavailable = await get();
+    mocks.listImportBatches.mockRejectedValueOnce(new Error("synthetic failure"));
+    const unexpected = await get();
+
+    expect([
+      success.status,
+      validation.status,
+      authentication.status,
+      unavailable.status,
+      unexpected.status,
+    ]).toEqual([200, 400, 401, 503, 500]);
+
+    for (const response of [
+      success,
+      validation,
+      authentication,
+      unavailable,
+      unexpected,
+    ]) {
+      expectPrivateNoStore(response);
+    }
+  });
+
+  it("does not call mutation services, origin guard, n8n, fetch, or detail routes", async () => {
+    const response = await get();
+    const source = routeSource();
+
+    expect(response.status).toBe(200);
+    expect(mocks.submitImport).not.toHaveBeenCalled();
+    expect(mocks.requireSameOrigin).not.toHaveBeenCalled();
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+    expect(source).toContain("listImportBatches");
+    expect(source).not.toMatch(/getImportBatchDetail|params|submissionIdSchema/);
+    expect(source).not.toMatch(
+      /N8N_IMPORT_URL|webhook|192\.168\.0\.20|n8n|fetch\s*\(/i,
+    );
+  });
+});
+
 describe("POST /api/imports", () => {
-  it("exports only POST so unsupported methods are not implemented here", () => {
-    expect(Object.keys(routeModule)).toEqual(["POST"]);
-    expect(routeSource()).not.toMatch(/\bexport\s+async\s+function\s+GET\b/);
+  it("shares the route module only with GET so unsupported methods are not implemented here", () => {
+    expect(Object.keys(routeModule).sort()).toEqual(["GET", "POST"]);
+    expect(routeSource()).not.toMatch(
+      /\bexport\s+async\s+function\s+(?:PUT|PATCH|DELETE)\b/,
+    );
   });
 
   it("requires authentication before origin, body, feature, or service work", async () => {
@@ -678,13 +1047,12 @@ describe("POST /api/imports", () => {
     }
   });
 
-  it("has no GET handler, direct fetch call, HMAC, retry, or reprocessing source", () => {
+  it("has no direct fetch call, HMAC, retry, or reprocessing source", () => {
     const source = routeSource();
 
     expect(source).toContain("requireApiSession");
     expect(source).toContain("requireSameOrigin");
     expect(source).toContain("FEATURE_IMPORTS_ENABLED");
-    expect(source).not.toMatch(/\bexport\s+async\s+function\s+GET\b/);
     expect(source).not.toMatch(/\bfetch\s*\(/);
     expect(source).not.toMatch(
       /HMAC|signature|canonical|timestamp|nonce|replay|retry|reprocess/i,

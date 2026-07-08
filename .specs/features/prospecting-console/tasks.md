@@ -1198,12 +1198,45 @@ T025, routes, and UI remain pending.
 
 #### T024: Add paginated `GET /api/imports`
 
+**Status:** COMPLETE LOCALLY on 2026-07-08 for the scoped internal import-read
+MVP policy.
+
 **What/where:** Implement list validation/route/tests.  
 **Depends on:** T007, T023. **Requirements:** PC-13. **Tools:** CORE.  
 **Tests/gate:** Route integration, minimum 12 cases / UNIT.  
 **Done when:** `imports:read`, org scope, pagination, safe errors, and no-store
 are enforced.  
 **Verify:** focused route tests.  
+
+**Recorded gate:** `GET /api/imports` now shares
+`src/app/api/imports/route.ts` with the existing `POST` handler and calls only
+`listImportBatches` from the T023 service. The route requires
+`requireApiSession` and `FEATURE_IMPORTS_ENABLED` before query validation or
+batch service work, uses only the verified actor organization, validates the
+list query to `page` and `pageSize`, rejects unknown/repeated/deferred
+parameters, and returns the approved `{ data, meta }` envelope with nullable
+`total`. Responses use `Cache-Control: private, no-store` on success and safe
+errors. The current internal MVP keeps the scoped allowed-organization actor
+plus feature-flag policy; production `imports:read` remains deferred to the
+granular authorization gate.
+
+Focused route gate:
+`pnpm vitest run src/app/api/imports/route.test.ts` passed: 1 file / 44 tests,
+including 19 new GET cases.
+
+`pnpm lint`: passed with the same two pre-existing unused-variable warnings in
+`src/server/auth/auth.test.ts`. `pnpm typecheck`: passed. `pnpm test` passed:
+42 files / 900 tests. `pnpm build`: passed; Next.js detected `.env.local`
+during build loading, but `.env.local` was not inspected or changed.
+`git diff --check`: passed.
+
+No `GET /api/imports/:id`, UI, T025, T026, n8n call, fetch, external request,
+producer mutation, direct database access in the route, real CSV, real data,
+credential change, production migration, deployment, workflow change, feature
+activation, retry, or reprocessing was performed. The login shell still emits
+the pre-existing missing Snap/VS Code profile-path warning; it did not change
+command exit status.
+
 **Commit:** `feat(prospecta): expose batch list api`
 
 #### T025: Add `GET /api/imports/:id`

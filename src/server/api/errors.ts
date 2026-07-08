@@ -18,7 +18,7 @@ export interface SuccessResponseWithMeta<
 export interface PaginationMeta {
   page: number;
   pageSize: number;
-  total: number;
+  total: number | null;
 }
 
 export interface ValidationErrorDetail {
@@ -128,9 +128,9 @@ export function paginatedSuccessResponse<
   Data,
   Meta extends PaginationMeta,
 >(
-  data: Data[],
+  data: readonly Data[],
   meta: Meta,
-): SuccessResponseWithMeta<Data[], Meta> {
+): SuccessResponseWithMeta<readonly Data[], Meta> {
   return { data, meta };
 }
 
