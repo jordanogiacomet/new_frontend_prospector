@@ -229,6 +229,7 @@ describe("private application shell", () => {
     ]);
     expect(surface.filter((file) => file.startsWith("api/"))).toEqual([
       "api/auth/[...nextauth]/route.ts",
+      "api/imports/[id]/route.ts",
       "api/imports/route.ts",
       "api/leads/[cnpj]/history/route.ts",
       "api/leads/[cnpj]/route.ts",

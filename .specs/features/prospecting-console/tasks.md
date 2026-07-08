@@ -1241,12 +1241,54 @@ command exit status.
 
 #### T025: Add `GET /api/imports/:id`
 
+**Status:** COMPLETE LOCALLY on 2026-07-08 for the scoped internal import-read
+MVP policy.
+
 **What/where:** Implement detail validation/route/tests.  
 **Depends on:** T007, T023. **Requirements:** PC-13. **Tools:** CORE.  
 **Tests/gate:** Route integration, minimum 12 cases / UNIT.  
 **Done when:** Cross-org IDs fail closed and all counts/status bases remain
 nullable/evidence-based.  
 **Verify:** focused route tests.  
+
+**Recorded gate:** `GET /api/imports/:id` now lives at
+`src/app/api/imports/[id]/route.ts` and calls only `getImportBatchDetail` from
+the T023 service. The route requires `requireApiSession` and
+`FEATURE_IMPORTS_ENABLED` before validating the path parameter or doing service
+work, validates `id` as the app submission UUID, uses only the verified actor
+organization, and maps missing or cross-organization records to a safe closed
+`404`. Successful responses use the approved `{ data }` envelope and preserve
+the service-provided nullable counts, status basis, observation status, and
+observation basis without recomputing them. Success and errors use
+`Cache-Control: private, no-store`.
+
+RED check:
+`pnpm vitest run 'src/app/api/imports/[id]/route.test.ts'` failed before the
+route existed with the expected missing `./route` import.
+
+Focused route gate:
+`pnpm vitest run 'src/app/api/imports/[id]/route.test.ts'` passed: 1 file / 18
+tests. Focused import route coexistence gate:
+`pnpm vitest run src/app/api/imports/route.test.ts 'src/app/api/imports/[id]/route.test.ts'`
+passed: 2 files / 62 tests. The private surface guard was updated only to
+authorize the new T025 API route; affected route/surface gate:
+`pnpm vitest run src/app/api/imports/route.test.ts 'src/app/api/imports/[id]/route.test.ts' 'src/app/(private)/layout.test.tsx'`
+passed: 3 files / 70 tests.
+
+`pnpm lint`: passed with the same two pre-existing unused-variable warnings in
+`src/server/auth/auth.test.ts`. `pnpm typecheck`: passed. The first
+`pnpm test` run failed only because the existing private-surface allowlist did
+not yet include `api/imports/[id]/route.ts`; after updating that guard,
+`pnpm test` passed: 43 files / 918 tests. `pnpm build` passed and the Next.js
+route output included `/api/imports/[id]`; Next.js detected `.env.local`
+during build loading, but `.env.local` was not inspected or changed.
+`git diff --check`: passed.
+
+No list behavior change beyond coexistence, UI, T026, T027, n8n call, fetch,
+external request, direct database access in the route, producer mutation, real
+CSV, real data, credential change, production migration, deployment, workflow
+change, feature activation, retry, or reprocessing was performed.
+
 **Commit:** `feat(prospecta): expose batch detail api`
 
 #### T026: Build the batch list page
