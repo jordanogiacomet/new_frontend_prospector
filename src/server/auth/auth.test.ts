@@ -85,6 +85,25 @@ describe("server authentication and authorization", () => {
     },
   );
 
+  it("creates a synthetic demo actor when the explicit demo profile is enabled", () => {
+    expect(
+      createDevelopmentAuthorization(
+        true,
+        "production",
+        "synthetic-organization",
+        true,
+      ),
+    ).toEqual({
+      status: "authorized",
+      actor: {
+        issuer: "urn:prospecta:local-demo",
+        subject: "local-demo-user",
+        organizationId: "synthetic-organization",
+        permissions: [],
+      },
+    });
+  });
+
   it("authorizes exact issuer, non-empty subject, and exact organization", () => {
     expect(authorizeIdentityClaims(validClaims, policy)).toEqual({
       status: "authorized",

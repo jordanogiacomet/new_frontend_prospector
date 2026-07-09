@@ -18,6 +18,7 @@ const developmentAuthorization = createDevelopmentAuthorization(
   environment.AUTH_DEV_BYPASS_ENABLED,
   process.env.NODE_ENV,
   environment.AUTH_ALLOWED_ORG_ID,
+  environment.FEATURE_DEMO_DATA_ENABLED,
 );
 const authentication = NextAuth(
   createAuthConfig(

@@ -6,6 +6,8 @@ import {
   paginatedSuccessResponse,
 } from "../../../server/api/errors";
 import { requireApiSession } from "../../../server/auth/require-api-session";
+import { isDemoDataEnabled } from "../../../server/demo/mode";
+import { listDemoLeads } from "../../../server/demo/prospecta-demo-data";
 import { listLeads } from "../../../server/repositories/lead-list-repository";
 
 const privateNoStoreHeaders = {
@@ -19,7 +21,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const query = leadListQuerySchema.parse(
       request.nextUrl.searchParams,
     );
-    const { leads, total } = await listLeads(query);
+    const { leads, total } = isDemoDataEnabled()
+      ? listDemoLeads(query)
+      : await listLeads(query);
     const totalPages =
       total === 0 ? 0 : Math.ceil(total / query.pageSize);
 

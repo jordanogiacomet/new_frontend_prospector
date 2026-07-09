@@ -238,6 +238,30 @@ describe("controlled import upload page", () => {
     expect(new Headers(init.headers).has("Content-Type")).toBe(false);
   });
 
+  it("falls back when crypto.randomUUID is unavailable", async () => {
+    const getRandomValuesMock = vi.fn((bytes: Uint8Array) => {
+      bytes.set([
+        0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
+        0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff,
+      ]);
+      return bytes;
+    });
+    vi.stubGlobal("crypto", {
+      getRandomValues: getRandomValuesMock,
+    });
+    render(<ImportUploadPage />);
+
+    uploadSelectedFile();
+    submitUpload();
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    expect(getRandomValuesMock).toHaveBeenCalledOnce();
+    expect(randomUUIDMock).not.toHaveBeenCalled();
+    expect(idempotencyHeader(firstFetchCall()[1])).toBe(
+      "00112233-4455-4677-8899-aabbccddeeff",
+    );
+  });
+
   it("keeps the idempotency key stable during the same upload attempt", async () => {
     render(<ImportUploadPage />);
 

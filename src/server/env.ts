@@ -25,6 +25,7 @@ export interface ProspectaServerEnv {
   FEATURE_BATCH_OBSERVATION_ENABLED: boolean;
   FEATURE_COMMERCIAL_ENABLED: boolean;
   FEATURE_SENSITIVE_CONTENT_ENABLED: boolean;
+  FEATURE_DEMO_DATA_ENABLED: boolean;
 }
 
 export type ParsedServerEnv = ServerEnv & ProspectaServerEnv;
@@ -59,6 +60,7 @@ const serverOnlyNames = [
   "FEATURE_BATCH_OBSERVATION_ENABLED",
   "FEATURE_COMMERCIAL_ENABLED",
   "FEATURE_SENSITIVE_CONTENT_ENABLED",
+  "FEATURE_DEMO_DATA_ENABLED",
 ] as const;
 
 function readRequired(
@@ -323,6 +325,10 @@ export function parseServerEnv(input: EnvironmentInput): ParsedServerEnv {
       "FEATURE_SENSITIVE_CONTENT_ENABLED",
       errors,
     ),
+    FEATURE_DEMO_DATA_ENABLED: readOptional(
+      input,
+      "FEATURE_DEMO_DATA_ENABLED",
+    ),
   };
 
   rejectPublicServerSettings(input, errors);
@@ -345,6 +351,12 @@ export function parseServerEnv(input: EnvironmentInput): ParsedServerEnv {
     validateHttpsUrl("AUTH_OIDC_ISSUER", raw.AUTH_OIDC_ISSUER, errors);
   }
 
+  const demoDataEnabled = parseOptionalBoolean(
+    "FEATURE_DEMO_DATA_ENABLED",
+    raw.FEATURE_DEMO_DATA_ENABLED,
+    errors,
+  );
+
   const authDevelopmentBypassEnabled = parseOptionalBoolean(
     "AUTH_DEV_BYPASS_ENABLED",
     input.AUTH_DEV_BYPASS_ENABLED,
@@ -353,7 +365,8 @@ export function parseServerEnv(input: EnvironmentInput): ParsedServerEnv {
 
   if (
     authDevelopmentBypassEnabled &&
-    input.NODE_ENV === "production"
+    input.NODE_ENV === "production" &&
+    !demoDataEnabled
   ) {
     errors.push("AUTH_DEV_BYPASS_ENABLED is forbidden in production");
   }
@@ -424,6 +437,7 @@ export function parseServerEnv(input: EnvironmentInput): ParsedServerEnv {
       raw.FEATURE_SENSITIVE_CONTENT_ENABLED,
       errors,
     ),
+    FEATURE_DEMO_DATA_ENABLED: demoDataEnabled,
   };
 
   if (errors.length > 0) {

@@ -30,6 +30,7 @@ const validEnvironment = {
   FEATURE_BATCH_OBSERVATION_ENABLED: "false",
   FEATURE_COMMERCIAL_ENABLED: "false",
   FEATURE_SENSITIVE_CONTENT_ENABLED: "false",
+  FEATURE_DEMO_DATA_ENABLED: "false",
 };
 
 const expectedEnvironmentKeys = Object.keys(validEnvironment);
@@ -250,6 +251,18 @@ describe("server environment", () => {
     ).toThrow(/FEATURE_IMPORTS_ENABLED/);
   });
 
+  it("defaults the demo data flag to false when absent", () => {
+    const withoutDemoFlag: Record<string, string | undefined> = {
+      ...validEnvironment,
+    };
+    delete withoutDemoFlag.FEATURE_DEMO_DATA_ENABLED;
+
+    expect(
+      environment.parseServerEnv(withoutDemoFlag)
+        .FEATURE_DEMO_DATA_ENABLED,
+    ).toBe(false);
+  });
+
   it("keeps the development auth bypass disabled by default", () => {
     expect(
       environment.parseServerEnv(validEnvironment)
@@ -273,6 +286,20 @@ describe("server environment", () => {
         AUTH_DEV_BYPASS_ENABLED: "true",
       }),
     ).toThrow(/AUTH_DEV_BYPASS_ENABLED/);
+  });
+
+  it("allows the development auth bypass for the explicit demo profile", () => {
+    expect(
+      environment.parseServerEnv({
+        ...validEnvironment,
+        NODE_ENV: "production",
+        AUTH_DEV_BYPASS_ENABLED: "true",
+        FEATURE_DEMO_DATA_ENABLED: "true",
+      }),
+    ).toMatchObject({
+      AUTH_DEV_BYPASS_ENABLED: true,
+      FEATURE_DEMO_DATA_ENABLED: true,
+    });
   });
 
   it("rejects a malformed development auth bypass flag", () => {
@@ -345,6 +372,7 @@ describe("server environment", () => {
       FEATURE_BATCH_OBSERVATION_ENABLED: false,
       FEATURE_COMMERCIAL_ENABLED: false,
       FEATURE_SENSITIVE_CONTENT_ENABLED: false,
+      FEATURE_DEMO_DATA_ENABLED: false,
       AUTH_DEV_BYPASS_ENABLED: false,
     });
   });

@@ -9,6 +9,8 @@ import {
   paginatedSuccessResponse,
 } from "../../../../../server/api/errors";
 import { requireApiSession } from "../../../../../server/auth/require-api-session";
+import { isDemoDataEnabled } from "../../../../../server/demo/mode";
+import { listDemoLeadHistory } from "../../../../../server/demo/prospecta-demo-data";
 import { listLeadHistory } from "../../../../../server/repositories/lead-history-repository";
 
 const privateNoStoreHeaders = {
@@ -38,7 +40,9 @@ export async function GET(
       completeness,
       label,
       caveat,
-    } = await listLeadHistory(cnpj, query);
+    } = isDemoDataEnabled()
+      ? listDemoLeadHistory(cnpj, query)
+      : await listLeadHistory(cnpj, query);
 
     return NextResponse.json(
       paginatedSuccessResponse(history, {

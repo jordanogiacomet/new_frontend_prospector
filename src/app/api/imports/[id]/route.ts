@@ -7,6 +7,8 @@ import {
   successResponse,
 } from "../../../../server/api/errors";
 import { requireApiSession } from "../../../../server/auth/require-api-session";
+import { isDemoDataEnabled } from "../../../../server/demo/mode";
+import { getDemoImportBatchDetail } from "../../../../server/demo/prospecta-demo-data";
 import { getServerEnv } from "../../../../server/env";
 import {
   getImportBatchDetail,
@@ -32,10 +34,12 @@ export async function GET(
     requireImportsFeatureEnabled();
 
     const { id } = parseImportDetailParams(await context.params);
-    const result = await getImportBatchDetail({
-      organizationId: authorization.actor.organizationId,
-      submissionId: id,
-    });
+    const result = isDemoDataEnabled()
+      ? getDemoImportBatchDetail(id)
+      : await getImportBatchDetail({
+          organizationId: authorization.actor.organizationId,
+          submissionId: id,
+        });
 
     if (result.kind === "not_found") {
       return importBatchNotFoundResponse(result);

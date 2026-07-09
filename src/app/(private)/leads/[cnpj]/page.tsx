@@ -125,7 +125,12 @@ function isLeadInsightCollection(
   }
 
   if (value.status === "available") {
-    return Array.isArray(value.items) && value.items.length === 0;
+    return (
+      Array.isArray(value.items) &&
+      value.items.every(
+        (item) => isString(item) && item.trim().length > 0,
+      )
+    );
   }
 
   return value.items === null;

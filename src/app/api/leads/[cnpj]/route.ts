@@ -10,6 +10,8 @@ import {
   successResponse,
 } from "../../../../server/api/errors";
 import { requireApiSession } from "../../../../server/auth/require-api-session";
+import { isDemoDataEnabled } from "../../../../server/demo/mode";
+import { getDemoLeadDetail } from "../../../../server/demo/prospecta-demo-data";
 import { getLeadDetail } from "../../../../server/repositories/lead-detail-repository";
 
 const privateNoStoreHeaders = {
@@ -33,7 +35,9 @@ export async function GET(
     const { leadRunId } = leadDetailQuerySchema.parse(
       request.nextUrl.searchParams,
     );
-    const detail = await getLeadDetail(cnpj, leadRunId);
+    const detail = isDemoDataEnabled()
+      ? getDemoLeadDetail(cnpj, leadRunId)
+      : await getLeadDetail(cnpj, leadRunId);
 
     if (detail === null) {
       throw new SafeApiError("LEAD_NOT_FOUND");

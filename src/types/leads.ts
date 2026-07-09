@@ -30,6 +30,11 @@ export interface AvailableEmptyLeadCollection {
   items: readonly [];
 }
 
+export interface AvailableLeadCollection {
+  status: "available";
+  items: readonly string[];
+}
+
 export interface MissingLeadCollection {
   status: "missing";
   items: null;
@@ -41,7 +46,7 @@ export interface PolicyOmittedLeadCollection {
 }
 
 export type LeadInsightCollection =
-  | AvailableEmptyLeadCollection
+  | AvailableLeadCollection
   | MissingLeadCollection
   | UnavailableLeadCollection
   | PolicyOmittedLeadCollection;

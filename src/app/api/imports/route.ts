@@ -12,6 +12,11 @@ import {
   requireApiSession,
   requireSameOrigin,
 } from "../../../server/auth/require-api-session";
+import { isDemoDataEnabled } from "../../../server/demo/mode";
+import {
+  listDemoImportBatches,
+  submitDemoImport,
+} from "../../../server/demo/prospecta-demo-data";
 import { getServerEnv } from "../../../server/env";
 import { listImportBatches } from "../../../server/imports/batch-read-service";
 import {
@@ -73,11 +78,16 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     requireImportsFeatureEnabled();
 
     const query = parseImportListQuery(request.nextUrl.searchParams);
-    const result = await listImportBatches({
-      organizationId: authorization.actor.organizationId,
-      page: query.page,
-      pageSize: query.pageSize,
-    });
+    const result = isDemoDataEnabled()
+      ? listDemoImportBatches({
+          page: query.page,
+          pageSize: query.pageSize,
+        })
+      : await listImportBatches({
+          organizationId: authorization.actor.organizationId,
+          page: query.page,
+          pageSize: query.pageSize,
+        });
 
     return NextResponse.json(
       paginatedSuccessResponse(result.batches, {
@@ -109,19 +119,26 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     const formData = await readFormData(request);
     const file = extractSingleUploadFile(formData);
-    const result = await submitImport(
-      {
-        organizationId: authorization.actor.organizationId,
-        actor: authorization.actor,
-        idempotencyKey,
-        file,
-      },
-      {
-        ingressClient: {
-          fetch: globalThis.fetch,
-        },
-      },
-    );
+    const result = isDemoDataEnabled()
+      ? await submitDemoImport({
+          organizationId: authorization.actor.organizationId,
+          actor: authorization.actor,
+          idempotencyKey,
+          file,
+        })
+      : await submitImport(
+          {
+            organizationId: authorization.actor.organizationId,
+            actor: authorization.actor,
+            idempotencyKey,
+            file,
+          },
+          {
+            ingressClient: {
+              fetch: globalThis.fetch,
+            },
+          },
+        );
 
     return importResultResponse(result);
   } catch (error) {

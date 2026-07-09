@@ -67,11 +67,16 @@ const syntheticActor: AuthorizedActor = {
 function createOriginRequest(
   origin: string | null,
   url = "https://prospecta.example.test/api/workspaces",
+  extraHeaders: readonly [string, string][] = [],
 ): Pick<Request, "headers" | "url"> {
   const headers = new Headers();
 
   if (origin !== null) {
     headers.set("Origin", origin);
+  }
+
+  for (const [name, value] of extraHeaders) {
+    headers.set(name, value);
   }
 
   return { headers, url };
@@ -325,6 +330,33 @@ describe("API authorization guard", () => {
         createOriginRequest(
           "http://localhost:3000",
           "http://localhost:3000/api/workspaces",
+        ),
+      ),
+    ).not.toThrow();
+  });
+
+  it("accepts the external host origin behind a local NodePort", () => {
+    expect(() =>
+      requireSameOrigin(
+        createOriginRequest(
+          "http://192.168.0.20:30097",
+          "http://0.0.0.0:3000/api/imports",
+          [["Host", "192.168.0.20:30097"]],
+        ),
+      ),
+    ).not.toThrow();
+  });
+
+  it("accepts an external forwarded HTTPS origin", () => {
+    expect(() =>
+      requireSameOrigin(
+        createOriginRequest(
+          "https://prospecta.example.test",
+          "http://0.0.0.0:3000/api/imports",
+          [
+            ["Host", "prospecta.example.test"],
+            ["X-Forwarded-Proto", "https"],
+          ],
         ),
       ),
     ).not.toThrow();

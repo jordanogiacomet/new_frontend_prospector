@@ -36,16 +36,21 @@ export function createDevelopmentAuthorization(
   enabled: boolean,
   nodeEnv: string | undefined,
   organizationId: string,
+  demoDataEnabled = false,
 ): ServerSessionAuthorization | null {
-  if (!enabled || nodeEnv !== "development") {
+  if (!enabled || (nodeEnv !== "development" && !demoDataEnabled)) {
     return null;
   }
 
   return {
     status: "authorized",
     actor: {
-      issuer: "urn:prospecta:local-development",
-      subject: "local-development-user",
+      issuer: demoDataEnabled
+        ? "urn:prospecta:local-demo"
+        : "urn:prospecta:local-development",
+      subject: demoDataEnabled
+        ? "local-demo-user"
+        : "local-development-user",
       organizationId,
       permissions: [],
     },

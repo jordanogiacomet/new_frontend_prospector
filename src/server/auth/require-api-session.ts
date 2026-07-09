@@ -57,6 +57,7 @@ export function requireSameOrigin(request: OriginRequest): void {
   try {
     const requestOrigin = new URL(request.url).origin;
     const parsedOrigin = new URL(suppliedOrigin);
+    const headerOrigin = requestHeaderOrigin(request);
 
     if (
       suppliedOrigin !== parsedOrigin.origin ||
@@ -65,11 +66,42 @@ export function requireSameOrigin(request: OriginRequest): void {
       parsedOrigin.pathname !== "/" ||
       parsedOrigin.search ||
       parsedOrigin.hash ||
-      parsedOrigin.origin !== requestOrigin
+      (parsedOrigin.origin !== requestOrigin &&
+        parsedOrigin.origin !== headerOrigin)
     ) {
       throw new SafeApiError("ACCESS_DENIED");
     }
   } catch {
     throw new SafeApiError("ACCESS_DENIED");
   }
+}
+
+function requestHeaderOrigin(request: OriginRequest): string | null {
+  const host = request.headers.get("host");
+
+  if (host === null) {
+    return null;
+  }
+
+  const requestProtocol = new URL(request.url).protocol.replace(/:$/, "");
+  const forwardedProtocol = request.headers.get("x-forwarded-proto");
+  const protocol = forwardedProtocol ?? requestProtocol;
+
+  if (protocol !== "http" && protocol !== "https") {
+    return null;
+  }
+
+  const parsed = new URL(`${protocol}://${host}`);
+
+  if (
+    parsed.username ||
+    parsed.password ||
+    parsed.pathname !== "/" ||
+    parsed.search ||
+    parsed.hash
+  ) {
+    return null;
+  }
+
+  return parsed.origin;
 }

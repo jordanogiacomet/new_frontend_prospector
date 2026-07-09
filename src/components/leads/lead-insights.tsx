@@ -75,14 +75,22 @@ function FactItem({ label, testId, value }: FactItemProps) {
 function InsightState({ collection, kind }: InsightStateProps) {
   const isRisks = kind === "risks";
   const subject = kind === "risks" ? "riscos" : "sinais positivos";
+  const hasItems =
+    collection.status === "available" && collection.items.length > 0;
   const copy =
     collection.status === "available"
       ? {
           label:
-            isRisks
-              ? "Sem riscos registrados"
-              : "Sem sinais registrados",
-          description: `A análise armazenada contém uma coleção vazia de ${subject}.`,
+            hasItems
+              ? isRisks
+                ? "Riscos registrados"
+                : "Sinais registrados"
+              : isRisks
+                ? "Sem riscos registrados"
+                : "Sem sinais registrados",
+          description: hasItems
+            ? `A análise armazenada contém ${subject} aprovados para esta visualização.`
+            : `A análise armazenada contém uma coleção vazia de ${subject}.`,
         }
       : collection.status === "missing"
         ? {
@@ -113,6 +121,18 @@ function InsightState({ collection, kind }: InsightStateProps) {
       <p className="mt-2 max-w-xl text-sm leading-6">
         {copy.description}
       </p>
+      {hasItems ? (
+        <ul className="mt-4 grid gap-2 text-sm leading-6">
+          {collection.items.map((item) => (
+            <li
+              key={item}
+              className="border-l-2 border-current pl-3"
+            >
+              {item}
+            </li>
+          ))}
+        </ul>
+      ) : null}
     </div>
   );
 }
