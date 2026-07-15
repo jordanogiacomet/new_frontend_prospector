@@ -38,7 +38,7 @@ function apiResponse(body: unknown, status: number): Response {
 function acknowledgedPayload(): unknown {
   return {
     data: {
-      submissionId: "submission-secret-ui",
+      submissionId: "00000000-0000-4000-8000-000000000041",
       appStatus: "PRODUCER_ACKNOWLEDGED",
       statusFactSource: "workflow_acknowledgement",
       submittedAt: "2026-07-07T16:00:00.000Z",
@@ -57,7 +57,7 @@ function acknowledgedPayload(): unknown {
 function unknownPayload(): unknown {
   return {
     data: {
-      submissionId: "submission-unknown-ui",
+      submissionId: "00000000-0000-4000-8000-000000000042",
       appStatus: "ACCEPTANCE_UNKNOWN",
       statusFactSource: "ingress_unknown",
       submittedAt: "2026-07-07T16:00:00.000Z",
@@ -66,6 +66,24 @@ function unknownPayload(): unknown {
       durableAcceptance: null,
     },
     meta: { result: "submitted" },
+  };
+}
+
+function invalidSubmissionIdPayload(): unknown {
+  return {
+    data: {
+      submissionId: "submission-secret-ui",
+      appStatus: "PRODUCER_ACKNOWLEDGED",
+      statusFactSource: "workflow_acknowledgement",
+      submittedAt: "2026-07-07T16:00:00.000Z",
+      producerOutcome: "acknowledged",
+      workflowAcknowledgement: {
+        import_batch_id: "empresaqui_2026-07-07T16:00:00.000Z",
+        row_count: 2,
+        acknowledgedAt: "2026-07-07T16:01:00.000Z",
+      },
+      durableAcceptance: null,
+    },
   };
 }
 
@@ -332,6 +350,25 @@ describe("controlled import upload page", () => {
     expect(document.body).not.toHaveTextContent(/leads importados/i);
   });
 
+  it("links an acknowledged submission to its private batch detail without displaying its identifier", async () => {
+    render(<ImportUploadPage />);
+
+    uploadSelectedFile();
+    submitUpload();
+
+    const link = await screen.findByRole("link", {
+      name: "Acompanhar progresso do lote",
+    });
+
+    expect(link).toHaveAttribute(
+      "href",
+      "/imports/batches/00000000-0000-4000-8000-000000000041",
+    );
+    expect(document.body).not.toHaveTextContent(
+      "00000000-0000-4000-8000-000000000041",
+    );
+  });
+
   it("shows safe unknown copy for a 202 unknown outcome without an automatic new call", async () => {
     fetchMock.mockResolvedValueOnce(apiResponse(unknownPayload(), 202));
     render(<ImportUploadPage />);
@@ -347,6 +384,30 @@ describe("controlled import upload page", () => {
     );
     expect(fetchMock).toHaveBeenCalledOnce();
     expect(screen.getByRole("button", { name: "Nova tentativa" })).toBeEnabled();
+    expect(
+      screen.getByRole("link", { name: "Acompanhar progresso do lote" }),
+    ).toHaveAttribute(
+      "href",
+      "/imports/batches/00000000-0000-4000-8000-000000000042",
+    );
+  });
+
+  it("does not create a batch link from an invalid submission identifier", async () => {
+    fetchMock.mockResolvedValueOnce(
+      apiResponse(invalidSubmissionIdPayload(), 202),
+    );
+    render(<ImportUploadPage />);
+
+    uploadSelectedFile();
+    submitUpload();
+
+    expect(
+      await screen.findByRole("heading", { name: "Recebido pelo fluxo" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("link", { name: "Acompanhar progresso do lote" }),
+    ).not.toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent("submission-secret-ui");
   });
 
   it("maps a 409 conflict to safe business copy", async () => {

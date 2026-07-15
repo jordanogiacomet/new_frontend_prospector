@@ -11,8 +11,8 @@ type UploadStatus =
   | { kind: "idle" }
   | { kind: "selected" }
   | { kind: "loading" }
-  | { kind: "acknowledged" }
-  | { kind: "unknown" }
+  | { kind: "acknowledged"; submissionId: string | null }
+  | { kind: "unknown"; submissionId: string | null }
   | { kind: "conflict" }
   | { kind: "validationError"; message: string }
   | { kind: "accessError" }
@@ -20,6 +20,7 @@ type UploadStatus =
 
 interface ImportApiSuccessPayload {
   readonly data: {
+    readonly submissionId: unknown;
     readonly producerOutcome: "acknowledged" | "unknown";
     readonly workflowAcknowledgement: Record<string, unknown> | null;
     readonly durableAcceptance: null;
@@ -88,6 +89,15 @@ function isImportSuccessPayload(
 
 function isCsvFilename(file: File): boolean {
   return file.name.toLowerCase().endsWith(".csv");
+}
+
+function isUuid(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      value,
+    )
+  );
 }
 
 function formatFileSize(size: number): string {
@@ -181,11 +191,16 @@ export default function ImportUploadPage() {
           return;
         }
 
+        const submissionId = isUuid(payload.data.submissionId)
+          ? payload.data.submissionId
+          : null;
+
         setStatus({
           kind:
             payload.data.producerOutcome === "acknowledged"
               ? "acknowledged"
               : "unknown",
+          submissionId,
         });
         return;
       }
@@ -373,6 +388,10 @@ function ResultState({
     status.kind === "validationError" ||
     status.kind === "accessError" ||
     status.kind === "genericError";
+  const submissionId =
+    status.kind === "acknowledged" || status.kind === "unknown"
+      ? status.submissionId
+      : null;
 
   return (
     <section
@@ -405,6 +424,17 @@ function ResultState({
       >
         {message.body}
       </p>
+      {submissionId !== null ? (
+        <Link
+          href={`/imports/batches/${encodeURIComponent(submissionId)}`}
+          className="mt-6 inline-flex min-h-11 items-center border-b border-[oklch(45%_0.105_174)] px-1 text-sm font-bold text-[oklch(24%_0.035_252)] transition-colors hover:border-[oklch(24%_0.035_252)] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[oklch(45%_0.105_174)] motion-reduce:transition-none"
+        >
+          Acompanhar progresso do lote
+          <span aria-hidden="true" className="ml-1">
+            →
+          </span>
+        </Link>
+      ) : null}
       <button
         type="button"
         onClick={onNewAttempt}
