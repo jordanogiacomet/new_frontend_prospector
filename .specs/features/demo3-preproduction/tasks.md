@@ -19,17 +19,17 @@
       smoke/UAT for every implemented page.
 - [x] D3P-09 Record release evidence, credential retrieval, limitations, and
       rollback.
-- [ ] D3P-10 Replace the self-signed HTTPS edge with owner-approved HTTP on the
+- [x] D3P-10 Replace the self-signed HTTPS edge with owner-approved HTTP on the
       exact LAN target, retain mandatory gateway authentication, roll out an
       immutable release, and record the plaintext transport limitation.
 
 ## Completion evidence
 
-- Immutable release: `demo3-preprod-20260717-104309`
-- Direct endpoint: `https://192.168.0.20:30100`
+- Immutable release: `demo3-preprod-http-20260717-113107`
+- Direct endpoint: `http://192.168.0.20:30100`
 - Quality gates: lint, typecheck, 1,682 tests, and production build passed
 - UAT: every implemented private page and owning API passed
 - Cluster: application `3/3`, PostgreSQL `1/1`, zero restarts
 - Import: durable `202`; producer acceptance remained honestly `unknown`
 - Detailed evidence:
-  `.specs/features/demo3-preproduction/release-evidence-2026-07-17.md`
+  `.specs/features/demo3-preproduction/release-evidence-2026-07-17-http.md`

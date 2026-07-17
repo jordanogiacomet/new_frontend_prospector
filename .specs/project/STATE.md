@@ -1,7 +1,7 @@
 # State
 
 **Last Updated:** 2026-07-17
-**Current Work:** Demo 3 local pre-production HTTP transport
+**Current Work:** Demo 3 local pre-production HTTP transport - completed
 
 ---
 
@@ -131,5 +131,5 @@ writes, immutable release, preflight, and anonymous `401` remain unchanged.
       `https://192.168.0.20:30100`.
 - [x] Promote Demo 3 to local pre-production with real producer SELECTs,
       isolated app-owned writes, HTTPS gateway authentication, and full UAT.
-- [ ] Release the owner-approved HTTP transport for the exact Demo 3 LAN
+- [x] Release the owner-approved HTTP transport for the exact Demo 3 LAN
       target while retaining gateway authentication.
