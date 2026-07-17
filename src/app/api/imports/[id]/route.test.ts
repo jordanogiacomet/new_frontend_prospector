@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ApiAuthorizationContext } from "../../../../server/auth/require-api-session";
 import type {
+  BatchReadServiceDependencies,
   GetImportBatchDetailInput,
   GetImportBatchDetailResult,
 } from "../../../../server/imports/batch-read-service";
@@ -13,6 +14,7 @@ import type { BatchSummary } from "../../../../types/imports";
 
 type ImportsFeatureEnvironment = {
   readonly FEATURE_IMPORTS_ENABLED: boolean;
+  readonly DEMO3_LOCAL_RUNTIME_ENABLED?: boolean;
 };
 
 const mocks = vi.hoisted(() => ({
@@ -23,6 +25,7 @@ const mocks = vi.hoisted(() => ({
     vi.fn<
       (
         input: GetImportBatchDetailInput,
+        dependencies?: BatchReadServiceDependencies,
       ) => Promise<GetImportBatchDetailResult>
     >(),
 }));
@@ -30,6 +33,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("server-only", () => ({}));
 vi.mock("../../../../server/auth/require-api-session", () => ({
   requireApiSession: mocks.requireApiSession,
+  requirePermission: mocks.requireApiSession,
 }));
 vi.mock("../../../../server/env", () => ({
   getServerEnv: mocks.getServerEnv,
@@ -161,6 +165,7 @@ beforeEach(() => {
   mocks.requireApiSession.mockResolvedValue(authorizationContext);
   mocks.getServerEnv.mockReturnValue({
     FEATURE_IMPORTS_ENABLED: true,
+    DEMO3_LOCAL_RUNTIME_ENABLED: false,
   });
   mocks.getImportBatchDetail.mockResolvedValue(foundResult());
   vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
@@ -292,6 +297,7 @@ describe("GET /api/imports/:id", () => {
     );
 
     expect(response.status).toBe(200);
+    expect(mocks.requireApiSession).toHaveBeenCalledWith("imports:read");
     expect(mocks.getImportBatchDetail).toHaveBeenCalledOnce();
     expect(mocks.getImportBatchDetail).toHaveBeenCalledWith({
       organizationId,
@@ -299,6 +305,24 @@ describe("GET /api/imports/:id", () => {
     });
     expect(serializedInput).not.toContain("org-from-query");
     expect(serializedInput).not.toContain("org-from-header");
+  });
+
+  it("reads the real pre-production detail with configured observations", async () => {
+    mocks.getServerEnv.mockReturnValueOnce({
+      FEATURE_IMPORTS_ENABLED: true,
+      DEMO3_LOCAL_RUNTIME_ENABLED: true,
+    });
+
+    const response = await get();
+
+    expect(response.status).toBe(200);
+    expect(mocks.getImportBatchDetail).toHaveBeenCalledWith(
+      {
+        organizationId,
+        submissionId,
+      },
+    );
+    expect(globalThis.fetch).not.toHaveBeenCalled();
   });
 
   it("returns a detail envelope preserving nullable counts and evidence bases", async () => {

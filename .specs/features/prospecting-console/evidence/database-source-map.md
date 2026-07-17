@@ -1,6 +1,6 @@
 # Database Source Map
 
-**Status:** VERIFIED against `docs/db/schema.sql` on 2026-07-03  
+**Status:** VERIFIED against `docs/db/schema.sql` on 2026-07-03
 **Limitation:** DDL presence does not prove that a workflow actively populates
 an object
 
@@ -13,6 +13,7 @@ an object
 | --- | --- | --- |
 | Current company projection | `public.company_validations` | Unique by CNPJ and mutable through upsert; not immutable history |
 | Processing observations | `public.company_validation_runs` | Multiple event-like rows; no batch master or proven complete retention |
+| Restricted estimated LLM cost | `public.company_validation_runs.llm_estimated_cost_usd` | Candidate only for `costs:read`; zero/default remains unknown and not paid cost |
 | Strategic report | `public.company_strategic_research_reports` | Contains sensitive/raw fields and may be upserted by CNPJ/version |
 | CRM company/contact snapshots | `public.crm_company_history`, `public.crm_lead_contact_history` | Sensitive and mutable; not approved for general UI exposure |
 | Operational failures | `public.workflow_dead_letters`, `public.workflow_integrity_errors` | Operational, potentially sensitive, not commercial UI sources |
@@ -47,6 +48,25 @@ queries, n8n execution IDs, costs, or errors.
 It does not prove durable acceptance, close, terminal completeness, failure, or
 confirmed zero counts.
 
+## Restricted cost-control source
+
+The approved internal cost-control candidate is limited to
+`public.company_validation_runs.import_batch_id`, `lead_run_id`,
+`llm_total_tokens`, and `llm_estimated_cost_usd`. The first two delimit an
+organization-correlated run; `llm_total_tokens` is server-only evidence for
+coverage; only the positive estimated USD decimal may later be returned under
+`costs:read`. Column defaults of zero do not prove a known zero cost.
+
+The same restricted query uses server-only `test_case_id` and `source_row` to
+apply the approved production-run predicate. Neither field is a cost DTO field
+or browser response value.
+
+This is not a grant to query `company_validation_runs_costed`,
+`company_validation_cost_by_batch`, `model_pricing`, `llm_cost_usd(...)`,
+`llm_usage`, models, token counts, unit prices, raw payloads, or reports.
+DDL presence does not prove that the producer populates these fields; a
+producer-owner non-production grant and query-evidence gate remain required.
+
 ## Field Exposure Direction
 
 ### Candidate business fields
@@ -59,6 +79,7 @@ Subject to query and semantic approval:
 - analysis timestamp and cache indicator;
 - agent version;
 - batch, run, and source row in an audit area.
+- estimated LLM-cost decimal in USD and coverage state, only for `costs:read`.
 
 ### Policy-gated fields
 
@@ -75,7 +96,8 @@ Subject to query and semantic approval:
 - LLM prompts/raw responses and search queries;
 - `report_json` and unsanitized Markdown;
 - integrity/error payloads and dead letters;
-- tokens, credentials, costs, and n8n execution IDs;
+- tokens, credentials, cost fields other than the restricted estimated
+  LLM-cost decimal, and n8n execution IDs;
 - idempotency keys and hashes in the main UI.
 
 ## History Reliability

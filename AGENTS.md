@@ -17,6 +17,38 @@
   server-to-server authentication/replay control are accepted limitations for
   this target only. This profile is not evidence of security and does not
   relax production requirements.
+- On 2026-07-16 the repository owner authorized a **Demo 3 local Kubernetes**
+  profile. Cluster mutation is authorized only after the deploy preflight
+  matches the configured context, HTTPS API server, kube-system UID, and
+  non-production namespace marker. On 2026-07-17 the owner additionally
+  authorized the app Service as NodePort `30100` on the local non-production
+  LAN target `192.168.0.20`.
+- On 2026-07-17 the owner promoted that exact Demo 3 target to a
+  **local pre-production profile** for testing every implemented page with
+  real producer facts. The profile may use the already verified
+  `prospecta_producer_read` connection to the local `prospecting` target for
+  approved SELECTs only, while all Prospecta mutations remain in the isolated
+  Demo 3 app-owned PostgreSQL database. Real database values must never be
+  copied into repository fixtures, logs, images, or release evidence.
+- Because the available OIDC configuration is a placeholder, this exact local
+  profile may use the shared `demo3-preproduction-user` actor only behind
+  HTTPS and mandatory gateway authentication on NodePort `30100`.
+  `DEMO3_LOCAL_RUNTIME_ENABLED` may grant lead, import, commercial,
+  assignment, audit, sensitive, and cost permissions only when
+  `NODE_ENV=production`, auth bypass is explicit, demo data and both Demo 2
+  gates are false, feature flags and sensitive/cost allowlists independently
+  permit the response, and the gateway is configured by the immutable Demo 3
+  release. This is an accepted single-tester LAN limitation: it does not
+  establish individual audit identity and must not be reused for internet or
+  production access.
+- The exact internal n8n ingress at
+  `http://192.168.0.20:30098/webhook/empresaqui/import` may be exercised from
+  this profile through the Prospecta API. The app still sends one exact-byte
+  submission with no automatic retry and never calls workflow administration
+  or writes producer tables directly.
+- A failed preflight performs no cluster mutation. Rollback restores the prior
+  immutable release without deleting app-owned audit history or changing
+  producer data.
 
 ## Product
 
@@ -40,14 +72,14 @@ workflow details out of normal UI flows.
 The existing productive n8n workflow and its producer data remain immutable to
 this application.
 
-Always prohibited:
+Always prohibited, except for the narrowly scoped local reset profile below:
 
 - edit, disable, clone, activate, or require changes to the current productive
   workflow;
 - call its form trigger, arbitrary webhooks, execution API, or administration
   API;
 - write producer tables, views, functions, cache, CRM snapshots, reports,
-  decisions, runs, processing state, or events;
+  decisions, runs, processing state, or events through the Prospecta runtime;
 - create producer runs or reprocess leads from the app;
 - recalculate or replace `finalScore`, `priority`, `finalAction`,
   `finalVerdict`, `icpScore`, `strategicAssetScore`, `trustStatus`, enrichment,
@@ -55,6 +87,34 @@ Always prohibited:
 - treat commercial state as a producer recommendation;
 - infer failure or completion from missing events;
 - automatically retry an accepted or acceptance-unknown upload.
+
+### Authorized local producer reset profile
+
+The repository owner authorized an operator-run reset of an explicitly
+identified, disposable non-production producer target on 2026-07-15. This is
+an operational maintenance exception, not an application capability.
+
+- The Prospecta browser, API, repositories, runtime roles, migrations, and n8n
+  workflows remain unable to mutate producer data.
+- A database owner/operator may use a separate local administrative connection
+  only after confirming the target is non-production and disposable. Never use
+  this profile against production, a shared staging environment, or an
+  unidentified target.
+- The reset may delete rows only from this allowlist:
+  `company_validation_runs`, `company_validations`,
+  `company_strategic_research_reports`, `lead_decisions`,
+  `lead_processing_events`, `lead_processing_state`, `lead_input_rows`,
+  `lead_import_batches`, `workflow_dead_letters`, `workflow_integrity_errors`,
+  and `agent_eval_results`.
+- Preserve `crm_company_history`, `crm_lead_contact_history`, `model_pricing`,
+  and `agent_eval_cases`. Do not truncate a schema/database and do not use
+  `CASCADE`.
+- The operator must perform a transaction, verify pre/post row counts, delete
+  dependent rows before their parents, and roll back on an unexpected target,
+  dependency, or preserved-table change.
+- This exception does not allow producer reprocessing, price/model changes,
+  score/recommendation changes, new app routes, production grants, n8n changes,
+  or storage of real data in repository fixtures.
 
 Core producer identifiers and facts keep their established names when used in
 contracts:
@@ -218,6 +278,7 @@ the current productive workflow while developing it.
   - `commercial:write`
   - `commercial:assign`
   - `sensitive:read`
+  - `costs:read`
   - `audit:read`
 - For the identified single-organization internal MVP, import pages/routes may
   use the existing verified issuer, subject, allowed-organization, same-origin,
@@ -254,6 +315,11 @@ the current productive workflow while developing it.
 - Withhold by default unless the exact source column/JSON path, business
   meaning, permission, retention, and UI purpose are allowlisted.
 - Evaluate `sensitive:read` in server response mapping, not only in UI.
+- The sole cost-control exception is a `costs:read` response that maps only
+  the allowlisted estimated LLM-cost decimal in USD and its coverage state.
+  It requires the server-only feature flag and exact subject allowlist; an
+  empty allowlist denies access. This exception does not authorize tokens,
+  models, unit prices, `llm_usage`, or any other producer cost field.
 - Sanitize approved Markdown and reject active HTML.
 - Expose only approved `https` links whose normalized hostname passes the
   server-side allowlist; use safe link attributes.
@@ -261,8 +327,9 @@ the current productive workflow while developing it.
 - Distinguish missing, withheld, unavailable, ambiguous, and explicit-empty
   states.
 - Never expose raw/normalized rows, payloads, prompts, model responses, search
-  queries, raw report JSON, dead letters, integrity payloads, tokens, costs,
-  SQL, or n8n execution IDs.
+  queries, raw report JSON, dead letters, integrity payloads, tokens, costs
+  outside the allowlisted estimated LLM-cost decimal, SQL, or n8n execution
+  IDs.
 
 ## Repository conventions
 
@@ -323,6 +390,7 @@ Authorized endpoint direction:
 - `POST /api/imports`
 - `GET /api/imports`
 - `GET /api/imports/:id`
+- `GET /api/costs`
 - `GET /api/work-queue`
 - `POST /api/workspaces`
 - `GET/PATCH /api/workspaces/:id`

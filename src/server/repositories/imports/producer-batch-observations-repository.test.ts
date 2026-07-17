@@ -212,6 +212,42 @@ describe("readProducerBatchObservations", () => {
     ]);
   });
 
+  it("preserves distinct materialized lead runs for the same source row", async () => {
+    mocks.query.mockResolvedValueOnce([
+      observationRow({
+        fact_type: "TERMINAL_OUTCOME",
+        source_row: 1,
+        producer_result: "LEAD_DECISION_SAVED",
+        lead_run_id: "lead-run-1",
+      }),
+      observationRow({
+        fact_type: "TERMINAL_OUTCOME",
+        source_row: 1,
+        producer_result: "LEAD_DECISION_SAVED",
+        lead_run_id: "lead-run-2",
+      }),
+    ]);
+
+    const result = await readProducerBatchObservations({
+      import_batch_id: importBatchId,
+    });
+
+    expect(result.terminalOutcomes).toEqual([
+      {
+        factSource: "producer_x4_terminal_outcomes_v1",
+        sourceRow: 1,
+        terminalClass: "MATERIALIZED",
+        leadRunId: "lead-run-1",
+      },
+      {
+        factSource: "producer_x4_terminal_outcomes_v1",
+        sourceRow: 1,
+        terminalClass: "MATERIALIZED",
+        leadRunId: "lead-run-2",
+      },
+    ]);
+  });
+
   it("maps only the approved X4 producer results to terminal classes", async () => {
     mocks.query.mockResolvedValueOnce([
       observationRow({

@@ -10,12 +10,14 @@ import type { LeadSummary } from "../../../types/leads";
 
 const {
   listLeadsMock,
-  requireApiSessionMock,
+  requirePermissionMock,
+  isDemo2TestRunVisibilityEnabledMock,
+  isDemoDataEnabledMock,
   validationObserver,
 } = vi.hoisted(() => ({
   listLeadsMock:
     vi.fn<(query: LeadListQuery) => Promise<LeadListResult>>(),
-  requireApiSessionMock:
+  requirePermissionMock:
     vi.fn<
       () => Promise<{
         readonly status: "authorized";
@@ -23,16 +25,23 @@ const {
           readonly issuer: string;
           readonly subject: string;
           readonly organizationId: string;
-          readonly permissions: readonly [];
+          readonly permissions: readonly string[];
         };
       }>
     >(),
+  isDemo2TestRunVisibilityEnabledMock: vi.fn<() => boolean>(),
+  isDemoDataEnabledMock: vi.fn<() => boolean>(),
   validationObserver: vi.fn<(input: unknown) => void>(),
 }));
 
 vi.mock("server-only", () => ({}));
 vi.mock("../../../server/auth/require-api-session", () => ({
-  requireApiSession: requireApiSessionMock,
+  requirePermission: requirePermissionMock,
+}));
+vi.mock("../../../server/demo/mode", () => ({
+  isDemo2TestRunVisibilityEnabled:
+    isDemo2TestRunVisibilityEnabledMock,
+  isDemoDataEnabled: isDemoDataEnabledMock,
 }));
 vi.mock("../../../server/repositories/lead-list-repository", () => ({
   listLeads: listLeadsMock,
@@ -85,7 +94,7 @@ const syntheticAuthorizationContext = {
     issuer: "https://issuer.example.test",
     subject: "synthetic-route-subject",
     organizationId: "synthetic-route-organization",
-    permissions: [],
+    permissions: ["leads:read", "audit:read"],
   },
 } as const;
 
@@ -101,11 +110,15 @@ function expectPrivateNoStore(response: Response): void {
 
 describe("GET /api/leads", () => {
   beforeEach(() => {
-    requireApiSessionMock.mockReset();
+    requirePermissionMock.mockReset();
     listLeadsMock.mockReset();
+    isDemo2TestRunVisibilityEnabledMock.mockReset();
+    isDemoDataEnabledMock.mockReset();
     validationObserver.mockReset();
 
-    requireApiSessionMock.mockResolvedValue(syntheticAuthorizationContext);
+    requirePermissionMock.mockResolvedValue(syntheticAuthorizationContext);
+    isDemo2TestRunVisibilityEnabledMock.mockReturnValue(false);
+    isDemoDataEnabledMock.mockReturnValue(false);
     listLeadsMock.mockResolvedValue({
       leads: [syntheticLead],
       total: 1,
@@ -113,7 +126,7 @@ describe("GET /api/leads", () => {
   });
 
   it("returns 401 for a missing session without validating or querying", async () => {
-    requireApiSessionMock.mockRejectedValue(
+    requirePermissionMock.mockRejectedValue(
       new SafeApiError("AUTHENTICATION_REQUIRED"),
     );
 
@@ -131,8 +144,8 @@ describe("GET /api/leads", () => {
     expectPrivateNoStore(response);
   });
 
-  it("returns 403 for a denied organization without querying", async () => {
-    requireApiSessionMock.mockRejectedValue(
+  it("returns 403 without validation, demo checks, or querying when leads:read is denied", async () => {
+    requirePermissionMock.mockRejectedValue(
       new SafeApiError("ACCESS_DENIED"),
     );
 
@@ -146,14 +159,16 @@ describe("GET /api/leads", () => {
       },
     });
     expect(validationObserver).not.toHaveBeenCalled();
+    expect(isDemoDataEnabledMock).not.toHaveBeenCalled();
+    expect(isDemo2TestRunVisibilityEnabledMock).not.toHaveBeenCalled();
     expect(listLeadsMock).not.toHaveBeenCalled();
     expectPrivateNoStore(response);
   });
 
-  it("authenticates before validation and repository access", async () => {
+  it("authorizes leads:read before validation and repository access", async () => {
     const callOrder: string[] = [];
-    requireApiSessionMock.mockImplementation(async () => {
-      callOrder.push("authenticate");
+    requirePermissionMock.mockImplementation(async () => {
+      callOrder.push("authorize");
       return syntheticAuthorizationContext;
     });
     validationObserver.mockImplementation(() => {
@@ -168,11 +183,12 @@ describe("GET /api/leads", () => {
 
     expect(response.status).toBe(200);
     expect(callOrder).toEqual([
-      "authenticate",
+      "authorize",
       "validate",
       "repository",
     ]);
-    expect(requireApiSessionMock).toHaveBeenCalledOnce();
+    expect(requirePermissionMock).toHaveBeenCalledOnce();
+    expect(requirePermissionMock).toHaveBeenCalledWith("leads:read");
   });
 
   it("sends default pagination to the repository", async () => {
@@ -186,6 +202,18 @@ describe("GET /api/leads", () => {
     });
   });
 
+  it("includes test-marked runs only when the server enables Demo 2 visibility", async () => {
+    isDemo2TestRunVisibilityEnabledMock.mockReturnValue(true);
+
+    const response = await routeModule.GET(createRequest());
+
+    expect(response.status).toBe(200);
+    expect(listLeadsMock).toHaveBeenCalledWith(
+      { page: 1, pageSize: 20 },
+      { includeDemo2TestRuns: true },
+    );
+  });
+
   it("does not serialize the server authorization actor", async () => {
     const response = await routeModule.GET(createRequest());
     const serialized = JSON.stringify(await response.json());
@@ -194,6 +222,23 @@ describe("GET /api/leads", () => {
     expect(serialized).not.toContain("synthetic-route-subject");
     expect(serialized).not.toContain("synthetic-route-organization");
     expect(serialized).not.toContain("https://issuer.example.test");
+  });
+
+  it("redacts source hashes when audit:read is absent", async () => {
+    requirePermissionMock.mockResolvedValue({
+      ...syntheticAuthorizationContext,
+      actor: {
+        ...syntheticAuthorizationContext.actor,
+        permissions: ["leads:read"],
+      },
+    });
+
+    const response = await routeModule.GET(createRequest());
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data[0]).toMatchObject({ source_hash: null });
+    expect(JSON.stringify(body)).not.toContain(syntheticLead.source_hash);
   });
 
   it("normalizes and forwards valid CNPJ, UF, and priority filters", async () => {
@@ -373,12 +418,12 @@ describe("GET /api/leads", () => {
       await routeModule.GET(createRequest("?page=invalid")),
     );
 
-    requireApiSessionMock.mockRejectedValueOnce(
+    requirePermissionMock.mockRejectedValueOnce(
       new SafeApiError("AUTHENTICATION_REQUIRED"),
     );
     responses.push(await routeModule.GET(createRequest()));
 
-    requireApiSessionMock.mockRejectedValueOnce(
+    requirePermissionMock.mockRejectedValueOnce(
       new SafeApiError("ACCESS_DENIED"),
     );
     responses.push(await routeModule.GET(createRequest()));

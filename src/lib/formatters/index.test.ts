@@ -3,9 +3,11 @@ import { describe, expect, it } from "vitest";
 import {
   UNAVAILABLE_LABEL,
   formatBrazilianDate,
+  formatBrazilianDateTime,
   formatBrlCurrency,
   formatCnpj,
   formatScore,
+  formatUsdEstimatedCost,
 } from "./index";
 
 describe("formatCnpj", () => {
@@ -23,6 +25,21 @@ describe("formatCnpj", () => {
 
   it("keeps a missing CNPJ unavailable", () => {
     expect(formatCnpj(null)).toBe(UNAVAILABLE_LABEL);
+  });
+});
+
+describe("formatBrazilianDateTime", () => {
+  it("formats a UTC instant with Brazilian date and local time", () => {
+    expect(formatBrazilianDateTime("2026-07-10T15:34:00.000Z")).toBe(
+      "10/07/2026, 12:34",
+    );
+  });
+
+  it("keeps malformed or missing timestamps unavailable", () => {
+    expect(formatBrazilianDateTime("2026-07-10T15:34:00")).toBe(
+      UNAVAILABLE_LABEL,
+    );
+    expect(formatBrazilianDateTime(null)).toBe(UNAVAILABLE_LABEL);
   });
 });
 
@@ -85,6 +102,44 @@ describe("formatBrlCurrency", () => {
     expect(formatBrlCurrency("1234.56" as unknown as number)).toBe(
       UNAVAILABLE_LABEL,
     );
+  });
+});
+
+describe("formatUsdEstimatedCost", () => {
+  it("preserves a small decimal cost without floating-point rounding", () => {
+    expect(formatUsdEstimatedCost("0.00000001")).toBe("US$\u00a00,00000001");
+  });
+
+  it("groups the integer part and pads meaningful fractional precision", () => {
+    expect(formatUsdEstimatedCost("123456.7")).toBe("US$\u00a0123.456,70");
+  });
+
+  it("groups an aggregate with more than six integer digits", () => {
+    expect(formatUsdEstimatedCost("1000000")).toBe("US$\u00a01.000.000,00");
+  });
+
+  it("removes superfluous trailing fractional zeroes", () => {
+    expect(formatUsdEstimatedCost("12.12000000")).toBe("US$\u00a012,12");
+  });
+
+  it("formats an explicit zero as a valid decimal", () => {
+    expect(formatUsdEstimatedCost("0")).toBe("US$\u00a00,00");
+  });
+
+  it("keeps a missing cost unavailable", () => {
+    expect(formatUsdEstimatedCost(null)).toBe(UNAVAILABLE_LABEL);
+  });
+
+  it.each([
+    "-0.01",
+    " 1.00",
+    "1.00 ",
+    "1,00",
+    "1.",
+    "01.25",
+    "1.123456789",
+  ])("rejects an invalid decimal value: %s", (value) => {
+    expect(formatUsdEstimatedCost(value)).toBe(UNAVAILABLE_LABEL);
   });
 });
 

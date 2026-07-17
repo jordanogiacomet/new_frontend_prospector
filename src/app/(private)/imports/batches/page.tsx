@@ -293,7 +293,13 @@ export default function BatchListPage() {
 
         {currentState.status === "success" &&
         currentState.response.data.length === 0 ? (
-          <NoBatchData />
+          currentState.response.meta.total !== null &&
+          currentState.response.meta.total > 0 &&
+          currentState.response.meta.page > 1 ? (
+            <NoBatchesOnPage />
+          ) : (
+            <NoBatchData />
+          )
         ) : null}
 
         {currentState.status === "success" &&
@@ -342,6 +348,28 @@ function NoBatchData() {
       <p className="mt-4 max-w-xl text-sm leading-6 text-[oklch(43%_0.03_252)]">
         Os lotes aparecerão aqui depois que um CSV for enviado pelo Prospecta.
       </p>
+    </section>
+  );
+}
+
+function NoBatchesOnPage() {
+  return (
+    <section className="border-y border-[oklch(82%_0.025_82)] py-12">
+      <p className="text-xs font-bold tracking-normal text-[oklch(45%_0.105_174)] uppercase">
+        Página sem resultados
+      </p>
+      <h2 className="mt-3 font-serif text-3xl tracking-normal">
+        Esta página não tem importações
+      </h2>
+      <p className="mt-4 max-w-xl text-sm leading-6 text-[oklch(43%_0.03_252)]">
+        Há importações registradas em outras páginas do histórico.
+      </p>
+      <Link
+        href="/imports/batches"
+        className="mt-6 inline-flex min-h-11 items-center border-b border-[oklch(45%_0.105_174)] px-1 text-sm font-bold text-[oklch(37%_0.095_174)] transition-colors hover:border-[oklch(24%_0.035_252)] hover:text-[oklch(24%_0.035_252)] focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-[oklch(45%_0.105_174)] motion-reduce:transition-none"
+      >
+        Voltar à primeira página
+      </Link>
     </section>
   );
 }
@@ -442,6 +470,16 @@ function BatchListTable({
                   <p className="mt-2 max-w-56 leading-5 text-[oklch(48%_0.025_252)]">
                     Base: {statusBasisLabel(batch.statusBasis)}
                   </p>
+                  <Link
+                    href={`/imports/batches/${encodeURIComponent(batch.submissionId)}`}
+                    aria-label={`Ver detalhes da importação enviada em ${formatBrazilianDate(batch.submittedAt)}`}
+                    className="mt-4 inline-flex min-h-11 items-center border-b border-[oklch(45%_0.105_174)] px-1 text-sm font-bold text-[oklch(37%_0.095_174)] transition-colors hover:border-[oklch(24%_0.035_252)] hover:text-[oklch(24%_0.035_252)] focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-[oklch(45%_0.105_174)] motion-reduce:transition-none"
+                  >
+                    Ver detalhes
+                    <span aria-hidden="true" className="ml-1">
+                      →
+                    </span>
+                  </Link>
                 </td>
                 <td className="px-3 py-5">
                   <StatusBadge status={batch.status} />

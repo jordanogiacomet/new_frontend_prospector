@@ -24,6 +24,7 @@ import type {
 import {
   ImportSubmissionRepositoryInputError,
   getImportSubmissionDetail,
+  listCorrelatedImportBatchIds,
   listImportSubmissions,
   recordImportSubmissionIntent,
   recordProducerAcknowledgement,
@@ -1046,6 +1047,34 @@ describe("getImportSubmissionDetail", () => {
     await expect(getImportSubmissionDetail(input)).rejects.toBeInstanceOf(
       ImportSubmissionRepositoryInputError,
     );
+    expect(mocks.query).not.toHaveBeenCalled();
+  });
+});
+
+describe("listCorrelatedImportBatchIds", () => {
+  it("returns only distinct non-null producer batch identifiers scoped to the organization", async () => {
+    mocks.query.mockResolvedValueOnce([
+      { producer_import_batch_id: "batch-synthetic-a" },
+      { producer_import_batch_id: "batch-synthetic-b" },
+    ]);
+
+    await expect(
+      listCorrelatedImportBatchIds({ organizationId }),
+    ).resolves.toEqual(["batch-synthetic-a", "batch-synthetic-b"]);
+
+    const [statement] = readStatements();
+    expect(statement?.text).toMatch(
+      /SELECT DISTINCT producer_import_batch_id\s+FROM prospecting_app\.import_submissions\s+WHERE organization_id = \$1\s+AND producer_import_batch_id IS NOT NULL\s+ORDER BY producer_import_batch_id ASC/i,
+    );
+    expect(statement?.values).toEqual([organizationId]);
+    expect(statement?.text).not.toContain(organizationId);
+  });
+
+  it("fails before app database work for an invalid organization", async () => {
+    await expect(
+      listCorrelatedImportBatchIds({ organizationId: " org-synthetic-a" }),
+    ).rejects.toBeInstanceOf(ImportSubmissionRepositoryInputError);
+
     expect(mocks.query).not.toHaveBeenCalled();
   });
 });

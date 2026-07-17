@@ -1,5 +1,5 @@
 # Prospecta K8s Demo Deploy
-> Local synthetic demo on machine cluster
+> Demo 2 sintética e Demo 3 preprod no cluster local
 
 Entry: `k8s/prospecta-demo.yaml`
 Image: `Dockerfile` -> `localhost:5000/prospecta/app:demo`
@@ -12,6 +12,24 @@ Runtime:
 - Deployment `prospecta-demo`
 - Service `prospecta-demo` NodePort `30097`
 - Demo flags in ConfigMap, placeholders in Secret
+- Commercial queue uses the explicit `FEATURE_COMMERCIAL_ENABLED=true` demo
+  flag, synthetic queue data, and the demo-only `commercial:read` actor grant.
+
+Rollout gotcha: the stable `localhost:5000/prospecta/app:demo` image tag and
+`envFrom` ConfigMap values do not change the Deployment pod template. After
+`docker push` and `kubectl apply`, run
+`kubectl -n prospecta-demo rollout restart deployment/prospecta-demo` before
+waiting for rollout so a pod pulls the new tag and reloads ConfigMap values.
+
+Probe gotcha: `readinessProbe` and `livenessProbe` belong to the `prospecta`
+container, which declares the `http` port. The PostgreSQL loopback proxy has
+only `postgres-proxy`; attaching an HTTP probe to it leaves a rollout at `1/2`
+with an invalid port error.
+
+Runtime gotcha: a Next standalone `server.js` forces `NODE_ENV=production`.
+The Demo 2 manifest therefore uses the server-only
+`DEMO2_K8S_RUNTIME_ENABLED=true` ConfigMap gate together with the existing
+Demo 2 full-access Secret flags. Do not add that gate to non-demo targets.
 
 Auth/upload gotcha: `src/server/auth/require-api-session.ts:requireSameOrigin()`
 accepts external `Host` origin because standalone Next sees internal
@@ -21,4 +39,45 @@ Import UI gotcha: `src/app/(private)/imports/page.tsx:createIdempotencyKey()`
 must not assume `crypto.randomUUID()` exists on HTTP demo origins; it falls
 back to `crypto.getRandomValues()`.
 
-Updated: 2026-07-08
+Demo 3 storage gotcha: `k8s/prospecta-demo3.yaml` mounts the NFS PVC at the
+documented PostgreSQL 16 path but sets `PGDATA` to the child `pgdata`
+directory. The NFS mount root rejects chmod from UID 70, while the child is
+created and owned by PostgreSQL.
+
+Demo 3 initialization gotcha: the app-role init script copied by
+`k8s/Dockerfile.demo3-postgres` must belong to `postgres:postgres`; mode `0500`
+alone makes it unreadable when the container runs as UID 70. The startup probe
+checks the final runtime-role grant so liveness cannot interrupt a slow NFS
+initialization or expose an incomplete database as Ready.
+
+Demo 3 edge gotcha: all nginx temporary paths are redirected to the shared
+`/tmp` EmptyDir in `k8s/demo3-nginx.conf`; otherwise nginx attempts to create
+`/var/cache/nginx/fastcgi_temp` under its read-only root filesystem.
+
+Demo 3 preprod:
+- Entry: `scripts/deploy-demo3-k8s.mjs`
+- Manifest: `k8s/prospecta-demo3.yaml`
+- Frontend-only NodePort: `https://192.168.0.20:30100`
+- Mandatory Basic Auth at `k8s/demo3-nginx.conf`; anonymous app paths return
+  `401`, while `/healthz` remains available to probes
+- Shared application actor exists only behind the gateway; demo data and both
+  Demo 2 runtime gates must be disabled
+- Producer connection: release-scoped Secret + loopback proxy -> approved
+  `prospecta_producer_read` target; SELECT only
+- Commercial/import writes: isolated `prospecta-demo3-postgres` ClusterIP/PVC
+- Every release uses immutable app, edge, proxy, and PostgreSQL image tags
+
+Preflight: exact context, HTTPS API server, kube-system UID, non-production
+namespace labels, source Secret shape, producer endpoint, release tag, and
+distinct credentials. Failed preflight mutates nothing.
+
+NodePort smoke: direct HTTPS only; proves anonymous `401`, authenticated page
+and API success, real producer availability, and zero-restart readiness.
+Self-signed certificate requires explicit browser acceptance on the local LAN.
+
+Rollback: Deployment revision rollback; preserve Demo 3 PVC and audit history;
+never change producer contents.
+
+Port `30099` cannot be used because it belongs to the existing SearXNG Service.
+
+Updated: 2026-07-17

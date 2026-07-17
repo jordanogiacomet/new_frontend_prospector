@@ -40,6 +40,24 @@ function PrivateContent() {
   return <p>Conteúdo privado sintético</p>;
 }
 
+function authorizedSession(
+  permissions: readonly string[] = [
+    "leads:read",
+    "commercial:read",
+    "imports:read",
+  ],
+) {
+  return {
+    status: "authorized" as const,
+    actor: {
+      issuer: "https://identity.internal.test/tenant",
+      organizationId: "synthetic-organization",
+      subject: "synthetic-subject",
+      permissions,
+    },
+  };
+}
+
 function listAppSurface(directory: string, appRoot: string): string[] {
   const files: string[] = [];
 
@@ -136,12 +154,7 @@ describe("private application shell", () => {
   });
 
   it("renders navigation, generic session status, children, and accessible controls for an authorized session", async () => {
-    getServerAuthorizationMock.mockResolvedValue({
-      status: "authorized",
-      issuer: "https://identity.internal.test/tenant",
-      organizationId: "synthetic-organization",
-      subject: "synthetic-subject",
-    });
+    getServerAuthorizationMock.mockResolvedValue(authorizedSession());
 
     render(await PrivateLayout({ children: <PrivateContent /> }));
 
@@ -149,6 +162,9 @@ describe("private application shell", () => {
       name: "Navegação principal",
     });
     const leadsLink = screen.getByRole("link", { name: "Leads" });
+    const workQueueLink = screen.getByRole("link", {
+      name: "Fila comercial",
+    });
     const importsLink = screen.getByRole("link", { name: "Importações" });
     const signOutButton = screen.getByRole("button", { name: "Sair" });
     const skipLink = screen.getByRole("link", {
@@ -156,10 +172,16 @@ describe("private application shell", () => {
     });
 
     expect(navigation).toContainElement(leadsLink);
+    expect(navigation).toContainElement(workQueueLink);
     expect(navigation).toContainElement(importsLink);
     expect(leadsLink).toHaveAttribute("href", "/leads");
+    expect(workQueueLink).toHaveAttribute("href", "/work-queue");
     expect(importsLink).toHaveAttribute("href", "/imports");
+    expect(
+      screen.queryByRole("link", { name: "Custos" }),
+    ).not.toBeInTheDocument();
     expect(leadsLink).toHaveAttribute("aria-current", "page");
+    expect(workQueueLink).not.toHaveAttribute("aria-current");
     expect(importsLink).not.toHaveAttribute("aria-current");
     expect(skipLink).toHaveAttribute("href", "#conteudo-principal");
     expect(screen.getByText("Sessão autorizada")).toBeInTheDocument();
@@ -181,7 +203,7 @@ describe("private application shell", () => {
 
   it("marks import routes as current without changing authorization", async () => {
     pathnameState.value = "/imports/batches";
-    getServerAuthorizationMock.mockResolvedValue({ status: "authorized" });
+    getServerAuthorizationMock.mockResolvedValue(authorizedSession());
 
     render(await PrivateLayout({ children: <PrivateContent /> }));
 
@@ -195,8 +217,58 @@ describe("private application shell", () => {
     expect(screen.getByText("Conteúdo privado sintético")).toBeInTheDocument();
   });
 
+  it("marks the commercial queue route as current without changing authorization", async () => {
+    pathnameState.value = "/work-queue";
+    getServerAuthorizationMock.mockResolvedValue(authorizedSession());
+
+    render(await PrivateLayout({ children: <PrivateContent /> }));
+
+    expect(
+      screen.getByRole("link", { name: "Fila comercial" }),
+    ).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("link", { name: "Leads" })).not.toHaveAttribute(
+      "aria-current",
+    );
+    expect(
+      screen.getByRole("link", { name: "Importações" }),
+    ).not.toHaveAttribute("aria-current");
+  });
+
+  it("shows the costs entry only when the server-side actor has costs read access", async () => {
+    pathnameState.value = "/costs";
+    getServerAuthorizationMock.mockResolvedValue(
+      authorizedSession([
+        "leads:read",
+        "commercial:read",
+        "imports:read",
+        "costs:read",
+      ]),
+    );
+
+    render(await PrivateLayout({ children: <PrivateContent /> }));
+
+    const costsLink = screen.getByRole("link", { name: "Custos" });
+    expect(costsLink).toHaveAttribute("href", "/costs");
+    expect(costsLink).toHaveAttribute("aria-current", "page");
+  });
+
+  it("hides business areas that the actor cannot read", async () => {
+    getServerAuthorizationMock.mockResolvedValue(
+      authorizedSession(["imports:create"]),
+    );
+
+    render(await PrivateLayout({ children: <PrivateContent /> }));
+
+    expect(screen.queryByRole("link", { name: "Leads" })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("link", { name: "Fila comercial" }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Importações" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Custos" })).not.toBeInTheDocument();
+  });
+
   it("signs out on the server with the login destination", async () => {
-    getServerAuthorizationMock.mockResolvedValue({ status: "authorized" });
+    getServerAuthorizationMock.mockResolvedValue(authorizedSession());
 
     render(await PrivateLayout({ children: <PrivateContent /> }));
 
@@ -222,23 +294,33 @@ describe("private application shell", () => {
     expect(
       surface.filter((file) => file.startsWith("(private)/")),
     ).toEqual([
+      "(private)/costs/page.tsx",
       "(private)/imports/batches/[id]/page.tsx",
       "(private)/imports/batches/page.tsx",
       "(private)/imports/page.tsx",
       "(private)/layout.tsx",
       "(private)/leads/[cnpj]/page.tsx",
       "(private)/leads/page.tsx",
+      "(private)/work-queue/page.tsx",
+      "(private)/workspaces/[id]/page.tsx",
     ]);
     expect(surface.filter((file) => file.startsWith("api/"))).toEqual([
       "api/auth/[...nextauth]/route.ts",
+      "api/costs/route.ts",
       "api/imports/[id]/route.ts",
       "api/imports/route.ts",
       "api/leads/[cnpj]/history/route.ts",
       "api/leads/[cnpj]/route.ts",
       "api/leads/route.ts",
+      "api/work-queue/route.ts",
+      "api/workspaces/[id]/activities/route.ts",
+      "api/workspaces/[id]/audit/route.ts",
+      "api/workspaces/[id]/notes/route.ts",
+      "api/workspaces/[id]/route.ts",
+      "api/workspaces/route.ts",
     ]);
-    expect(surface.join("\n")).not.toMatch(
-      /(?:api\/work-queue|api\/workspaces|\(private\)\/work)/,
-    );
+    expect(
+      surface.filter((file) => file.startsWith("(private)/workspaces/")),
+    ).toEqual(["(private)/workspaces/[id]/page.tsx"]);
   });
 });

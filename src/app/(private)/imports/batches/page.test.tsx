@@ -211,6 +211,20 @@ describe("batch list page", () => {
     expect(document.body).not.toHaveTextContent(submissionId);
   });
 
+  it("links each import to its app-owned detail route without displaying its identifier", async () => {
+    render(<BatchListPage />);
+
+    const link = await screen.findByRole("link", {
+      name: "Ver detalhes da importação enviada em 08/07/2026",
+    });
+
+    expect(link).toHaveAttribute(
+      "href",
+      "/imports/batches/00000000-0000-4000-8000-000000000026",
+    );
+    expect(document.body).not.toHaveTextContent(submissionId);
+  });
+
   it("shows an empty state when no import batch is available", async () => {
     fetchMock.mockResolvedValue(
       apiResponse(batchListEnvelope([], { total: 0 })),
@@ -224,6 +238,35 @@ describe("batch list page", () => {
       }),
     ).toBeInTheDocument();
     expect(screen.queryByRole("table")).not.toBeInTheDocument();
+  });
+
+  it("distinguishes an out-of-range page from an empty import history", async () => {
+    navigationState.query = "page=999&pageSize=20";
+    fetchMock.mockResolvedValue(
+      apiResponse(
+        batchListEnvelope([], {
+          page: 999,
+          pageSize: 20,
+          total: 2,
+        }),
+      ),
+    );
+
+    render(<BatchListPage />);
+
+    expect(
+      await screen.findByRole("heading", {
+        name: "Esta página não tem importações",
+      }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: "Voltar à primeira página" }),
+    ).toHaveAttribute("href", "/imports/batches");
+    expect(
+      screen.queryByRole("heading", {
+        name: "Nenhuma importação registrada",
+      }),
+    ).not.toBeInTheDocument();
   });
 
   it("shows a distinct unavailable state for unavailable list data without leaking details", async () => {

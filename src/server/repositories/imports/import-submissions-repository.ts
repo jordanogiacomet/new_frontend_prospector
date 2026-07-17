@@ -71,6 +71,10 @@ export interface ListImportSubmissionsInput {
   readonly pageSize?: number;
 }
 
+export interface ListCorrelatedImportBatchIdsInput {
+  readonly organizationId: string;
+}
+
 export interface ImportSubmissionReadModel {
   readonly submissionId: string;
   readonly originalFilename: string;
@@ -214,6 +218,10 @@ interface ImportSubmissionReadRow {
 
 interface CountRow {
   readonly total: number | string;
+}
+
+interface CorrelatedImportBatchIdRow {
+  readonly producer_import_batch_id: string;
 }
 
 const DEFAULT_PAGE = 1;
@@ -370,6 +378,21 @@ export async function listImportSubmissions(
   };
 }
 
+export async function listCorrelatedImportBatchIds(
+  input: ListCorrelatedImportBatchIdsInput,
+): Promise<readonly string[]> {
+  requireText(input.organizationId, 128);
+
+  const rows = await queryAppDatabase<CorrelatedImportBatchIdRow>(
+    buildListCorrelatedImportBatchIdsStatement(input.organizationId),
+  );
+
+  return rows.map((row) => {
+    requireText(row.producer_import_batch_id, 128);
+    return row.producer_import_batch_id;
+  });
+}
+
 export async function getImportSubmissionDetail(
   input: GetImportSubmissionDetailInput,
 ): Promise<GetImportSubmissionDetailResult> {
@@ -494,6 +517,20 @@ function buildCountSubmissionsStatement(organizationId: string): SqlStatement {
       SELECT count(*)::integer AS total
       FROM prospecting_app.import_submissions
       WHERE organization_id = $1`,
+    values: [organizationId],
+  };
+}
+
+function buildListCorrelatedImportBatchIdsStatement(
+  organizationId: string,
+): SqlStatement {
+  return {
+    text: `
+      SELECT DISTINCT producer_import_batch_id
+      FROM prospecting_app.import_submissions
+      WHERE organization_id = $1
+        AND producer_import_batch_id IS NOT NULL
+      ORDER BY producer_import_batch_id ASC`,
     values: [organizationId],
   };
 }

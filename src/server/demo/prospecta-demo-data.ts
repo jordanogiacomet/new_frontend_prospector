@@ -8,6 +8,11 @@ import type {
   LeadHistoryItem,
   LeadSummary,
 } from "../../types/leads";
+import type {
+  CommercialWorkQueueItem,
+  CommercialWorkQueueProvenance,
+  LeadWorkspaceDto,
+} from "../../types/commercial";
 import type { BatchSummary } from "../../types/imports";
 import type { SubmitImportResult } from "../imports/submit-import";
 import { validateAndHashUploadFile } from "../imports/upload-file";
@@ -16,6 +21,10 @@ import type {
   ImportSubmissionStatus,
 } from "../repositories/imports/import-submissions-repository";
 import type { AuthorizedActor } from "../auth/authorization";
+import type {
+  ListCommercialWorkQueueInput,
+  ListCommercialWorkQueueResult,
+} from "../commercial/work-queue-repository";
 
 const retainedHistoryCompleteness = "retained_only";
 const retainedHistoryLabel = "Análises retidas encontradas";
@@ -355,6 +364,40 @@ const demoSubmissionsByIdempotencyKey = new Map<
   ImportSubmissionRecord
 >();
 
+const demoCommercialWorkspaces: Readonly<
+  Record<string, LeadWorkspaceDto>
+> = {
+  "12345678000195": {
+    workspace_id: "0ccfa1a8-02b3-40bf-b855-7e8124c70641",
+    organization_id: "demo-organization",
+    cnpj_normalizado: "12345678000195",
+    observed_lead_run_id: "lr_a1b2c3d4",
+    responsible_subject: "local-demo-user",
+    commercial_stage: "CONTACTED",
+    next_action: "Confirmar a próxima conversa comercial",
+    next_action_due_at: "2026-07-14T14:00:00.000Z",
+    commercial_outcome: null,
+    version: 1,
+    created_by_subject: "local-demo-user",
+    updated_by_subject: "local-demo-user",
+    created_at: "2026-07-07T13:20:00.000Z",
+    updated_at: "2026-07-08T10:00:00.000Z",
+    archived_at: null,
+    archived_by_subject: null,
+  },
+};
+
+const demoCommercialWorkQueueProvenance = {
+  producer: {
+    factSource: "producer_current_leads_v1",
+    availability: "AVAILABLE",
+  },
+  workspace: {
+    factSource: "app_lead_workspaces_v1",
+    availability: "AVAILABLE",
+  },
+} as const satisfies CommercialWorkQueueProvenance;
+
 export function listDemoLeads(input: LeadListQuery): DemoLeadListResult {
   const filtered = demoLeadDetails
     .filter((lead) => input.cnpj === undefined || lead.cnpj === input.cnpj)
@@ -369,6 +412,53 @@ export function listDemoLeads(input: LeadListQuery): DemoLeadListResult {
   return {
     leads: page.map(toLeadSummary),
     total: filtered.length,
+  };
+}
+
+export function listDemoCommercialWorkQueue(
+  input: Pick<
+    ListCommercialWorkQueueInput,
+    "page" | "pageSize" | "filters" | "sort"
+  >,
+): ListCommercialWorkQueueResult {
+  const filters = input.filters ?? {};
+  const queueItems = demoLeadDetails
+    .map(toDemoCommercialWorkQueueItem)
+    .filter(
+      (item) =>
+        filters.cnpj_normalizado === undefined ||
+        item.producerLead.cnpj === filters.cnpj_normalizado,
+    )
+    .filter(
+      (item) =>
+        filters.uf === undefined || item.producerLead.uf === filters.uf,
+    )
+    .filter(
+      (item) =>
+        filters.priority === undefined ||
+        item.producerLead.priority === filters.priority,
+    )
+    .filter(
+      (item) =>
+        filters.commercial_stage === undefined ||
+        item.workspace?.commercial_stage === filters.commercial_stage,
+    )
+    .filter(
+      (item) =>
+        filters.responsible_subject === undefined ||
+        item.workspace?.responsible_subject === filters.responsible_subject,
+    );
+  const page = input.page ?? 1;
+  const pageSize = input.pageSize ?? 20;
+  const start = (page - 1) * pageSize;
+
+  return {
+    kind: "listed",
+    items: queueItems.slice(start, start + pageSize),
+    page,
+    pageSize,
+    total: queueItems.length,
+    provenance: demoCommercialWorkQueueProvenance,
   };
 }
 
@@ -528,6 +618,24 @@ function toLeadSummary(lead: LeadDetail): LeadSummary {
     trustStatus: lead.trustStatus,
     confidenceIndicator: lead.confidenceIndicator,
     lastAnalysisAt: lead.lastAnalysisAt,
+  };
+}
+
+function toDemoCommercialWorkQueueItem(
+  lead: LeadDetail,
+): CommercialWorkQueueItem {
+  const workspace = demoCommercialWorkspaces[lead.cnpj] ?? null;
+
+  return {
+    producerLead: toLeadSummary(lead),
+    workspace,
+    sources: {
+      producer: { factSource: "producer_current_leads_v1" },
+      workspace: {
+        factSource: "app_lead_workspaces_v1",
+        state: workspace === null ? "missing" : "matched",
+      },
+    },
   };
 }
 

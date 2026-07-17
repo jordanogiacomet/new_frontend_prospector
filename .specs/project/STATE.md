@@ -1,7 +1,7 @@
 # State
 
-**Last Updated:** 2026-07-15
-**Current Work:** Import batch progress link - completed
+**Last Updated:** 2026-07-17
+**Current Work:** Demo 3 local pre-production promotion - completed
 
 ---
 
@@ -28,11 +28,49 @@ succeeded.
 **Impact:** The demo uses a normal image-based Deployment without hostPath source
 mounts.
 
+### AD-003: Demo 3 PostgreSQL uses an NFS-safe data subdirectory (2026-07-17)
+
+**Decision:** Mount the disposable PVC at `/var/lib/postgresql/data`, set
+`PGDATA` to its app-owned `pgdata` subdirectory, and gate liveness/readiness
+behind a startup probe that verifies the final runtime-role grant.
+**Reason:** The NFS root cannot be chmod-ed by the non-root PostgreSQL process,
+and initialization can exceed the normal liveness window.
+**Trade-off:** First startup may remain unready for several minutes on slow NFS.
+**Impact:** Initialization remains non-root and cannot be reported Ready before
+schema, role, and grants exist.
+
+### AD-004: Demo 3 frontend uses the approved LAN NodePort (2026-07-17)
+
+**Decision:** Expose only the Demo 3 frontend Service as NodePort `30100` on
+`192.168.0.20`; keep PostgreSQL as ClusterIP.
+**Reason:** The repository owner explicitly corrected the presentation access
+requirement from port-forward to NodePort.
+**Trade-off:** The synthetic auth-bypass demo is reachable on the local LAN and
+must not be treated as a secure or production profile.
+**Impact:** Demo 3 is available at `https://192.168.0.20:30100`; no persistent
+port-forward service is required.
+
+### AD-005: Demo 3 becomes the local pre-production target (2026-07-17)
+
+**Decision:** Promote the exact Demo 3 namespace and NodePort to a
+single-tester local pre-production profile. Read real producer facts with the
+existing read-only role, preserve an isolated app-owned database, and require
+HTTPS gateway authentication before the shared application actor.
+**Reason:** The owner needs all implemented pages and real producer data for
+end-to-end product testing, while the available OIDC settings remain
+placeholders.
+**Trade-off:** Audit identifies the shared pre-production actor rather than an
+individual corporate identity, and the self-signed LAN certificate requires
+local browser acceptance.
+**Impact:** The permanent producer write boundary remains unchanged; Demo 3
+can exercise real reads and app-owned writes without anonymously exposing the
+application on the LAN.
+
 ---
 
 ## Active Blockers
 
-None.
+- None for the authorized Demo 3 local pre-production release.
 
 ---
 
@@ -70,9 +108,15 @@ None.
 - [ ] Replace dev-mode hostPath deployment with a production-style image once a
       non-production registry target is identified.
 - [ ] Wire real non-production database credentials through Kubernetes Secrets.
+- [ ] Replace the shared Demo 3 actor with corporate OIDC and individual audit
+      attribution before any broader rollout.
 
 ---
 
 ## Todos
 
 - [x] Validate `http://192.168.0.20:30097` after manifest apply.
+- [x] Release Demo 3 through the approved LAN NodePort at
+      `https://192.168.0.20:30100`.
+- [x] Promote Demo 3 to local pre-production with real producer SELECTs,
+      isolated app-owned writes, HTTPS gateway authentication, and full UAT.

@@ -168,6 +168,36 @@ describe("lead list page", () => {
     );
   });
 
+  it("distinguishes an out-of-range page from an empty retained dataset", async () => {
+    navigationState.query = "page=999&pageSize=20";
+    fetchMock.mockResolvedValue(
+      respondWithJson(
+        successfulResponse([], {
+          page: 999,
+          pageSize: 20,
+          total: 2,
+          totalPages: 1,
+        }),
+      ),
+    );
+
+    render(<LeadListPage />);
+
+    expect(
+      await screen.findByRole("heading", {
+        name: "Esta página não tem decisões",
+      }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: "Voltar à primeira página" }),
+    ).toHaveAttribute("href", "/leads");
+    expect(
+      screen.queryByRole("heading", {
+        name: "Nenhuma decisão disponível",
+      }),
+    ).not.toBeInTheDocument();
+  });
+
   it("renders a fixed safe error without exposing API details", async () => {
     const privateDetails = [
       "postgresql://readonly:secret@database.internal/leads",

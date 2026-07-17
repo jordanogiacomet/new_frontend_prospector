@@ -7,6 +7,7 @@ export const APPROVED_PERMISSIONS = [
   "commercial:assign",
   "sensitive:read",
   "audit:read",
+  "costs:read",
 ] as const;
 
 export type Permission = (typeof APPROVED_PERMISSIONS)[number];

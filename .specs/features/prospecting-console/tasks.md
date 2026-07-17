@@ -1,7 +1,7 @@
 # Prospecta — Prospecting Console Tasks
 
-**Spec:** `.specs/features/prospecting-console/spec.md`  
-**Design:** `.specs/features/prospecting-console/design.md`  
+**Spec:** `.specs/features/prospecting-console/spec.md`
+**Design:** `.specs/features/prospecting-console/design.md`
 **Status:** IN PROGRESS — database boundary, app-owned schema migration, and
 role isolation consolidated through T010; the acknowledgement-only internal
 upload slice is unblocked for T013–T017
@@ -425,33 +425,33 @@ completion until that gate is evidenced.
 #### T001: Replace repository instructions with the Prospecta boundary
 
 **What/where:** Make `AGENTS.md` authoritative for staged Prospecta work and
-mark `AGENTS.next.md` superseded.  
-**Depends on:** None. **Requirements:** PC-04, PC-17. **Tools:** DOCS.  
-**Tests/gate:** Structural review / DOC.  
+mark `AGENTS.next.md` superseded.
+**Depends on:** None. **Requirements:** PC-04, PC-17. **Tools:** DOCS.
+**Tests/gate:** Structural review / DOC.
 **Done when:** Upload/app writes are authorized only inside the permanent
-producer boundary; production actions remain separately blocked.  
-**Verify:** `rg -n "Permanent producer boundary|Production and rollout restrictions|superseded" AGENTS.md AGENTS.next.md`  
+producer boundary; production actions remain separately blocked.
+**Verify:** `rg -n "Permanent producer boundary|Production and rollout restrictions|superseded" AGENTS.md AGENTS.next.md`
 **Commit:** `docs(prospecta): authorize staged product boundary`
 
 #### T002: Finalize contracts, decisions, and authorization state
 
 **What/where:** Reconcile `spec.md`, `context.md`, `design.md`, `contracts/`,
-and `decisions/` with repository authorization and external gates.  
-**Depends on:** T001. **Requirements:** PC-01–PC-17. **Tools:** DOCS, NAV.  
-**Tests/gate:** Structural review / DOC.  
+and `decisions/` with repository authorization and external gates.
+**Depends on:** T001. **Requirements:** PC-01–PC-17. **Tools:** DOCS, NAV.
+**Tests/gate:** Structural review / DOC.
 **Done when:** HMAC, idempotency, correlation, completion, app ownership,
-retention, permissions, and sensitive controls are unambiguous.  
-**Verify:** `rg -n "APPROVED|External|HMAC|COMPLETED|append-only" .specs/features/prospecting-console`  
+retention, permissions, and sensitive controls are unambiguous.
+**Verify:** `rg -n "APPROVED|External|HMAC|COMPLETED|append-only" .specs/features/prospecting-console`
 **Commit:** `docs(prospecta): finalize implementation contracts`
 
 #### T003: Publish the atomic execution plan
 
-**What/where:** Create this `tasks.md`.  
-**Depends on:** T002. **Requirements:** PC-17. **Tools:** DOCS.  
-**Tests/gate:** Granularity, dependency, and co-location review / DOC.  
+**What/where:** Create this `tasks.md`.
+**Depends on:** T002. **Requirements:** PC-17. **Tools:** DOCS.
+**Tests/gate:** Granularity, dependency, and co-location review / DOC.
 **Done when:** Every deliverable has dependencies, tests, verification, a
-commit label, and external blockers.  
-**Verify:** `git diff --check && rg -n "^#### T[0-9]{3}" .specs/features/prospecting-console/tasks.md`  
+commit label, and external blockers.
+**Verify:** `git diff --check && rg -n "^#### T[0-9]{3}" .specs/features/prospecting-console/tasks.md`
 **Commit:** `docs(prospecta): add atomic delivery plan`
 
 **Phase 0 gate:** `FULL`. Expected baseline: at least 31 files / 494 tests.
@@ -463,25 +463,25 @@ commit label, and external blockers.
 **What/where:** Add separate DB URLs, the required official ingress URL,
 optional/deferred HMAC settings, upload limits, URL hosts, and feature flags
 in `src/server/env.ts`,
-`.env.example`, and colocated tests.  
-**Depends on:** T003. **Requirements:** PC-01, PC-04, PC-05. **Tools:** CORE.  
-**Tests/gate:** Unit, minimum 12 new cases / UNIT.  
+`.env.example`, and colocated tests.
+**Depends on:** T003. **Requirements:** PC-01, PC-04, PC-05. **Tools:** CORE.
+**Tests/gate:** Unit, minimum 12 new cases / UNIT.
 **Done when:** Missing/invalid/unofficial URLs, public secret names, malformed
 optional HMAC values, and unsafe hosts fail closed without echoing values;
 absent HMAC and role settings remain valid, role settings are ignored, and
 imports remain disabled.
-**Verify:** `pnpm vitest run src/server/env.test.ts && pnpm typecheck`  
+**Verify:** `pnpm vitest run src/server/env.test.ts && pnpm typecheck`
 **Commit:** `feat(prospecta): validate server integration environment`
 
 #### T005: Define the deferred permission vocabulary
 
 **What/where:** Create `src/server/auth/permissions.ts` and tests for the exact
 permission union and dormant deny-by-default helpers.
-**Depends on:** T003. **Requirements:** PC-05. **Tools:** CORE.  
-**Tests/gate:** Unit, minimum 10 new cases / UNIT.  
+**Depends on:** T003. **Requirements:** PC-05. **Tools:** CORE.
+**Tests/gate:** Unit, minimum 10 new cases / UNIT.
 **Done when:** The vocabulary grants nothing through the current OIDC flow;
 unknown values remain denied and any future activation requires X1.
-**Verify:** focused permission test and typecheck.  
+**Verify:** focused permission test and typecheck.
 **Commit:** `feat(prospecta): define permission policy`
 
 #### T006: Retain the verified actor in server auth
@@ -490,12 +490,12 @@ unknown values remain denied and any future activation requires X1.
 `index.ts` with issuer, subject, organization, and an empty deferred
 permissions slot; update auth tests.
 **Depends on:** T004, T005. **Requirements:** PC-05. **Tools:** CORE,
-CURRENT-DOCS.  
-**Tests/gate:** Auth integration, minimum 14 new/updated cases / UNIT.  
+CURRENT-DOCS.
+**Tests/gate:** Auth integration, minimum 14 new/updated cases / UNIT.
 **Done when:** Only verified identity/organization claims create an actor;
 provider roles and stale permissions are ignored; refresh preserves identity
 only; missing/changed organization fails closed.
-**Verify:** `pnpm vitest run src/server/auth/auth.test.ts && pnpm typecheck`  
+**Verify:** `pnpm vitest run src/server/auth/auth.test.ts && pnpm typecheck`
 **Commit:** `feat(prospecta): retain authorized actor context`
 
 #### T007: Enforce authenticated actor and same-origin mutations
@@ -504,51 +504,51 @@ only; missing/changed organization fails closed.
 `src/server/auth/require-api-session.ts` with actor-aware session context, keep
 deny-by-default `requirePermission` dormant, and add a same-origin mutation
 guard plus tests.
-**Depends on:** T006. **Requirements:** PC-05. **Tools:** CORE.  
-**Tests/gate:** Route/auth integration, minimum 16 new/updated cases / UNIT.  
+**Depends on:** T006. **Requirements:** PC-05. **Tools:** CORE.
+**Tests/gate:** Route/auth integration, minimum 16 new/updated cases / UNIT.
 **Done when:** The server context retains the actor; current lead GETs require
 an authenticated allowed-organization session without provider roles;
 `401/403` happens before body, DB, hash, or HTTP callbacks; and missing,
 malformed, or cross-origin mutation origins fail safely without actor
 exposure. Granular route authorization remains blocked by X1.
-**Verify:** focused guard tests and typecheck.  
+**Verify:** focused guard tests and typecheck.
 **Commit:** `feat(prospecta): enforce actor permissions`
 
 #### T008: Split producer-read and app-write PostgreSQL clients
 
 **What/where:** Add `producer-client.ts` and `app-client.ts`; preserve existing
-lead repository behavior; update DB client tests.  
-**Depends on:** T004. **Requirements:** PC-04, PC-06. **Tools:** CORE.  
-**Tests/gate:** Unit with mocked `pg`, minimum 12 new/updated cases / UNIT.  
+lead repository behavior; update DB client tests.
+**Depends on:** T004. **Requirements:** PC-04, PC-06. **Tools:** CORE.
+**Tests/gate:** Unit with mocked `pg`, minimum 12 new/updated cases / UNIT.
 **Done when:** Pools use distinct URLs, application names, limits, safe errors,
-and no client module crosses ownership.  
-**Verify:** focused DB tests and existing repository tests.  
+and no client module crosses ownership.
+**Verify:** focused DB tests and existing repository tests.
 **Commit:** `refactor(prospecta): isolate database connections`
 
 #### T009: Define and prove the reversible app-owned schema migration
 
 **What/where:** Add reviewed forward/rollback/grant SQL under `db/app/`, the
 disposable DB harness, and apply/rollback tests for imports, workspaces,
-activities, notes, and append-only audits.  
+activities, notes, and append-only audits.
 **Depends on:** T002, X2 disposable target. **Requirements:** PC-06, PC-14,
-PC-15. **Tools:** CORE, DB-TEST.  
-**Tests/gate:** SQL structural + PostgreSQL integration, minimum 12 cases / DB.  
+PC-15. **Tools:** CORE, DB-TEST.
+**Tests/gate:** SQL structural + PostgreSQL integration, minimum 12 cases / DB.
 **Done when:** Organization constraints, uniqueness, checks, indexes, no
 producer FKs, append-only grants, and rollback order are explicit and execute
-both directions on a disposable target.  
-**Verify:** `pnpm test:integration` plus forbidden producer-reference `rg`.  
+both directions on a disposable target.
+**Verify:** `pnpm test:integration` plus forbidden producer-reference `rg`.
 **Commit:** `feat(prospecta): define app-owned schema`
 
 #### T010: Prove database role isolation in disposable PostgreSQL
 
 **What/where:** Add producer-write/app-cross-schema denial and least-privilege
-query tests to the disposable DB harness.  
+query tests to the disposable DB harness.
 **Depends on:** T008, T009, X2 disposable target. **Requirements:** PC-04,
-PC-06. **Tools:** DB-TEST, CORE.  
-**Tests/gate:** PostgreSQL integration, minimum 10 cases / DB + FULL.  
+PC-06. **Tools:** DB-TEST, CORE.
+**Tests/gate:** PostgreSQL integration, minimum 10 cases / DB + FULL.
 **Done when:** Both roles fail forbidden operations and can perform only their
-allowlisted work. No production DSN is accepted.  
-**Verify:** `pnpm test:integration && FULL`.  
+allowlisted work. No production DSN is accepted.
+**Verify:** `pnpm test:integration && FULL`.
 **Commit:** `test(prospecta): prove database ownership boundary`
 
 **Phase 1 gate:** `FULL && DB`. Record exact counts and any X1/X2 limitations.
@@ -991,12 +991,12 @@ by X4.
 **Status:** COMPLETE LOCALLY on 2026-07-07 for the pure mapper slice; producer
 observation repositories and X4 completion proof remain pending.
 
-**What/where:** Add batch domain types and a pure evidence mapper with tests.  
-**Depends on:** T002. **Requirements:** PC-03, PC-13. **Tools:** CORE.  
-**Tests/gate:** Unit, minimum 24 cases / UNIT.  
+**What/where:** Add batch domain types and a pure evidence mapper with tests.
+**Depends on:** T002. **Requirements:** PC-03, PC-13. **Tools:** CORE.
+**Tests/gate:** Unit, minimum 24 cases / UNIT.
 **Done when:** Every state/basis/count follows the contract; duplicates,
-conflicts, excess terminals, missing close, and unavailable data fail closed.  
-**Verify:** focused mapper tests and typecheck.  
+conflicts, excess terminals, missing close, and unavailable data fail closed.
+**Verify:** focused mapper tests and typecheck.
 
 **Recorded gate:** Batch status domain types were added to `src/types/imports.ts`
 and the pure mapper was added at `src/server/mappers/batch-status-mapper.ts`.
@@ -1041,12 +1041,12 @@ action was performed. T021, T022, T023, and X4 remain pending.
 PostgreSQL target.
 
 **What/where:** Add paginated app-submission repository functions and
-PostgreSQL tests.  
-**Depends on:** T010. **Requirements:** PC-13. **Tools:** CORE, DB-TEST.  
-**Tests/gate:** Unit + integration, minimum 14 cases / UNIT + DB.  
+PostgreSQL tests.
+**Depends on:** T010. **Requirements:** PC-13. **Tools:** CORE, DB-TEST.
+**Tests/gate:** Unit + integration, minimum 14 cases / UNIT + DB.
 **Done when:** Organization isolation, stable ordering, nullable acceptance,
-and bounded pagination are proven.  
-**Verify:** focused repository tests and DB gate.  
+and bounded pagination are proven.
+**Verify:** focused repository tests and DB gate.
 
 **Recorded gate:** The import submissions repository now exposes
 `listImportSubmissions` and `getImportSubmissionDetail` under
@@ -1093,13 +1093,13 @@ commit was performed. X4 and the producer completion evidence remain pending.
 X4 producer observation source.
 
 **What/where:** Add producer observation repository using only X4-approved
-views/fields and parameterized batch IDs.  
+views/fields and parameterized batch IDs.
 **Depends on:** T008, T020, X4. **Requirements:** PC-03, PC-13. **Tools:** CORE,
-DB-TEST.  
-**Tests/gate:** Unit + approved non-production integration, minimum 16 cases.  
+DB-TEST.
+**Tests/gate:** Unit + approved non-production integration, minimum 16 cases.
 **Done when:** Missing source is unavailable, not zero; no legacy event absence
-creates completion.  
-**Verify:** focused tests, SQL allowlist review, DB integration.  
+creates completion.
+**Verify:** focused tests, SQL allowlist review, DB integration.
 
 **Recorded gate:** X4 local/non-production evidence was added at
 `.specs/features/prospecting-console/evidence/x4-producer-batch-observations.md`.
@@ -1150,13 +1150,13 @@ approval items.
 service slice.
 
 **What/where:** Add list/detail composition under `src/server/imports/` with
-tests for app facts plus nullable producer observations.  
+tests for app facts plus nullable producer observations.
 **Depends on:** T020, T021, T022. **Requirements:** PC-03, PC-13. **Tools:**
-CORE.  
-**Tests/gate:** Service unit, minimum 14 cases / UNIT.  
+CORE.
+**Tests/gate:** Service unit, minimum 14 cases / UNIT.
 **Done when:** Proven acceptance survives producer outage and status provenance
-is preserved.  
-**Verify:** focused service tests and typecheck.  
+is preserved.
+**Verify:** focused service tests and typecheck.
 
 **Recorded gate:** The batch read composition service was added at
 `src/server/imports/batch-read-service.ts` with list/detail functions for
@@ -1201,12 +1201,12 @@ T025, routes, and UI remain pending.
 **Status:** COMPLETE LOCALLY on 2026-07-08 for the scoped internal import-read
 MVP policy.
 
-**What/where:** Implement list validation/route/tests.  
-**Depends on:** T007, T023. **Requirements:** PC-13. **Tools:** CORE.  
-**Tests/gate:** Route integration, minimum 12 cases / UNIT.  
+**What/where:** Implement list validation/route/tests.
+**Depends on:** T007, T023. **Requirements:** PC-13. **Tools:** CORE.
+**Tests/gate:** Route integration, minimum 12 cases / UNIT.
 **Done when:** `imports:read`, org scope, pagination, safe errors, and no-store
-are enforced.  
-**Verify:** focused route tests.  
+are enforced.
+**Verify:** focused route tests.
 
 **Recorded gate:** `GET /api/imports` now shares
 `src/app/api/imports/route.ts` with the existing `POST` handler and calls only
@@ -1244,12 +1244,12 @@ command exit status.
 **Status:** COMPLETE LOCALLY on 2026-07-08 for the scoped internal import-read
 MVP policy.
 
-**What/where:** Implement detail validation/route/tests.  
-**Depends on:** T007, T023. **Requirements:** PC-13. **Tools:** CORE.  
-**Tests/gate:** Route integration, minimum 12 cases / UNIT.  
+**What/where:** Implement detail validation/route/tests.
+**Depends on:** T007, T023. **Requirements:** PC-13. **Tools:** CORE.
+**Tests/gate:** Route integration, minimum 12 cases / UNIT.
 **Done when:** Cross-org IDs fail closed and all counts/status bases remain
-nullable/evidence-based.  
-**Verify:** focused route tests.  
+nullable/evidence-based.
+**Verify:** focused route tests.
 
 **Recorded gate:** `GET /api/imports/:id` now lives at
 `src/app/api/imports/[id]/route.ts` and calls only `getImportBatchDetail` from
@@ -1296,11 +1296,11 @@ change, feature activation, retry, or reprocessing was performed.
 **Status:** COMPLETE LOCALLY on 2026-07-08 for the private batch list UI.
 
 **What/where:** Add private batch list UI with filters supported by evidence,
-pagination, and loading/empty/error/unavailable states.  
-**Depends on:** T024. **Requirements:** PC-13. **Tools:** UI.  
-**Tests/gate:** RTL, minimum 12 cases / UNIT.  
-**Done when:** Unknown metrics render unavailable, never zero/progress.  
-**Verify:** focused page/component tests.  
+pagination, and loading/empty/error/unavailable states.
+**Depends on:** T024. **Requirements:** PC-13. **Tools:** UI.
+**Tests/gate:** RTL, minimum 12 cases / UNIT.
+**Done when:** Unknown metrics render unavailable, never zero/progress.
+**Verify:** focused page/component tests.
 
 **Recorded gate:** The private batch list page now lives at
 `src/app/(private)/imports/batches/page.tsx` and is linked from the existing
@@ -1343,12 +1343,12 @@ performed.
 
 **Status:** COMPLETE LOCALLY on 2026-07-08 for the private batch detail UI.
 
-**What/where:** Add batch facts, provenance, count, and state presentation.  
-**Depends on:** T025. **Requirements:** PC-13. **Tools:** UI.  
-**Tests/gate:** RTL, minimum 14 cases / UNIT.  
+**What/where:** Add batch facts, provenance, count, and state presentation.
+**Depends on:** T025. **Requirements:** PC-13. **Tools:** UI.
+**Tests/gate:** RTL, minimum 14 cases / UNIT.
 **Done when:** `NO_UPDATE`, incomplete, source unavailable, and explicit
-completion are distinct; raw telemetry is absent.  
-**Verify:** focused page/component tests.  
+completion are distinct; raw telemetry is absent.
+**Verify:** focused page/component tests.
 
 **Recorded gate:** The private batch detail page now lives at
 `src/app/(private)/imports/batches/[id]/page.tsx`. It uses only
@@ -1401,144 +1401,617 @@ command exit status.
 
 #### T028: Define commercial types, validators, and transitions
 
-**What/where:** Add commercial DTOs/Zod schemas and pure transition policy.  
-**Depends on:** T002. **Requirements:** PC-14, PC-15. **Tools:** CORE.  
-**Tests/gate:** Unit, minimum 22 cases / UNIT.  
+**Status:** COMPLETE LOCALLY on 2026-07-09 for the pure commercial domain
+slice.
+
+**What/where:** Add commercial DTOs/Zod schemas and pure transition policy.
+**Depends on:** T002. **Requirements:** PC-14, PC-15. **Tools:** CORE.
+**Tests/gate:** Unit, minimum 22 cases / UNIT.
 **Done when:** Stages, lengths, dates, actor-field rejection, and terminal
-non-reopening are enforced.  
-**Verify:** focused validator/transition tests.  
+non-reopening are enforced.
+**Verify:** focused validator/transition tests.
+
+**Recorded gate:** Added commercial domain types in
+`src/types/commercial.ts`, Zod validators in
+`src/lib/validators/commercial.ts`, and the pure stage transition policy in
+`src/server/commercial/transition-policy.ts`. Co-located tests were added in
+`src/lib/validators/commercial.test.ts` and
+`src/server/commercial/transition-policy.test.ts`.
+
+The validators use `z.strictObject`, enforce approved stage/outcome/activity
+enums, reject server/session-controlled body fields, validate exact
+`cnpj_normalizado` and observed lead-run identifiers, validate dates without a
+future-only rule, and count free-text limits by Unicode code points. The
+transition policy allows only the approved stage graph, rejects unlisted
+transitions, rejects same-stage no-op transitions, and keeps `CLOSED_WON` and
+`CLOSED_LOST` terminal for MVP 1.
+
+Focused T028 gate:
+`npx --yes pnpm@10 exec vitest run src/lib/validators/commercial.test.ts src/server/commercial/transition-policy.test.ts`
+passed: 2 files / 184 tests.
+
+`npx --yes pnpm@10 lint`: passed with the same two pre-existing
+unused-variable warnings in `src/server/auth/auth.test.ts`.
+`npx --yes pnpm@10 typecheck`: passed. `npx --yes pnpm@10 test` passed:
+47 files / 1138 tests. `npx --yes pnpm@10 build` without env compiled but
+failed during page data collection because required server env vars were
+unset; rerunning with synthetic inline server env placeholders passed.
+`git diff --check`: passed.
+
+Limitations: this task intentionally added no route, UI, repository, SQL,
+n8n call, producer call, app-schema write, database migration, real data,
+credential change, production migration, deployment, workflow change, export,
+retry, reprocessing, sensitive-content exposure, or feature activation. The
+global `pnpm` binary is absent in this shell, so verification used
+`npx --yes pnpm@10` as the pnpm launcher without modifying repository files.
+
 **Commit:** `feat(prospecta): define commercial domain`
 
 #### T029: Implement transactional workspace mutations
 
+**Status:** IMPLEMENTED LOCALLY on 2026-07-09; DB integration gate is blocked
+by local disposable PostgreSQL authentication in this shell.
+
 **What/where:** Add workspace repository create/read/update with optimistic
-version and audit in one transaction.  
+version and audit in one transaction.
 **Depends on:** T010, T028. **Requirements:** PC-14, PC-15. **Tools:** CORE,
-DB-TEST.  
-**Tests/gate:** Unit + integration, minimum 20 cases / UNIT + DB.  
+DB-TEST.
+**Tests/gate:** Unit + integration, minimum 20 cases / UNIT + DB.
 **Done when:** Cross-org, stale version, assignment conflict, invalid
-transition, and audit rollback cases pass.  
-**Verify:** focused repository tests and DB gate.  
+transition, and audit rollback cases pass.
+**Verify:** focused repository tests and DB gate.
+
+**Recorded implementation:** Added the server-only commercial workspace
+repository in `src/server/commercial/workspace-repository.ts`. It uses only
+`APP_DATABASE_URL` through `src/server/db/app-client.ts`, creates and reads
+organization-scoped `lead_workspaces`, updates with required
+`expected_version`, locks the current row, rejects stale versions and
+cross-organization access, applies the T028 transition policy, keeps
+`CLOSED_WON`/`CLOSED_LOST` terminal, rejects explicit same-stage transitions,
+enforces the assignment replacement boundary through `commercial:assign`, and
+inserts allowlisted `commercial_audit_events` in the same transaction as each
+create/update.
+
+**Recorded tests:** Added unit coverage in
+`src/server/commercial/workspace-repository.test.ts` and DB integration
+coverage in
+`src/server/commercial/workspace-repository.integration.test.ts`. Integration
+config now includes co-located `src/**/*.integration.test.ts` and disables file
+parallelism for shared disposable DB reset safety; the default unit config
+excludes co-located integration tests.
+
+Focused T029 unit gate:
+`npx --yes pnpm@10 exec vitest run src/server/commercial/workspace-repository.test.ts`
+passed: 1 file / 29 tests.
+
+Repository gates run on 2026-07-09:
+`npx --yes pnpm@10 lint` passed with the same two pre-existing unused-variable
+warnings in `src/server/auth/auth.test.ts`.
+`npx --yes pnpm@10 typecheck` passed.
+`npx --yes pnpm@10 test` passed: 48 files / 1167 tests.
+`npx --yes pnpm@10 build` passed with process-only synthetic server env
+placeholders.
+`git diff --check` passed.
+
+DB integration attempts:
+`PGUSER=postgres PGPASSWORD=12345 PROSPECTA_APP_TEST_DATABASE_URL=postgresql://localhost:5432/prospecta_t009_test npx --yes pnpm@10 exec vitest run --config vitest.integration.config.ts src/server/commercial/workspace-repository.integration.test.ts`
+failed before assertions because PostgreSQL rejected authentication for user
+`postgres`.
+`PGUSER=postgres PGPASSWORD=12345 PROSPECTA_APP_TEST_DATABASE_URL=postgresql://localhost:55432/prospecta_t009_test npx --yes pnpm@10 exec vitest run --config vitest.integration.config.ts src/server/commercial/workspace-repository.integration.test.ts`
+failed before assertions because `localhost:55432` refused the connection.
+`PGUSER=postgres PGPASSWORD=12345 PROSPECTA_APP_TEST_DATABASE_URL=postgresql://localhost:5432/prospecta_t009_test npx --yes pnpm@10 test:integration`
+failed before assertions for the same PostgreSQL authentication error across
+the existing and new integration suites.
+
+Limitations: the DB transaction/rollback cases are implemented but not proven
+in this shell because no accepted disposable PostgreSQL credential was
+available. No route, UI, n8n call, producer call, schema migration, production
+migration, SQL outside tests, real data, credential change, deployment, export,
+retry, reprocessing, or feature activation was introduced. The global `pnpm`
+binary is absent, so verification used `npx --yes pnpm@10` as the pnpm
+launcher without modifying repository files.
+
 **Commit:** `feat(prospecta): persist commercial workspaces`
 
 #### T030: Implement append-only activity repository
 
-**What/where:** Add paginated list/append activity functions and audit tests.  
-**Depends on:** T010, T028. **Requirements:** PC-15. **Tools:** CORE, DB-TEST.  
-**Tests/gate:** Unit + integration, minimum 12 cases.  
-**Done when:** Actor/org/run attribution and immutable append behavior pass.  
-**Verify:** focused tests and DB gate.  
+**What/where:** Add paginated list/append activity functions and audit tests.
+**Depends on:** T010, T028. **Requirements:** PC-15. **Tools:** CORE, DB-TEST.
+**Tests/gate:** Unit + integration, 39 T030 cases.
+**Done when:** Actor/org/run attribution and immutable append behavior pass.
+**Status:** Completed 2026-07-09. Implemented
+`src/server/commercial/activity-repository.ts` with append/list functions,
+T028 request validation, org-scoped workspace read before append,
+workspace-sourced `observed_lead_run_id`, server-side pagination, and
+transactional `ACTIVITY_APPENDED` audit metadata without summary/request body.
+No route, UI, n8n, producer call, migration, or schema change was introduced.
+T030 tests added in
+`src/server/commercial/activity-repository.test.ts` (32 unit cases) and
+`src/server/commercial/activity-repository.integration.test.ts` (7 DB cases).
+The full DB gate also required a test-cleanup fix in
+`src/server/commercial/workspace-repository.integration.test.ts` so its
+synthetic audit-failure trigger/function is dropped before schema rollback.
+Focused verification:
+`npx --yes pnpm@10 exec vitest run src/server/commercial/activity-repository.test.ts`
+passed 32 tests; `PROSPECTA_APP_TEST_DATABASE_URL=postgresql://localhost:55432/prospecta_t009_test PGUSER=postgres PGPASSWORD=postgres npx --yes pnpm@10 exec vitest run --config vitest.integration.config.ts src/server/commercial/activity-repository.integration.test.ts`
+passed 7 tests. Full gates: `npx --yes pnpm@10 lint` passed with 2 existing
+warnings in `src/server/auth/auth.test.ts`; `npx --yes pnpm@10 typecheck`
+passed; `npx --yes pnpm@10 test` passed 49 files / 1199 tests;
+`npx --yes pnpm@10 build` required synthetic server env and then passed;
+`PROSPECTA_APP_TEST_DATABASE_URL=postgresql://localhost:55432/prospecta_t009_test PGUSER=postgres PGPASSWORD=postgres npx --yes pnpm@10 test:integration`
+passed 3 files / 47 tests with 1 file / 5 tests skipped.
+`git diff --check` passed. Limitation: DB gates used a local disposable
+PostgreSQL container on `localhost:55432` with synthetic credentials and no
+real data.
+**Verify:** focused tests and DB gate.
 **Commit:** `feat(prospecta): append commercial activities`
 
 #### T031: Implement append-only note repository
 
-**What/where:** Add paginated list/append note functions and audit tests.  
-**Depends on:** T010, T028. **Requirements:** PC-15. **Tools:** CORE, DB-TEST.  
-**Tests/gate:** Unit + integration, minimum 12 cases.  
+**Status:** Completed 2026-07-09. Implemented
+`src/server/commercial/note-repository.ts`,
+`src/server/commercial/note-repository.test.ts`, and
+`src/server/commercial/note-repository.integration.test.ts`. The repository
+uses only `APP_DATABASE_URL` through `src/server/db/app-client.ts`, reads the
+organization-scoped workspace before append/list, copies
+`observed_lead_run_id` from the current workspace, validates
+`CreateLeadNoteRequest`, appends `lead_notes`, and inserts `NOTE_APPENDED`
+audit metadata allowlisted to `source`, `workspace_id`, and `note_id` in the
+same transaction. No routes, UI, n8n, producer calls, schema changes, or note
+update/delete operations were added.
+**Commands/results:** `npx --yes pnpm@10 test src/server/commercial/note-repository.test.ts`
+passed 1 file / 30 tests;
+`PROSPECTA_APP_TEST_DATABASE_URL=postgresql://localhost:55432/prospecta_t009_test PGUSER=postgres PGPASSWORD=<redacted> npx --yes pnpm@10 exec vitest run --config vitest.integration.config.ts src/server/commercial/note-repository.integration.test.ts`
+passed 1 file / 8 tests; append-only source scan
+`rg -n "UPDATE\\s+prospecting_app\\.lead_notes|DELETE\\s+FROM\\s+prospecting_app\\.lead_notes|updateLeadNote|deleteLeadNote" src/server/commercial/note-repository.ts`
+returned no matches; `npx --yes pnpm@10 lint` passed with 2 existing warnings
+in `src/server/auth/auth.test.ts`; `npx --yes pnpm@10 typecheck` passed;
+`npx --yes pnpm@10 test` passed 50 files / 1229 tests; synthetic-env
+`npx --yes pnpm@10 build` passed;
+`PROSPECTA_APP_TEST_DATABASE_URL=postgresql://localhost:55432/prospecta_t009_test PROSPECTA_PRODUCER_TEST_DATABASE_URL=postgresql://localhost:55432/prospecta_t022_producer_test PGUSER=postgres PGPASSWORD=<redacted> npx --yes pnpm@10 test:integration`
+passed 5 files / 60 tests; `git diff --check` passed.
+**Limitations:** DB gates used a local disposable PostgreSQL container on
+`localhost:55432` with synthetic credentials/data only. No production
+migration, deployment, n8n activation, or real CSV/database content was used.
+**What/where:** Add paginated list/append note functions and audit tests.
+**Depends on:** T010, T028. **Requirements:** PC-15. **Tools:** CORE, DB-TEST.
+**Tests/gate:** Unit + integration, minimum 20 cases.
 **Done when:** Note bodies never enter audit/log metadata and no edit/delete
-function exists.  
-**Verify:** focused tests, DB gate, source scan.  
+function exists.
+**Verify:** focused tests, DB gate, source scan.
 **Commit:** `feat(prospecta): append commercial notes`
 
 #### T032: Implement the app audit reader
 
-**What/where:** Add allowlisted, paginated commercial audit repository.  
-**Depends on:** T010. **Requirements:** PC-15. **Tools:** CORE, DB-TEST.  
-**Tests/gate:** Unit + integration, minimum 10 cases.  
-**Done when:** Only approved metadata is returned and cross-org access fails.  
-**Verify:** focused tests and DB gate.  
+**Status:** Completed 2026-07-09. Implemented
+`src/server/commercial/audit-repository.ts`,
+`src/server/commercial/audit-repository.test.ts`, and
+`src/server/commercial/audit-repository.integration.test.ts`. The repository
+uses only `APP_DATABASE_URL` through `src/server/db/app-client.ts`, validates
+organization/workspace/page inputs, reads the active org-scoped workspace
+before listing audit, fails closed as `not_found` for missing or
+cross-organization workspaces, counts and lists with server-side
+`LIMIT`/`OFFSET`, orders by `occurred_at DESC, audit_event_id`, and maps only
+`CommercialAuditEventDto` fields. The mapper re-applies the approved
+allowlists for `previous_metadata`, `new_metadata`, and `metadata` before
+returning results. No route, UI, n8n, producer query, schema change, migration,
+audit append/update/delete, or SQL outside tests was added.
+**Commands/results:** `npx --yes pnpm@10 vitest run src/server/commercial/audit-repository.test.ts`
+passed 1 file / 19 tests;
+`PROSPECTA_APP_TEST_DATABASE_URL=postgresql://localhost:55432/prospecta_t009_test PGUSER=postgres PGPASSWORD=<redacted> npx --yes pnpm@10 vitest run --config vitest.integration.config.ts src/server/commercial/audit-repository.integration.test.ts`
+passed 1 file / 5 tests; mutation source scan
+`rg -n "\\b(INSERT|UPDATE|DELETE)\\b[[:space:]]+(INTO[[:space:]]+)?prospecting_app\\.commercial_audit_events|prospecting_app\\.commercial_audit_events[\\s\\S]*\\b(INSERT|UPDATE|DELETE)\\b|appendCommercialAuditEvent|createCommercialAuditEvent|updateCommercialAuditEvent|deleteCommercialAuditEvent" src/server/commercial/audit-repository.ts`
+returned no matches; producer/n8n/fetch source scan
+`rg -n "producer|n8n|webhook|fetch\\(|PRODUCER_DATABASE_URL|company_validations|company_validation_runs" src/server/commercial/audit-repository.ts`
+returned no matches; `npx --yes pnpm@10 lint` passed with 2 existing warnings
+in `src/server/auth/auth.test.ts`; `npx --yes pnpm@10 typecheck` passed;
+`npx --yes pnpm@10 test` passed 51 files / 1248 tests; plain
+`npx --yes pnpm@10 build` failed because required server-only env vars were
+not set, then synthetic-env `npx --yes pnpm@10 build` passed;
+`PROSPECTA_APP_TEST_DATABASE_URL=postgresql://localhost:55432/prospecta_t009_test PROSPECTA_PRODUCER_TEST_DATABASE_URL=postgresql://localhost:55432/prospecta_t022_producer_test PGUSER=postgres PGPASSWORD=<redacted> npx --yes pnpm@10 test:integration`
+passed 6 files / 65 tests; `git diff --check` passed.
+**Limitations:** DB gates used a local disposable PostgreSQL Docker container
+on `localhost:55432` with synthetic credentials/data only; the container was
+stopped after verification. No production migration, deployment, n8n
+activation, real CSV, production database content, sensitive screenshot, or
+commit was performed.
+**What/where:** Add allowlisted, paginated commercial audit repository.
+**Depends on:** T010. **Requirements:** PC-15. **Tools:** CORE, DB-TEST.
+**Tests/gate:** Unit + integration, 24 T032 cases.
+**Done when:** Only approved metadata is returned and cross-org access fails.
+**Verify:** focused tests and DB gate.
 **Commit:** `feat(prospecta): read commercial audit events`
 
 #### T033: Implement the commercial queue repository
 
+**Status:** Completed 2026-07-09. Implemented the server-only commercial work
+queue read model in `src/server/commercial/work-queue-repository.ts` with
+shared DTO/source types in `src/types/commercial.ts`. The repository exposes
+`listCommercialWorkQueue`, validates actor organization, pagination, filters,
+and the narrow approved `last_analysis_desc` sort before database work, keeps
+page size capped server-side, uses the existing guarded producer current-lead
+CTE through `src/server/db/producer-client.ts`, and reads active
+organization-scoped `prospecting_app.lead_workspaces` through
+`src/server/db/app-client.ts`. Producer lead facts remain separate from app
+commercial workspace state (`producerLead` vs `workspace`), lead CNPJ is the
+approved external association key, leads without workspaces return
+`workspace: null`, and workspaces without approved producer leads do not create
+queue items. Producer unavailability or current source guard failure returns
+`kind: "listed"`, empty items, `total: null`, and explicit producer
+availability metadata instead of a false zero. App DB unavailability propagates
+as the existing safe database error. No route, UI, n8n call, fetch, webhook,
+mutation, migration, schema change, producer write, app-schema write,
+sensitive-content expansion, score/action/priority/verdict/trust
+recalculation, or commit was performed.
+
+**Recorded tests:** Added unit coverage in
+`src/server/commercial/work-queue-repository.test.ts` and DB integration
+coverage in
+`src/server/commercial/work-queue-repository.integration.test.ts`. The focused
+T033 unit gate
+`npx --yes pnpm@10 exec vitest run src/server/commercial/work-queue-repository.test.ts`
+passed 1 file / 35 tests. The first focused DB attempt against
+`localhost:55432` failed before assertions with `ECONNREFUSED`; a disposable
+synthetic PostgreSQL Docker container was then started on `localhost:55432`,
+databases `prospecta_t009_test` and `prospecta_t022_producer_test` were
+created, and
+`PROSPECTA_APP_TEST_DATABASE_URL=postgresql://localhost:55432/prospecta_t009_test PROSPECTA_PRODUCER_TEST_DATABASE_URL=postgresql://localhost:55432/prospecta_t022_producer_test PGUSER=postgres PGPASSWORD=<redacted> npx --yes pnpm@10 exec vitest run --config vitest.integration.config.ts src/server/commercial/work-queue-repository.integration.test.ts`
+passed 1 file / 9 tests. Integration tests use synthetic app workspaces and
+synthetic producer `company_validations`/`company_validation_runs` fixtures;
+the producer read role is granted `SELECT` only and a denial test proves it
+cannot insert producer fixture rows.
+
+**Commands/results:** Source scan
+`rg -n "\\b(INSERT|UPDATE|DELETE|UPSERT|MERGE)\\b" src/server/commercial/work-queue-repository.ts`
+returned no matches. Source scan
+`rg -n "n8n|webhook|fetch\\s*\\(" src/server/commercial/work-queue-repository.ts`
+returned no matches. `npx --yes pnpm@10 lint` passed with the same two
+pre-existing unused-variable warnings in `src/server/auth/auth.test.ts`.
+`npx --yes pnpm@10 typecheck` passed. `npx --yes pnpm@10 test` passed 52 files
+/ 1283 tests. Plain `npx --yes pnpm@10 build` failed during page-data
+collection because required server-only env vars were absent; synthetic-env
+`npx --yes pnpm@10 build` passed. Full
+`PROSPECTA_APP_TEST_DATABASE_URL=postgresql://localhost:55432/prospecta_t009_test PROSPECTA_PRODUCER_TEST_DATABASE_URL=postgresql://localhost:55432/prospecta_t022_producer_test PGUSER=postgres PGPASSWORD=<redacted> npx --yes pnpm@10 test:integration`
+passed 7 files / 74 tests. `git diff --check` passed.
+
+**Limitations:** DB gates used only the disposable local PostgreSQL Docker
+container on `localhost:55432` with synthetic credentials/data; no production
+target, production migration, deployment, feature activation, n8n activation,
+real CSV, production database content, export, retry, reprocessing, or
+sensitive screenshot was used. Current producer cardinality guards remain
+until replacement query evidence is approved.
+
 **What/where:** Compose approved producer lead facts with app workspaces,
-server-side pagination/filter/sort, and unavailable producer state.  
+server-side pagination/filter/sort, and unavailable producer state.
 **Depends on:** T008, T010, T028. **Requirements:** PC-14. **Tools:** CORE,
-DB-TEST.  
-**Tests/gate:** Unit + integration, minimum 18 cases / UNIT + DB.  
+DB-TEST.
+**Tests/gate:** Unit + integration, minimum 18 cases / UNIT + DB.
 **Done when:** No score/action recalculation occurs and exact totals remain
-nullable when unavailable. Current guards remain until X5.  
-**Verify:** focused queue tests and SQL review.  
+nullable when unavailable. Current guards remain until X5.
+**Verify:** focused queue tests and SQL review.
 **Commit:** `feat(prospecta): build commercial queue read model`
 
 #### T034: Add `GET /api/work-queue`
 
-**What/where:** Implement queue route/validation/tests.  
-**Depends on:** T007, T033. **Requirements:** PC-14. **Tools:** CORE.  
-**Tests/gate:** Route integration, minimum 12 cases / UNIT.  
-**Done when:** `commercial:read`, org scope, pagination, and no-store pass.  
-**Verify:** focused route tests.  
+**Status:** Completed locally on 2026-07-09. Implemented
+`GET /api/work-queue` in `src/app/api/work-queue/route.ts` and route tests in
+`src/app/api/work-queue/route.test.ts`. The route exports only `GET`, requires
+`requirePermission("commercial:read")`, checks `FEATURE_COMMERCIAL_ENABLED`
+before query parsing or repository work, uses only the verified actor
+`organizationId`, validates a strict non-repeated query allowlist, forwards
+supported T033 filters and `sort=last_analysis_desc` to
+`listCommercialWorkQueue`, returns `paginatedSuccessResponse` with nullable
+`total` and safe provenance metadata, and applies
+`Cache-Control: private, no-store` on success and errors. The private surface
+guard in `src/app/(private)/layout.test.tsx` was updated to allow only the new
+API route while continuing to block commercial UI/workspace routes. No T033
+repository code, UI page, migration, n8n/webhook/fetch, producer write, app
+schema write, score/action/priority/verdict/trust recalculation, sensitive
+content expansion, or commit was performed.
+
+**Recorded tests:** Focused route gate
+`npx --yes pnpm@10 exec vitest run src/app/api/work-queue/route.test.ts`
+passed 1 file / 28 tests. The post-surface-guard focused check
+`npx --yes pnpm@10 exec vitest run src/app/api/work-queue/route.test.ts 'src/app/(private)/layout.test.tsx'`
+passed 2 files / 36 tests.
+
+**Commands/results:** `npx --yes pnpm@10 lint` passed with the same two
+pre-existing unused-variable warnings in `src/server/auth/auth.test.ts`.
+`npx --yes pnpm@10 typecheck` passed. The first
+`npx --yes pnpm@10 test` rerun timed out in an unrelated existing
+`src/server/imports/upload-file.test.ts` case; the isolated rerun
+`npx --yes pnpm@10 exec vitest run src/server/imports/upload-file.test.ts`
+passed 1 file / 40 tests, and the subsequent full `npx --yes pnpm@10 test`
+passed 53 files / 1311 tests. Plain `npx --yes pnpm@10 build` compiled but
+failed during page-data collection because required server-only env vars were
+unset; synthetic inline server env `npx --yes pnpm@10 build` passed and listed
+`/api/work-queue` as a dynamic route. Plain
+`npx --yes pnpm@10 test:integration` failed before tests because
+`PROSPECTA_APP_TEST_DATABASE_URL` and
+`PROSPECTA_PRODUCER_TEST_DATABASE_URL` were unset; a disposable local
+PostgreSQL Docker container was started on `localhost:55432`, synthetic
+databases `prospecta_t009_test` and `prospecta_t022_producer_test` were
+created, and
+`PROSPECTA_APP_TEST_DATABASE_URL=postgresql://localhost:55432/prospecta_t009_test PROSPECTA_PRODUCER_TEST_DATABASE_URL=postgresql://localhost:55432/prospecta_t022_producer_test PGUSER=postgres PGPASSWORD=<redacted> npx --yes pnpm@10 test:integration`
+passed 7 files / 74 tests. Source scan
+`rg -n "n8n|webhook|fetch\\s*\\(" src/app/api/work-queue/route.ts` returned no
+matches. Source scan
+`rg -n "\\b(INSERT|UPDATE|DELETE)\\b" src/app/api/work-queue/route.ts`
+returned no matches. `git diff --check` passed.
+
+**Limitations:** Verification used only synthetic identities/data and a local
+disposable PostgreSQL container, removed after the integration gate; no
+production target, production migration, deployment, n8n activation, real CSV,
+real database content, sensitive screenshot, export, retry, reprocessing, or
+feature rollout was used.
+
+**What/where:** Implement queue route/validation/tests.
+**Depends on:** T007, T033. **Requirements:** PC-14. **Tools:** CORE.
+**Tests/gate:** Route integration, minimum 12 cases / UNIT.
+**Done when:** `commercial:read`, org scope, pagination, and no-store pass.
+**Verify:** focused route tests.
 **Commit:** `feat(prospecta): expose commercial queue api`
 
 #### T035: Add `POST /api/workspaces`
 
-**What/where:** Implement workspace creation/claim route and tests.  
-**Depends on:** T007, T029. **Requirements:** PC-14. **Tools:** CORE.  
-**Tests/gate:** Route integration, minimum 14 cases / UNIT.  
+**Status:** Completed locally on 2026-07-09. Implemented
+`POST /api/workspaces` in `src/app/api/workspaces/route.ts` and route tests in
+`src/app/api/workspaces/route.test.ts`. The route exports only `POST`, requires
+`requirePermission("commercial:write")`, enforces same-origin before the
+commercial feature flag, checks `FEATURE_COMMERCIAL_ENABLED` before JSON body
+parsing or repository work, validates the T028/T029 create body, rejects
+server-controlled request fields, derives organization, actor subject, and
+permissions only from the verified actor, requires `commercial:assign` for a
+non-null `responsible_subject`, delegates the only app-owned write to
+`createLeadWorkspace`, returns `201` with `{ data, meta: { result:
+"created" } }`, maps `LEAD_WORKSPACE_ALREADY_EXISTS` to safe `409`, maps
+validation failures to safe `400`, and applies `Cache-Control: private,
+no-store` on success and errors. The private/API surface guard in
+`src/app/(private)/layout.test.tsx` was updated to allow only the root
+`api/workspaces/route.ts` surface while continuing to block workspace UI and
+nested/detail workspace routes. No UI page, migration, schema change,
+n8n/webhook/fetch, producer write, direct SQL in the route, score/action/
+priority/verdict/trust recalculation, sensitive-content exposure, or commit
+was introduced.
+
+**Recorded tests:** Focused T035 route gate
+`npx --yes pnpm@10 exec vitest run src/app/api/workspaces/route.test.ts`
+passed 1 file / 27 tests. Focused route plus surface guard check
+`npx --yes pnpm@10 exec vitest run src/app/api/workspaces/route.test.ts 'src/app/(private)/layout.test.tsx'`
+passed 2 files / 35 tests.
+
+**Commands/results:** Source scan
+`rg -n "n8n|webhook|fetch\\s*\\(" src/app/api/workspaces/route.ts`
+returned no matches. Source scan
+`rg -n "\\b(INSERT|UPDATE|DELETE|UPSERT|MERGE)\\b|PRODUCER_DATABASE_URL|producer-client|company_validations|company_validation_runs|company_strategic_research_reports|server/db" src/app/api/workspaces/route.ts`
+returned no matches. `npx --yes pnpm@10 lint` passed with the same two
+pre-existing unused-variable warnings in `src/server/auth/auth.test.ts`.
+`npx --yes pnpm@10 typecheck` passed. `npx --yes pnpm@10 test` passed 54 files
+/ 1338 tests. Plain `npx --yes pnpm@10 build` compiled but failed during
+page-data collection because required server-only env vars were unset;
+synthetic inline server env `npx --yes pnpm@10 build` passed and listed
+`/api/workspaces` as a dynamic route. Plain
+`npx --yes pnpm@10 test:integration` failed before tests because
+`PROSPECTA_APP_TEST_DATABASE_URL` and
+`PROSPECTA_PRODUCER_TEST_DATABASE_URL` were unset; a disposable local
+PostgreSQL Docker container was started on `localhost:55432`, synthetic
+databases `prospecta_t009_test` and `prospecta_t022_producer_test` were
+created, and
+`PROSPECTA_APP_TEST_DATABASE_URL=postgresql://localhost:55432/prospecta_t009_test PROSPECTA_PRODUCER_TEST_DATABASE_URL=postgresql://localhost:55432/prospecta_t022_producer_test PGUSER=postgres PGPASSWORD=<redacted> npx --yes pnpm@10 test:integration`
+passed 7 files / 74 tests. The disposable container was stopped after the
+integration gate. `git diff --check` passed.
+
+**Limitations:** Verification used only synthetic identities/data and a local
+disposable PostgreSQL container; no production target, production migration,
+deployment, n8n activation, real CSV, real database content, sensitive
+screenshot, export, retry, reprocessing, or feature rollout was used.
+
+**What/where:** Implement workspace creation/claim route and tests.
+**Depends on:** T007, T029. **Requirements:** PC-14. **Tools:** CORE.
+**Tests/gate:** Route integration, minimum 14 cases / UNIT.
 **Done when:** Assignment requires `commercial:assign`; actor/org body fields
-are rejected; producer remains untouched.  
-**Verify:** focused route tests.  
+are rejected; producer remains untouched.
+**Verify:** focused route tests.
 **Commit:** `feat(prospecta): create commercial workspace`
 
 #### T036: Add `GET/PATCH /api/workspaces/:id`
 
-**What/where:** Implement detail/update route and optimistic-conflict tests.  
-**Depends on:** T007, T029. **Requirements:** PC-14, PC-15. **Tools:** CORE.  
-**Tests/gate:** Route integration, minimum 18 cases / UNIT.  
+**Status:** Completed locally on 2026-07-10. Added
+`GET/PATCH /api/workspaces/:id` in
+`src/app/api/workspaces/[id]/route.ts` with co-located route tests. `GET`
+requires `commercial:read` before the commercial feature flag, dynamic UUID,
+or repository read, and passes only the verified actor organization to
+`getLeadWorkspace`. `PATCH` requires `commercial:write`, same-origin, the
+feature flag, and a UUID before JSON parsing; it validates the strict T028
+update request and passes only verified organization, subject, and permissions
+to `updateLeadWorkspace`. The route deliberately has no blanket
+`commercial:assign` check: T029 evaluates an actual responsible-subject
+replacement against the locked current workspace. It returns safe `404`/
+`409` result envelopes, never exposes transition reason/internal payloads, and
+uses `Cache-Control: private, no-store` on every result. The private surface
+guard now allows exactly `api/workspaces/[id]/route.ts` while retaining the
+deny pattern for workspace UI and future nested APIs. No UI, migration, n8n,
+webhook, external fetch, producer call/write, direct database client, SQL, or
+T037+ work was introduced.
+
+**Recorded tests:** `src/app/api/workspaces/[id]/route.test.ts` covers
+auth-first read/write permissions, same-origin ordering, feature/UUID/body
+boundaries, strict request rejection, verified actor context, all T029 result
+kinds, safe source/unexpected errors, assign permission forwarding, no-store,
+and source boundaries. Focused gate
+`npx --yes pnpm@10 exec vitest run 'src/app/api/workspaces/[id]/route.test.ts'`
+passed: 1 file / 36 tests. The focused surface check
+`npx --yes pnpm@10 exec vitest run 'src/app/api/workspaces/[id]/route.test.ts' 'src/app/(private)/layout.test.tsx'`
+passed: 2 files / 44 tests.
+
+**Commands/results:** `npx --yes pnpm@10 lint` passed with the same two
+pre-existing unused-variable warnings in `src/server/auth/auth.test.ts`.
+`npx --yes pnpm@10 typecheck` passed. `npx --yes pnpm@10 test` passed:
+55 files / 1374 tests. Plain `npx --yes pnpm@10 build` compiled and
+type-checked, then failed only because required server-only environment
+variables were absent during page collection. Two initial process-only
+synthetic-placeholder reruns encountered another active Next build lock; no
+process or lock was removed. The same synthetic command passed after the
+active build exited and listed `/api/workspaces/[id]` as a dynamic route.
+Source scans found no n8n, webhook, `fetch`, producer/app database client,
+direct database URL, or SQL mutation in the route; `git diff --check` passed.
+
+**Limitations:** Verification used only synthetic identities, mocked route
+repository boundaries, and process-only environment placeholders. The
+disposable PostgreSQL integration gate was not rerun for this route-only task.
+No `.env.local` was read or modified; no production target, migration,
+deployment, feature activation, real data, external call, retry, reprocessing,
+workflow change, T037-T041 work, or commit was performed.
+
+**What/where:** Implement detail/update route and optimistic-conflict tests.
+**Depends on:** T007, T029. **Requirements:** PC-14, PC-15. **Tools:** CORE.
+**Tests/gate:** Route integration, minimum 18 cases / UNIT.
 **Done when:** Read/write/assign permissions differ correctly and stale
-versions return safe `409`.  
-**Verify:** focused route tests.  
+versions return safe `409`.
+**Verify:** focused route tests.
 **Commit:** `feat(prospecta): manage commercial workspace`
 
 #### T037: Add activity list/append API
 
-**What/where:** Implement `GET/POST /api/workspaces/:id/activities` and tests.  
-**Depends on:** T007, T030. **Requirements:** PC-15. **Tools:** CORE.  
-**Tests/gate:** Route integration, minimum 14 cases / UNIT.  
+**Status:** Completed locally on 2026-07-10. Added
+`src/app/api/workspaces/[id]/activities/route.ts` with exactly `GET` and
+`POST`, plus `src/app/api/workspaces/[id]/activities/route.test.ts`. `GET`
+requires `commercial:read`, then checks the commercial feature flag, UUID, and
+strict non-repeated `page`/`pageSize` query before calling
+`listLeadActivities` with only the verified organization. It returns a
+paginated data envelope and safely maps an organization-scoped missing
+workspace to `404`. `POST` requires `commercial:write`, same-origin, feature
+flag, UUID, JSON, and the strict activity schema in that order; it calls
+`appendLeadActivity` with only the verified organization and actor subject,
+returns `201` with `result: "appended"`, and safely maps validation, missing,
+source, and unexpected failures. Every response is `Cache-Control: private,
+no-store`. The route has no update/delete method, SQL, database client,
+producer/n8n/webhook, `fetch`, migration, UI, feature activation, or producer
+score/recommendation logic. The private-surface guard explicitly allows only
+this nested activity API while continuing to block workspace UI, notes, audit,
+and future work surfaces.
+
+**Files:** `src/app/api/workspaces/[id]/activities/route.ts`,
+`src/app/api/workspaces/[id]/activities/route.test.ts`, and
+`src/app/(private)/layout.test.tsx`.
+
+**Recorded tests:** The co-located route suite covers export surface,
+auth-first permissions, same-origin ordering, feature/UUID/query/body
+boundaries, default and maximum valid pagination, unknown/repeated/invalid
+queries, verified actor attribution, strict JSON/body rejection, successful
+list/append envelopes, safe `404`/source/unexpected errors, no-store headers,
+and absence of external/producer/direct-SQL code. Focused verification:
+`npx --yes pnpm@10 exec vitest run 'src/app/api/workspaces/[id]/activities/route.test.ts' 'src/app/(private)/layout.test.tsx'`
+passed: 2 files / 43 tests.
+
+**Commands/results:** `npx --yes pnpm@10 lint` passed.
+`npx --yes pnpm@10 typecheck` passed. `npx --yes pnpm@10 test` passed:
+56 files / 1409 tests.
+`npx --yes pnpm@10 build` passed with an otherwise empty process environment
+and only explicit synthetic server URLs, credentials, organization, limits,
+hosts, and disabled feature flags. `git diff --check` passed.
+
+**Limitations:** Verification used only synthetic identities, mocked route
+repository boundaries, and process-only synthetic build settings. No command
+read or altered `.env.local`; no disposable PostgreSQL integration was needed
+for this route-only task. No production target, migration, deployment, feature
+activation, n8n/workflow integration, external call, real data, retry,
+reprocessing, or commit was performed.
+
+**What/where:** Implement `GET/POST /api/workspaces/:id/activities` and tests.
+**Depends on:** T007, T030. **Requirements:** PC-15. **Tools:** CORE.
+**Tests/gate:** Route integration, minimum 14 cases / UNIT.
 **Done when:** Lists paginate and append is auth-first, append-only, and safely
-validated.  
-**Verify:** focused route tests.  
+validated.
+**Verify:** focused route tests.
 **Commit:** `feat(prospecta): expose commercial activities`
 
 #### T038: Add note list/append API
 
-**What/where:** Implement `GET/POST /api/workspaces/:id/notes` and tests.  
-**Depends on:** T007, T031. **Requirements:** PC-15. **Tools:** CORE.  
-**Tests/gate:** Route integration, minimum 14 cases / UNIT.  
+**Status:** Completed locally on 2026-07-10. Added
+`src/app/api/workspaces/[id]/notes/route.ts` with exactly `GET` and `POST`,
+plus `src/app/api/workspaces/[id]/notes/route.test.ts`. `GET` requires
+`commercial:read`, then checks the commercial feature flag, UUID, and strict
+non-repeated `page`/`pageSize` query before calling `listLeadNotes` with only
+the verified organization. `POST` requires `commercial:write`, same-origin,
+feature flag, UUID, JSON, and the strict note schema in that order; it calls
+`appendLeadNote` with only the verified organization and actor subject. Both
+methods return the required success envelopes, map organization-scoped missing
+workspaces to a safe `404`, map validation and repository-input errors to a
+safe `400`, and apply `Cache-Control: private, no-store` to every response.
+Note text is not included in route errors or logging, and the route contains
+no mutation method beyond append, SQL, database client, producer/n8n/webhook,
+`fetch`, migration, UI, feature activation, or external call. The private
+surface guard explicitly permits this notes route while retaining the block on
+workspace UI, audit, and future surfaces.
+
+**Files:** `src/app/api/workspaces/[id]/notes/route.ts`,
+`src/app/api/workspaces/[id]/notes/route.test.ts`, and
+`src/app/(private)/layout.test.tsx`.
+
+**Recorded tests:** The co-located suite has 33 cases covering export surface,
+read/write auth-first order, same-origin before feature/body/repository work,
+feature flags before parsing, UUID and strict pagination rejection, verified
+actor-only organization/subject attribution, malformed JSON and strict body
+validation without note-text leakage, success envelopes, safe `404` and
+unexpected/source errors, no-store headers, and the absence of external,
+producer, direct-database, SQL, mutation, and note-logging code. Focused
+verification:
+`npx --yes pnpm@10 exec vitest run 'src/app/api/workspaces/[id]/notes/route.test.ts' 'src/app/(private)/layout.test.tsx'`
+passed: 2 files / 41 tests.
+
+**Commands/results:** `npx --yes pnpm@10 lint` passed.
+`npx --yes pnpm@10 typecheck` passed. `npx --yes pnpm@10 test` passed:
+57 files / 1442 tests. `npx --yes pnpm@10 build` passed with an otherwise
+empty process environment and only explicit synthetic server URLs,
+credentials, organization, limits, hosts, and disabled feature flags. Source
+scans for external calls/logging, producer/direct-database access, SQL, and
+`PATCH`/`PUT`/`DELETE` exports returned no matches. `git diff --check` passed.
+
+**Limitations:** Verification used only synthetic identities, note text, and
+mocked route-repository boundaries. No command read or altered `.env.local`;
+no disposable PostgreSQL integration was needed for this route-only task. No
+production target, migration, deployment, feature activation, n8n/workflow
+integration, external call, real data, retry, reprocessing, or commit was
+performed.
+
+**What/where:** Implement `GET/POST /api/workspaces/:id/notes` and tests.
+**Depends on:** T007, T031. **Requirements:** PC-15. **Tools:** CORE.
+**Tests/gate:** Route integration, minimum 14 cases / UNIT.
 **Done when:** Lists paginate; note text never appears in errors/logs; no
-mutation route exists.  
-**Verify:** focused route tests and source scan.  
+mutation route exists.
+**Verify:** focused route tests and source scan.
 **Commit:** `feat(prospecta): expose commercial notes`
 
 #### T039: Add audit list API
 
-**What/where:** Implement `GET /api/workspaces/:id/audit` and tests.  
-**Depends on:** T007, T032. **Requirements:** PC-15. **Tools:** CORE.  
-**Tests/gate:** Route integration, minimum 10 cases / UNIT.  
-**Done when:** `audit:read`, org scope, pagination, and metadata allowlist pass.  
-**Verify:** focused route tests.  
+**What/where:** Implement `GET /api/workspaces/:id/audit` and tests.
+**Depends on:** T007, T032. **Requirements:** PC-15. **Tools:** CORE.
+**Tests/gate:** Route integration, minimum 10 cases / UNIT.
+**Done when:** `audit:read`, org scope, pagination, and metadata allowlist pass.
+**Verify:** focused route tests.
 **Commit:** `feat(prospecta): expose commercial audit`
 
 #### T040: Build the commercial queue page
 
-**What/where:** Add queue filters/table/cards and business states.  
-**Depends on:** T034, T035. **Requirements:** PC-14. **Tools:** UI.  
-**Tests/gate:** RTL, minimum 16 cases / UNIT.  
+**What/where:** Add queue filters/table/cards and business states.
+**Depends on:** T034, T035. **Requirements:** PC-14. **Tools:** UI.
+**Tests/gate:** RTL, minimum 16 cases / UNIT.
 **Done when:** Responsible, stage, next action/due date, and producer
-recommendation are visibly separate; loading/empty/error/unavailable pass.  
-**Verify:** focused UI tests.  
+recommendation are visibly separate; loading/empty/error/unavailable pass.
+**Verify:** focused UI tests.
 **Commit:** `feat(prospecta): add commercial queue`
 
 #### T041: Build workspace detail and activity/note flow
 
 **What/where:** Add workspace detail UI for optimistic edits, activities,
-notes, and audit states.  
+notes, and audit states.
 **Depends on:** T036, T037, T038, T039. **Requirements:** PC-14, PC-15.
-**Tools:** UI.  
-**Tests/gate:** RTL, minimum 20 cases / UNIT.  
+**Tools:** UI.
+**Tests/gate:** RTL, minimum 20 cases / UNIT.
 **Done when:** Conflict refresh, permission denial, append success, empty,
-loading, and error states pass with synthetic data.  
-**Verify:** focused UI tests.  
+loading, and error states pass with synthetic data.
+**Verify:** focused UI tests.
 **Commit:** `feat(prospecta): add commercial workspace detail`
 
 **Phase 4 gate:** `FULL && DB`; keep production feature flag off pending X1,
@@ -1549,57 +2022,57 @@ X2, and X5.
 #### T042: Define the sensitive field/source allowlist mapper
 
 **What/where:** Add permission-aware DTO policy for risk/signal/evidence/report
-candidates; preserve explicit missing/withheld/unavailable states.  
-**Depends on:** T002, T007. **Requirements:** PC-16. **Tools:** CORE.  
-**Tests/gate:** Unit, minimum 18 cases / UNIT.  
+candidates; preserve explicit missing/withheld/unavailable states.
+**Depends on:** T002, T007. **Requirements:** PC-16. **Tools:** CORE.
+**Tests/gate:** Unit, minimum 18 cases / UNIT.
 **Done when:** No permission or unknown source/path always withholds content;
-contacts/CRM remain withheld.  
-**Verify:** focused policy/mapper tests.  
+contacts/CRM remain withheld.
+**Verify:** focused policy/mapper tests.
 **Commit:** `feat(prospecta): enforce sensitive field allowlist`
 
 #### T043: Validate external evidence URLs
 
-**What/where:** Add server URL policy with exact HTTPS host matching and tests.  
-**Depends on:** T042. **Requirements:** PC-16. **Tools:** CORE.  
-**Tests/gate:** Unit, minimum 16 cases / UNIT.  
+**What/where:** Add server URL policy with exact HTTPS host matching and tests.
+**Depends on:** T042. **Requirements:** PC-16. **Tools:** CORE.
+**Tests/gate:** Unit, minimum 16 cases / UNIT.
 **Done when:** Credentials, non-HTTPS, Unicode confusion, ports, suffix tricks,
-fragments/query leakage, and implicit subdomains fail closed.  
-**Verify:** focused URL tests.  
+fragments/query leakage, and implicit subdomains fail closed.
+**Verify:** focused URL tests.
 **Commit:** `feat(prospecta): validate evidence urls`
 
 #### T044: Sanitize and render approved report Markdown
 
 **What/where:** Add the minimal justified Markdown/sanitization dependencies,
-server policy, renderer, and malicious fixture tests.  
+server policy, renderer, and malicious fixture tests.
 **Depends on:** T042. **Requirements:** PC-16. **Tools:** CORE, UI,
-CURRENT-DOCS.  
-**Tests/gate:** Unit + RTL, minimum 18 cases / UNIT.  
+CURRENT-DOCS.
+**Tests/gate:** Unit + RTL, minimum 18 cases / UNIT.
 **Done when:** Active HTML/scripts/events are removed, links pass T043, and
-plain missing/withheld states remain intact.  
-**Verify:** focused sanitizer/renderer tests, dependency review, FULL.  
+plain missing/withheld states remain intact.
+**Verify:** focused sanitizer/renderer tests, dependency review, FULL.
 **Commit:** `feat(prospecta): render sanitized strategic reports`
 
 #### T045: Read only approved sensitive producer fields
 
 **What/where:** Add exact-run/CNPJ-bound repository queries for X6-approved
-columns/JSON paths and permission-aware mapping.  
+columns/JSON paths and permission-aware mapping.
 **Depends on:** T008, T042, X6. **Requirements:** PC-16. **Tools:** CORE,
-DB-TEST.  
-**Tests/gate:** Unit + approved non-production integration, minimum 16 cases.  
+DB-TEST.
+**Tests/gate:** Unit + approved non-production integration, minimum 16 cases.
 **Done when:** Raw payload/report JSON, ambiguous rows, contacts, and unknown
-paths never leave the repository boundary.  
-**Verify:** focused tests, SQL/field grant review, DB gate.  
+paths never leave the repository boundary.
+**Verify:** focused tests, SQL/field grant review, DB gate.
 **Commit:** `feat(prospecta): read allowlisted lead insights`
 
 #### T046: Expose approved content on lead detail
 
 **What/where:** Extend lead detail service/API/UI with `sensitive:read`,
-allowlisted sections, safe links, and all explicit states.  
-**Depends on:** T043, T044, T045. **Requirements:** PC-16. **Tools:** CORE, UI.  
-**Tests/gate:** Route + RTL, minimum 20 cases / UNIT + FULL.  
+allowlisted sections, safe links, and all explicit states.
+**Depends on:** T043, T044, T045. **Requirements:** PC-16. **Tools:** CORE, UI.
+**Tests/gate:** Route + RTL, minimum 20 cases / UNIT + FULL.
 **Done when:** Unauthorized responses contain no content; authorized synthetic
-content is sanitized; contacts remain withheld.  
-**Verify:** focused API/UI tests and sensitive-string scans.  
+content is sanitized; contacts remain withheld.
+**Verify:** focused API/UI tests and sensitive-string scans.
 **Commit:** `feat(prospecta): expose governed lead content`
 
 **Phase 5 gate:** `FULL && DB`; production flag stays off pending X6.
@@ -1609,60 +2082,60 @@ content is sanitized; contacts remain withheld.
 #### T047: Record production-like query performance evidence
 
 **What/where:** Execute approved safe plans and update
-`evidence/query-performance-gates.md` with redacted results.  
+`evidence/query-performance-gates.md` with redacted results.
 **Depends on:** T019, T027, T041, T046, X5. **Requirements:** PC-11, PC-17.
-**Tools:** DB-TEST, DOCS.  
-**Tests/gate:** Approved performance probes + FULL.  
+**Tools:** DB-TEST, DOCS.
+**Tests/gate:** Approved performance probes + FULL.
 **Done when:** Every batch/queue/detail query has owner-approved scale,
-latency, timeout, index, count, and concurrency evidence.  
-**Verify:** evidence review; no parameters/rows/secrets committed.  
+latency, timeout, index, count, and concurrency evidence.
+**Verify:** evidence review; no parameters/rows/secrets committed.
 **Commit:** `docs(prospecta): record query performance evidence`
 
 #### T048: Add synthetic end-to-end UAT flows
 
 **What/where:** Add browser test harness and flows for login, upload,
-batch state, queue, conflict, activities, notes, and sensitive denial/allow.  
+batch state, queue, conflict, activities, notes, and sensitive denial/allow.
 **Depends on:** T017, T027, T041, T046. **Requirements:** PC-17. **Tools:** UI,
-CORE.  
-**Tests/gate:** E2E, minimum 12 flows / E2E + FULL.  
+CORE.
+**Tests/gate:** E2E, minimum 12 flows / E2E + FULL.
 **Done when:** All critical business states use synthetic fixtures and no
-browser request targets n8n/PostgreSQL.  
-**Verify:** `pnpm test:e2e && FULL`.  
+browser request targets n8n/PostgreSQL.
+**Verify:** `pnpm test:e2e && FULL`.
 **Commit:** `test(prospecta): cover prospecting uat flows`
 
 #### T049: Complete the security review
 
 **What/where:** Add/execute abuse tests and update a redacted security review
 for auth order, CSRF, HMAC replay, upload bounds, SSRF/XSS, SQL, tenant
-isolation, logs, secrets, and grants.  
+isolation, logs, secrets, and grants.
 **Depends on:** T019, T047, T048. **Requirements:** PC-17. **Tools:** CORE,
-DB-TEST, N8N-TEST.  
-**Tests/gate:** Security suites + DB + CTR + E2E + FULL.  
+DB-TEST, N8N-TEST.
+**Tests/gate:** Security suites + DB + CTR + E2E + FULL.
 **Done when:** No high/critical finding remains and residual risks have named
-owners.  
-**Verify:** all gates and credential/sensitive-data scans.  
+owners.
+**Verify:** all gates and credential/sensitive-data scans.
 **Commit:** `test(prospecta): complete security review`
 
 #### T050: Prepare gradual rollout and rollback runbook
 
 **What/where:** Document feature-flag sequence, migration/n8n/app order,
-monitoring, pause conditions, rollback, and audit preservation.  
-**Depends on:** T049, X7. **Requirements:** PC-17. **Tools:** DOCS.  
-**Tests/gate:** Tabletop review + DOC.  
+monitoring, pause conditions, rollback, and audit preservation.
+**Depends on:** T049, X7. **Requirements:** PC-17. **Tools:** DOCS.
+**Tests/gate:** Tabletop review + DOC.
 **Done when:** Each step has owner, target, success signal, stop condition, and
-rollback; rollback never rewrites producer data or deletes audit.  
-**Verify:** runbook review and `git diff --check`.  
+rollback; rollback never rewrites producer data or deletes audit.
+**Verify:** runbook review and `git diff --check`.
 **Commit:** `docs(prospecta): add rollout and rollback runbook`
 
 #### T051: Run the final release gate
 
 **What/where:** Execute all checks and record exact versions, counts,
-limitations, pending external gates, and UAT/security decisions.  
-**Depends on:** T050. **Requirements:** PC-17. **Tools:** all approved profiles.  
-**Tests/gate:** `FULL && DB && CTR && E2E`.  
+limitations, pending external gates, and UAT/security decisions.
+**Depends on:** T050. **Requirements:** PC-17. **Tools:** all approved profiles.
+**Tests/gate:** `FULL && DB && CTR && E2E`.
 **Done when:** All applicable checks pass; production remains blocked unless
-X1–X7 and explicit release approval are complete.  
-**Verify:** archived command transcript without secrets/real data.  
+X1–X7 and explicit release approval are complete.
+**Verify:** archived command transcript without secrets/real data.
 **Commit:** `chore(prospecta): record release readiness`
 
 ## Diagram–Definition Cross-check

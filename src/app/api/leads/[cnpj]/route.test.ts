@@ -9,20 +9,40 @@ import type {
   LeadDetailQuery,
 } from "../../../../lib/validators/lead-query";
 import type { LeadDetail } from "../../../../types/leads";
+import type { SensitiveContentAccess } from "../../../../server/mappers/lead-sensitive-content";
 
 const {
   getLeadDetailMock,
-  requireApiSessionMock,
+  requirePermissionMock,
+  getSensitiveContentAccessMock,
+  isDemo2TestRunVisibilityEnabledMock,
+  isDemoDataEnabledMock,
   validationObserver,
 } = vi.hoisted(() => ({
   getLeadDetailMock:
     vi.fn<
-      (cnpj: string, leadRunId?: string) => Promise<LeadDetail | null>
+      (
+        cnpj: string,
+        leadRunId?: string,
+        sensitiveAccess?: SensitiveContentAccess,
+      ) => Promise<LeadDetail | null>
     >(),
-  requireApiSessionMock:
+  requirePermissionMock:
     vi.fn<
-      () => Promise<{ readonly status: "authorized" }>
+      () =>
+        Promise<{
+          readonly status: "authorized";
+          readonly actor: {
+            readonly issuer: string;
+            readonly subject: string;
+            readonly organizationId: string;
+            readonly permissions: readonly string[];
+          };
+        }>
     >(),
+  getSensitiveContentAccessMock: vi.fn(),
+  isDemo2TestRunVisibilityEnabledMock: vi.fn<() => boolean>(),
+  isDemoDataEnabledMock: vi.fn<() => boolean>(),
   validationObserver: vi.fn<
     (target: "params" | "query", input: unknown) => void
   >(),
@@ -30,10 +50,18 @@ const {
 
 vi.mock("server-only", () => ({}));
 vi.mock("../../../../server/auth/require-api-session", () => ({
-  requireApiSession: requireApiSessionMock,
+  requirePermission: requirePermissionMock,
+}));
+vi.mock("../../../../server/demo/mode", () => ({
+  isDemo2TestRunVisibilityEnabled:
+    isDemo2TestRunVisibilityEnabledMock,
+  isDemoDataEnabled: isDemoDataEnabledMock,
 }));
 vi.mock("../../../../server/repositories/lead-detail-repository", () => ({
   getLeadDetail: getLeadDetailMock,
+}));
+vi.mock("../../../../server/sensitive-content/access", () => ({
+  getSensitiveContentAccess: getSensitiveContentAccessMock,
 }));
 vi.mock(
   "../../../../lib/validators/lead-query",
@@ -166,18 +194,34 @@ function expectPrivateNoStore(response: Response): void {
 
 describe("GET /api/leads/:cnpj", () => {
   beforeEach(() => {
-    requireApiSessionMock.mockReset();
+    requirePermissionMock.mockReset();
     getLeadDetailMock.mockReset();
+    getSensitiveContentAccessMock.mockReset();
+    isDemo2TestRunVisibilityEnabledMock.mockReset();
+    isDemoDataEnabledMock.mockReset();
     validationObserver.mockReset();
 
-    requireApiSessionMock.mockResolvedValue({
+    requirePermissionMock.mockResolvedValue({
       status: "authorized",
+      actor: {
+        issuer: "urn:synthetic",
+        subject: "synthetic-subject",
+        organizationId: "synthetic-organization",
+        permissions: ["leads:read", "audit:read"],
+      },
     });
+    getSensitiveContentAccessMock.mockReturnValue({
+      enabled: false,
+      allowedUrlHosts: [],
+      now: new Date("2026-07-13T12:00:00.000Z"),
+    });
+    isDemo2TestRunVisibilityEnabledMock.mockReturnValue(false);
+    isDemoDataEnabledMock.mockReturnValue(false);
     getLeadDetailMock.mockResolvedValue(syntheticDetail);
   });
 
   it("returns 401 before validation or repository access when the session is missing", async () => {
-    requireApiSessionMock.mockRejectedValue(
+    requirePermissionMock.mockRejectedValue(
       new SafeApiError("AUTHENTICATION_REQUIRED"),
     );
 
@@ -199,7 +243,7 @@ describe("GET /api/leads/:cnpj", () => {
   });
 
   it("returns 403 before validation or repository access for a denied organization", async () => {
-    requireApiSessionMock.mockRejectedValue(
+    requirePermissionMock.mockRejectedValue(
       new SafeApiError("ACCESS_DENIED"),
     );
 
@@ -222,9 +266,17 @@ describe("GET /api/leads/:cnpj", () => {
 
   it("authenticates before validating params and querying the repository", async () => {
     const callOrder: string[] = [];
-    requireApiSessionMock.mockImplementation(async () => {
-      callOrder.push("authenticate");
-      return { status: "authorized" };
+    requirePermissionMock.mockImplementation(async () => {
+      callOrder.push("authorize");
+      return {
+        status: "authorized",
+        actor: {
+          issuer: "urn:synthetic",
+          subject: "synthetic-subject",
+          organizationId: "synthetic-organization",
+          permissions: ["leads:read", "audit:read"],
+        },
+      };
     });
     validationObserver.mockImplementation((target) => {
       callOrder.push(`validate-${target}`);
@@ -241,12 +293,13 @@ describe("GET /api/leads/:cnpj", () => {
 
     expect(response.status).toBe(200);
     expect(callOrder).toEqual([
-      "authenticate",
+      "authorize",
       "validate-params",
       "validate-query",
       "repository",
     ]);
-    expect(requireApiSessionMock).toHaveBeenCalledOnce();
+    expect(requirePermissionMock).toHaveBeenCalledOnce();
+    expect(requirePermissionMock).toHaveBeenCalledWith("leads:read");
   });
 
   it("normalizes a formatted CNPJ and queries the default detail", async () => {
@@ -260,6 +313,21 @@ describe("GET /api/leads/:cnpj", () => {
     expect(getLeadDetailMock).toHaveBeenCalledWith(
       syntheticCnpj,
       undefined,
+      expect.objectContaining({ enabled: false }),
+    );
+  });
+
+  it("includes test-marked runs only when the server enables Demo 2 visibility", async () => {
+    isDemo2TestRunVisibilityEnabledMock.mockReturnValue(true);
+
+    const response = await routeModule.GET(createRequest(), createContext());
+
+    expect(response.status).toBe(200);
+    expect(getLeadDetailMock).toHaveBeenCalledWith(
+      syntheticCnpj,
+      undefined,
+      expect.objectContaining({ enabled: false }),
+      { includeDemo2TestRuns: true },
     );
   });
 
@@ -273,6 +341,7 @@ describe("GET /api/leads/:cnpj", () => {
     expect(getLeadDetailMock).toHaveBeenCalledWith(
       syntheticCnpj,
       syntheticLeadRunId,
+      expect.objectContaining({ enabled: false }),
     );
   });
 
@@ -384,6 +453,7 @@ describe("GET /api/leads/:cnpj", () => {
     expect(getLeadDetailMock).toHaveBeenCalledWith(
       syntheticCnpj,
       syntheticLeadRunId,
+      expect.objectContaining({ enabled: false }),
     );
     expectPrivateNoStore(response);
   });
@@ -399,6 +469,38 @@ describe("GET /api/leads/:cnpj", () => {
       data: syntheticDetail,
     });
     expectPrivateNoStore(response);
+  });
+
+  it("redacts hash and idempotency identifiers without audit:read", async () => {
+    requirePermissionMock.mockResolvedValue({
+      status: "authorized",
+      actor: {
+        issuer: "urn:synthetic",
+        subject: "synthetic-subject",
+        organizationId: "synthetic-organization",
+        permissions: ["leads:read"],
+      },
+    });
+
+    const response = await routeModule.GET(
+      createRequest(),
+      createContext(),
+    );
+    const body = await response.json();
+    const serialized = JSON.stringify(body);
+
+    expect(response.status).toBe(200);
+    expect(body.data).toMatchObject({
+      source_hash: null,
+      audit: {
+        source_hash: null,
+        idempotency_key: null,
+      },
+    });
+    expect(serialized).not.toContain(syntheticDetail.source_hash);
+    expect(serialized).not.toContain(
+      syntheticDetail.audit.idempotency_key,
+    );
   });
 
   it("preserves policy omission without exposing report or evidence content", async () => {

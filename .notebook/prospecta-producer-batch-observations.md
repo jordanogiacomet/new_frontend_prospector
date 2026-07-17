@@ -42,4 +42,19 @@ Verification:
 - focused disposable PostgreSQL integration: 5 tests
 - full disposable PostgreSQL integration: 39 tests
 
-Updated: 2026-07-07
+Runtime configuration (Demo 2, 2026-07-14):
+- The configured producer database initially lacked
+  `public.prospecta_import_batch_observations_v1`; the read repository mapped
+  that query failure to `availability: "UNAVAILABLE"`.
+- The producer-owner test access applied
+  `db/producer/001_batch_observation_source.sql` and granted the configured
+  producer-read role `SELECT` on the view.
+- Verified: producer-read `SELECT` succeeds; `GET /api/imports` returns all
+  existing submissions with `observationStatus: "AVAILABLE"`.
+- A workflow `202` remains acknowledgement-only, so existing batches still
+  correctly map to `SUBMITTED` until a durable acceptance fact exists.
+- `AVAILABLE` means the view query succeeded, even when no correlated rows
+  exist. `lastObservedAt` needs a matching observation; accepted and terminal
+  counts remain `null` without a durable acceptance fact.
+
+Updated: 2026-07-14

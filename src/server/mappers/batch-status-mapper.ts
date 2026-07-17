@@ -22,6 +22,10 @@ interface ProducerCounts {
 
 interface TerminalEvidence {
   readonly bySourceRow: ReadonlyMap<number, ReadonlySet<BatchTerminalClass>>;
+  readonly materializedLeadRunIdsBySourceRow: ReadonlyMap<
+    number,
+    ReadonlySet<string>
+  >;
   readonly hasConflict: boolean;
 }
 
@@ -330,6 +334,7 @@ function terminalEvidenceFrom(
   observations: BatchProducerObservationFacts,
 ): TerminalEvidence {
   const bySourceRow = new Map<number, Set<BatchTerminalClass>>();
+  const materializedLeadRunIdsBySourceRow = new Map<number, Set<string>>();
 
   for (const fact of observations.terminalOutcomes) {
     requireTerminalFact(fact);
@@ -338,11 +343,22 @@ function terminalEvidenceFrom(
     const classes = bySourceRow.get(sourceRow) ?? new Set();
     classes.add(fact.terminalClass);
     bySourceRow.set(sourceRow, classes);
+
+    if (fact.terminalClass === "MATERIALIZED") {
+      const leadRunIds =
+        materializedLeadRunIdsBySourceRow.get(sourceRow) ?? new Set();
+      leadRunIds.add(fact.leadRunId);
+      materializedLeadRunIdsBySourceRow.set(sourceRow, leadRunIds);
+    }
   }
 
   return {
     bySourceRow,
-    hasConflict: hasTerminalConflict(bySourceRow),
+    materializedLeadRunIdsBySourceRow,
+    hasConflict: hasTerminalConflict(
+      bySourceRow,
+      materializedLeadRunIdsBySourceRow,
+    ),
   };
 }
 
@@ -356,9 +372,19 @@ function requireTerminalFact(fact: BatchTerminalOutcomeFact): void {
 
 function hasTerminalConflict(
   terminalsBySourceRow: ReadonlyMap<number, ReadonlySet<BatchTerminalClass>>,
+  materializedLeadRunIdsBySourceRow: ReadonlyMap<
+    number,
+    ReadonlySet<string>
+  >,
 ): boolean {
   for (const classes of terminalsBySourceRow.values()) {
     if (classes.size > 1) {
+      return true;
+    }
+  }
+
+  for (const leadRunIds of materializedLeadRunIdsBySourceRow.values()) {
+    if (leadRunIds.size > 1) {
       return true;
     }
   }

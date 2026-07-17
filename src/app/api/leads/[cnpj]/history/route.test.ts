@@ -12,7 +12,9 @@ import type { LeadHistoryResult } from "../../../../../server/repositories/lead-
 
 const {
   listLeadHistoryMock,
-  requireApiSessionMock,
+  requirePermissionMock,
+  isDemo2TestRunVisibilityEnabledMock,
+  isDemoDataEnabledMock,
   validationObserver,
 } = vi.hoisted(() => ({
   listLeadHistoryMock:
@@ -22,10 +24,18 @@ const {
         query: LeadHistoryQuery,
       ) => Promise<LeadHistoryResult>
     >(),
-  requireApiSessionMock:
+  requirePermissionMock:
     vi.fn<
-      () => Promise<{ readonly status: "authorized" }>
+      () =>
+        Promise<{
+          readonly status: "authorized";
+          readonly actor: {
+            readonly permissions: readonly string[];
+          };
+        }>
     >(),
+  isDemo2TestRunVisibilityEnabledMock: vi.fn<() => boolean>(),
+  isDemoDataEnabledMock: vi.fn<() => boolean>(),
   validationObserver: vi.fn<
     (target: "params" | "query", input: unknown) => void
   >(),
@@ -33,7 +43,12 @@ const {
 
 vi.mock("server-only", () => ({}));
 vi.mock("../../../../../server/auth/require-api-session", () => ({
-  requireApiSession: requireApiSessionMock,
+  requirePermission: requirePermissionMock,
+}));
+vi.mock("../../../../../server/demo/mode", () => ({
+  isDemo2TestRunVisibilityEnabled:
+    isDemo2TestRunVisibilityEnabledMock,
+  isDemoDataEnabled: isDemoDataEnabledMock,
 }));
 vi.mock(
   "../../../../../server/repositories/lead-history-repository",
@@ -113,13 +128,18 @@ function expectPrivateNoStore(response: Response): void {
 
 describe("GET /api/leads/:cnpj/history", () => {
   beforeEach(() => {
-    requireApiSessionMock.mockReset();
+    requirePermissionMock.mockReset();
     listLeadHistoryMock.mockReset();
+    isDemo2TestRunVisibilityEnabledMock.mockReset();
+    isDemoDataEnabledMock.mockReset();
     validationObserver.mockReset();
 
-    requireApiSessionMock.mockResolvedValue({
+    requirePermissionMock.mockResolvedValue({
       status: "authorized",
+      actor: { permissions: ["leads:read"] },
     });
+    isDemo2TestRunVisibilityEnabledMock.mockReturnValue(false);
+    isDemoDataEnabledMock.mockReturnValue(false);
     listLeadHistoryMock.mockResolvedValue({
       history: [syntheticHistoryItem],
       ...retainedMetadata,
@@ -127,7 +147,7 @@ describe("GET /api/leads/:cnpj/history", () => {
   });
 
   it("returns 401 before validation or repository access when the session is missing", async () => {
-    requireApiSessionMock.mockRejectedValue(
+    requirePermissionMock.mockRejectedValue(
       new SafeApiError("AUTHENTICATION_REQUIRED"),
     );
 
@@ -149,7 +169,7 @@ describe("GET /api/leads/:cnpj/history", () => {
   });
 
   it("returns 403 before validation or repository access for a denied organization", async () => {
-    requireApiSessionMock.mockRejectedValue(
+    requirePermissionMock.mockRejectedValue(
       new SafeApiError("ACCESS_DENIED"),
     );
 
@@ -172,9 +192,12 @@ describe("GET /api/leads/:cnpj/history", () => {
 
   it("authenticates before validating params, query, and accessing the repository", async () => {
     const callOrder: string[] = [];
-    requireApiSessionMock.mockImplementation(async () => {
+    requirePermissionMock.mockImplementation(async () => {
       callOrder.push("authenticate");
-      return { status: "authorized" };
+      return {
+        status: "authorized",
+        actor: { permissions: ["leads:read"] },
+      };
     });
     validationObserver.mockImplementation((target) => {
       callOrder.push(`validate-${target}`);
@@ -199,7 +222,8 @@ describe("GET /api/leads/:cnpj/history", () => {
       "validate-query",
       "repository",
     ]);
-    expect(requireApiSessionMock).toHaveBeenCalledOnce();
+    expect(requirePermissionMock).toHaveBeenCalledOnce();
+    expect(requirePermissionMock).toHaveBeenCalledWith("leads:read");
   });
 
   it("normalizes the CNPJ exactly and applies default pagination", async () => {
@@ -216,6 +240,19 @@ describe("GET /api/leads/:cnpj/history", () => {
         page: 1,
         pageSize: 20,
       },
+    );
+  });
+
+  it("includes test-marked history only when the server enables Demo 2 visibility", async () => {
+    isDemo2TestRunVisibilityEnabledMock.mockReturnValue(true);
+
+    const response = await routeModule.GET(createRequest(), createContext());
+
+    expect(response.status).toBe(200);
+    expect(listLeadHistoryMock).toHaveBeenCalledWith(
+      syntheticCnpj,
+      { page: 1, pageSize: 20 },
+      { includeDemo2TestRuns: true },
     );
   });
 
@@ -467,14 +504,14 @@ describe("GET /api/leads/:cnpj/history", () => {
       ),
     );
 
-    requireApiSessionMock.mockRejectedValueOnce(
+    requirePermissionMock.mockRejectedValueOnce(
       new SafeApiError("AUTHENTICATION_REQUIRED"),
     );
     responses.push(
       await routeModule.GET(createRequest(), createContext()),
     );
 
-    requireApiSessionMock.mockRejectedValueOnce(
+    requirePermissionMock.mockRejectedValueOnce(
       new SafeApiError("ACCESS_DENIED"),
     );
     responses.push(

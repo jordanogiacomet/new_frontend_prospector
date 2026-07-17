@@ -299,6 +299,35 @@ describe("mapBatchStatus", () => {
     });
   });
 
+  it("fails closed when one row materializes into distinct lead runs", () => {
+    const summary = mapBatchStatus(
+      input({
+        acceptance: { ...acceptance, rowCountAccepted: 1 },
+        producerObservations: observations({
+          acceptedRows: acceptedRows([1]),
+          terminalOutcomes: [
+            terminal(1, "MATERIALIZED", "lead-run-1"),
+            terminal(1, "MATERIALIZED", "lead-run-2"),
+          ],
+          close: close(),
+          lastObservedAt: observedAt("2026-07-07T12:20:00.000Z"),
+        }),
+      }),
+    );
+
+    expect(summary).toMatchObject({
+      status: "ACCEPTED",
+      terminalCount: null,
+      blockedCount: null,
+      failedCount: null,
+      leadCount: null,
+      statusBasis: "ACCEPTANCE_CONFIRMED",
+      observationStatus: "INCONSISTENT",
+      observationBasis: "PRODUCER_EVIDENCE_CONFLICT",
+    });
+    expect(summary.status).not.toBe("COMPLETED");
+  });
+
   it("does not complete a batch without an explicit close fact", () => {
     const summary = mapBatchStatus(
       input({

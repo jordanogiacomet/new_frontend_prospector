@@ -46,7 +46,11 @@ function mapWithUnapprovedFields(
 ): ReturnType<typeof mapLeadDetail> {
   const runtimeRow = Object.assign({}, completeRow, fields) as LeadDetailRow;
 
-  return mapLeadDetail(runtimeRow);
+  return mapLeadDetail(runtimeRow, {
+    enabled: true,
+    allowedUrlHosts: [],
+    now: new Date("2026-07-01T00:00:00.000Z"),
+  });
 }
 
 describe("mapLeadDetail", () => {
@@ -84,8 +88,8 @@ describe("mapLeadDetail", () => {
       icpScore: 73,
       strategicAssetScore: 64,
       strategicTier: "TIER_SINTETICO",
-      riskFlags: { status: "unavailable", items: null },
-      positiveSignals: { status: "unavailable", items: null },
+      riskFlags: { status: "omitted_by_policy", items: null },
+      positiveSignals: { status: "omitted_by_policy", items: null },
       evidences: { status: "omitted_by_policy", content: null },
       strategicReport: { status: "omitted_by_policy", content: null },
       audit: {
@@ -184,37 +188,37 @@ describe("mapLeadDetail", () => {
     });
   });
 
-  it("represents non-selected collections as unavailable when inputs are missing", () => {
+  it("represents non-selected collections as withheld by policy", () => {
     const detail = mapLeadDetail(completeRow);
 
     expect(detail.riskFlags).toEqual({
-      status: "unavailable",
+      status: "omitted_by_policy",
       items: null,
     });
     expect(detail.positiveSignals).toEqual({
-      status: "unavailable",
+      status: "omitted_by_policy",
       items: null,
     });
   });
 
-  it("does not treat explicitly empty unapproved collections as approved empty data", () => {
+  it("maps explicitly empty approved collections as available", () => {
     const detail = mapWithUnapprovedFields({
       risk_flags: [],
       positive_signals: [],
-      evidences_json: [],
+      evidences: [],
     });
 
     expect(detail.riskFlags).toEqual({
-      status: "unavailable",
-      items: null,
+      status: "available",
+      items: [],
     });
     expect(detail.positiveSignals).toEqual({
-      status: "unavailable",
-      items: null,
+      status: "available",
+      items: [],
     });
     expect(detail.evidences).toEqual({
-      status: "omitted_by_policy",
-      content: null,
+      status: "available",
+      content: [],
     });
   });
 
@@ -222,34 +226,34 @@ describe("mapLeadDetail", () => {
     const detail = mapWithUnapprovedFields({
       risk_flags: { unexpected: true },
       positive_signals: "not-an-array",
-      evidences_json: 42,
+      evidences: 42,
     });
 
     expect(detail.riskFlags.status).toBe("unavailable");
     expect(detail.positiveSignals.status).toBe("unavailable");
-    expect(detail.evidences.status).toBe("omitted_by_policy");
+    expect(detail.evidences.status).toBe("unavailable");
   });
 
-  it("does not infer an ambiguous report state from an unapproved match count", () => {
+  it("marks an ambiguous exact-run report match as unavailable", () => {
     const detail = mapWithUnapprovedFields({
       strategic_report_match_count: 2,
       strategic_report_status: "ambiguous",
     });
 
     expect(detail.strategicReport).toEqual({
-      status: "omitted_by_policy",
+      status: "unavailable",
       content: null,
     });
   });
 
-  it("does not infer an unavailable report state from unapproved integrity data", () => {
+  it("marks a report with failed integrity as unavailable without exposing details", () => {
     const detail = mapWithUnapprovedFields({
       strategic_report_integrity_status: "INVALID",
       integrity_error: "UNAPPROVED_INTEGRITY_CANARY",
     });
 
     expect(detail.strategicReport).toEqual({
-      status: "omitted_by_policy",
+      status: "unavailable",
       content: null,
     });
     expect(JSON.stringify(detail)).not.toContain(
@@ -266,6 +270,60 @@ describe("mapLeadDetail", () => {
       { code: "CONTENT_WITHHELD", field: "evidences" },
       { code: "CONTENT_WITHHELD", field: "strategicReport" },
     ]);
+  });
+
+  it("maps one current synthetic strategic report to sanitized plain text", () => {
+    const detail = mapWithUnapprovedFields({
+      strategic_report_match_count: 1,
+      strategic_report_integrity_status: "OK",
+      strategic_report_expires_at: "2026-07-30T15:45:00.000Z",
+      strategic_report_markdown:
+        "# Prioridade\n\n- Confirmar aderência comercial.\n- [Fonte](https://evidence.example.com/report)",
+    });
+
+    expect(detail.strategicReport).toEqual({
+      status: "available",
+      content:
+        "Prioridade\n\nConfirmar aderência comercial.\nFonte",
+    });
+    expect(detail.dataQuality).not.toContainEqual({
+      code: "CONTENT_WITHHELD",
+      field: "strategicReport",
+    });
+  });
+
+  it("keeps non-current, expired, or unsafe strategic reports unavailable", () => {
+    const invalidHtml = mapWithUnapprovedFields({
+      strategic_report_match_count: 1,
+      strategic_report_integrity_status: "OK",
+      strategic_report_expires_at: "2026-07-30T15:45:00.000Z",
+      strategic_report_markdown: "<script>unsafe()</script>",
+    });
+    const ambiguous = mapWithUnapprovedFields({
+      strategic_report_match_count: 2,
+      strategic_report_integrity_status: "OK",
+      strategic_report_expires_at: "2026-07-30T15:45:00.000Z",
+      strategic_report_markdown: "Relatório sintético",
+    });
+    const expired = mapWithUnapprovedFields({
+      strategic_report_match_count: 1,
+      strategic_report_integrity_status: "OK",
+      strategic_report_expires_at: "2026-06-30T15:45:00.000Z",
+      strategic_report_markdown: "Relatório sintético",
+    });
+
+    expect(invalidHtml.strategicReport).toEqual({
+      status: "unavailable",
+      content: null,
+    });
+    expect(ambiguous.strategicReport).toEqual({
+      status: "unavailable",
+      content: null,
+    });
+    expect(expired.strategicReport).toEqual({
+      status: "omitted_by_policy",
+      content: null,
+    });
   });
 
   it("preserves valid numeric lower bounds", () => {
@@ -389,7 +447,7 @@ describe("mapLeadDetail", () => {
     expect(detail.strategicAssetScore).toBeNull();
   });
 
-  it("omits HTTP evidence URLs", () => {
+  it("rejects HTTP evidence URLs from malformed legacy evidence objects", () => {
     const detail = mapWithUnapprovedFields({
       evidences: [
         { label: "Sintética", url: "http://public.example.test/evidence" },
@@ -397,19 +455,19 @@ describe("mapLeadDetail", () => {
     });
 
     expect(JSON.stringify(detail)).not.toContain("http://");
-    expect(detail.evidences.status).toBe("omitted_by_policy");
+    expect(detail.evidences.status).toBe("unavailable");
   });
 
-  it("omits structurally invalid evidence URLs", () => {
+  it("rejects structurally invalid evidence URLs from malformed legacy evidence objects", () => {
     const detail = mapWithUnapprovedFields({
       evidences: [{ label: "Sintética", url: "not-a-url" }],
     });
 
     expect(JSON.stringify(detail)).not.toContain("not-a-url");
-    expect(detail.evidences.status).toBe("omitted_by_policy");
+    expect(detail.evidences.status).toBe("unavailable");
   });
 
-  it("omits an absolute HTTPS URL while the semantic allowlist is empty", () => {
+  it("rejects an absolute HTTPS URL when the evidence object lacks an approved title", () => {
     const detail = mapWithUnapprovedFields({
       evidences: [
         {
@@ -422,13 +480,10 @@ describe("mapLeadDetail", () => {
     expect(JSON.stringify(detail)).not.toContain(
       "https://public.example.test/evidence",
     );
-    expect(detail.evidences).toEqual({
-      status: "omitted_by_policy",
-      content: null,
-    });
+    expect(detail.evidences).toEqual({ status: "unavailable", content: null });
   });
 
-  it("omits structurally valid or XSS-sanitized content under the privacy policy", () => {
+  it("does not expose report text without an exact valid report relation", () => {
     const detail = mapWithUnapprovedFields({
       strategic_report_markdown: "Texto sintético sem HTML",
       sanitized_html: "<p>Texto sintético sanitizado</p>",
@@ -439,10 +494,10 @@ describe("mapLeadDetail", () => {
 
     expect(serialized).not.toContain("Texto sintético sem HTML");
     expect(serialized).not.toContain("Texto sintético sanitizado");
-    expect(detail.strategicReport.status).toBe("omitted_by_policy");
+    expect(detail.strategicReport.status).toBe("unavailable");
   });
 
-  it("omits a redacted item without leaking its original", () => {
+  it("rejects a redacted legacy item without leaking its original", () => {
     const detail = mapWithUnapprovedFields({
       evidences: [
         {
@@ -456,7 +511,7 @@ describe("mapLeadDetail", () => {
 
     expect(serialized).not.toContain("UNAPPROVED_ORIGINAL_CANARY");
     expect(serialized).not.toContain("Conteúdo sintético redigido");
-    expect(detail.evidences.status).toBe("omitted_by_policy");
+    expect(detail.evidences.status).toBe("unavailable");
   });
 
   it("never exposes raw payloads, prompts, CRM, or snapshots", () => {

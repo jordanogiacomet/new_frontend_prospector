@@ -9,10 +9,16 @@ import {
   SafeApiError,
   successResponse,
 } from "../../../../server/api/errors";
-import { requireApiSession } from "../../../../server/auth/require-api-session";
-import { isDemoDataEnabled } from "../../../../server/demo/mode";
+import { requirePermission } from "../../../../server/auth/require-api-session";
+import {
+  isDemo2TestRunVisibilityEnabled,
+  isDemoDataEnabled,
+} from "../../../../server/demo/mode";
 import { getDemoLeadDetail } from "../../../../server/demo/prospecta-demo-data";
+import { applyLeadDetailAuditAccess } from "../../../../server/mappers/lead-audit-access";
 import { getLeadDetail } from "../../../../server/repositories/lead-detail-repository";
+import { getSensitiveContentAccess } from "../../../../server/sensitive-content/access";
+import type { LeadDetail } from "../../../../types/leads";
 
 const privateNoStoreHeaders = {
   "Cache-Control": "private, no-store",
@@ -27,7 +33,7 @@ export async function GET(
   context: LeadDetailRouteContext,
 ): Promise<NextResponse> {
   try {
-    await requireApiSession();
+    const authorization = await requirePermission("leads:read");
 
     const { cnpj } = leadDetailParamsSchema.parse(
       await context.params,
@@ -35,15 +41,30 @@ export async function GET(
     const { leadRunId } = leadDetailQuerySchema.parse(
       request.nextUrl.searchParams,
     );
-    const detail = isDemoDataEnabled()
-      ? getDemoLeadDetail(cnpj, leadRunId)
-      : await getLeadDetail(cnpj, leadRunId);
+    let detail: LeadDetail | null;
+
+    if (isDemoDataEnabled()) {
+      detail = getDemoLeadDetail(cnpj, leadRunId);
+    } else {
+      const sensitiveAccess = getSensitiveContentAccess(authorization.actor);
+
+      detail = isDemo2TestRunVisibilityEnabled()
+        ? await getLeadDetail(cnpj, leadRunId, sensitiveAccess, {
+            includeDemo2TestRuns: true,
+          })
+        : await getLeadDetail(cnpj, leadRunId, sensitiveAccess);
+    }
 
     if (detail === null) {
       throw new SafeApiError("LEAD_NOT_FOUND");
     }
 
-    return NextResponse.json(successResponse(detail), {
+    const visibleDetail = applyLeadDetailAuditAccess(
+      detail,
+      authorization.actor.permissions.includes("audit:read"),
+    );
+
+    return NextResponse.json(successResponse(visibleDetail), {
       headers: privateNoStoreHeaders,
     });
   } catch (error) {

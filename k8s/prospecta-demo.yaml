@@ -9,33 +9,9 @@ metadata:
   name: prospecta-demo-config
   namespace: prospecta-demo
 data:
-  AUTH_ALLOWED_ORG_ID: demo-organization
-  AUTH_DEV_BYPASS_ENABLED: "true"
-  AUTH_OIDC_CLIENT_ID: replace-with-oidc-client-id
-  AUTH_OIDC_ISSUER: https://identity.example.com/demo
   AUTH_URL: http://192.168.0.20:30097
-  FEATURE_BATCH_OBSERVATION_ENABLED: "true"
-  FEATURE_COMMERCIAL_ENABLED: "false"
-  FEATURE_DEMO_DATA_ENABLED: "true"
-  FEATURE_IMPORTS_ENABLED: "true"
-  FEATURE_SENSITIVE_CONTENT_ENABLED: "false"
-  IMPORT_MAX_BYTES: "10485760"
-  IMPORT_PRODUCER_TIMEOUT_MS: "15000"
-  N8N_IMPORT_URL: http://192.168.0.20:30098/webhook/empresaqui/import
-  SENSITIVE_URL_HOSTS: evidence.example.com,reports.example.com
----
-apiVersion: v1
-kind: Secret
-metadata:
-  name: prospecta-demo-secrets
-  namespace: prospecta-demo
-type: Opaque
-stringData:
-  APP_DATABASE_URL: postgresql://prospecta_app:replace-with-password@postgres.example.invalid:5432/prospecta
-  AUTH_OIDC_CLIENT_SECRET: replace-with-oidc-client-secret
-  AUTH_SECRET: replace-with-a-random-demo-secret-at-least-32-bytes
-  DATABASE_URL: postgresql://readonly_user:replace-with-password@postgres.example.invalid:5432/read_only_leads
-  PRODUCER_DATABASE_URL: postgresql://producer_reader:replace-with-password@postgres.example.invalid:5432/producer
+  NODE_ENV: production
+  DEMO2_K8S_RUNTIME_ENABLED: "true"
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -80,6 +56,23 @@ spec:
             initialDelaySeconds: 20
             periodSeconds: 20
             timeoutSeconds: 3
+        - name: postgres-loopback-proxy
+          image: localhost:5000/prospecta/postgres-loopback-proxy:demo
+          imagePullPolicy: Always
+          args:
+            - TCP-LISTEN:15432,fork,reuseaddr
+            - TCP:prospecting-postgres.prospecting.svc.cluster.local:5432
+          ports:
+            - name: postgres-proxy
+              containerPort: 15432
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65532
           resources:
             requests:
               cpu: 100m

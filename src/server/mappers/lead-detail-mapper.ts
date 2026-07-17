@@ -3,6 +3,12 @@ import {
   mapLeadSummary,
   type LeadSummaryRow,
 } from "./lead-summary-mapper";
+import {
+  mapSensitiveLeadEvidences,
+  mapSensitiveLeadInsights,
+  mapSensitiveStrategicReport,
+  type SensitiveContentAccess,
+} from "./lead-sensitive-content";
 
 export interface LeadDetailRow extends LeadSummaryRow {
   cnae_principal: string | null;
@@ -21,6 +27,13 @@ export interface LeadDetailRow extends LeadSummaryRow {
   created_at: Date | string;
   updated_at: Date | string | null;
   expires_at: Date | string | null;
+  risk_flags?: unknown;
+  positive_signals?: unknown;
+  evidences?: unknown;
+  strategic_report_markdown?: unknown;
+  strategic_report_match_count?: unknown;
+  strategic_report_integrity_status?: unknown;
+  strategic_report_expires_at?: Date | string | null;
 }
 
 function toNullableText(value: string | null): string | null {
@@ -55,11 +68,36 @@ function toNullableIsoString(
   return value === null ? null : toIsoString(value);
 }
 
-export function mapLeadDetail(row: LeadDetailRow): LeadDetail {
+export function mapLeadDetail(
+  row: LeadDetailRow,
+  sensitiveAccess: SensitiveContentAccess = {
+    enabled: false,
+    allowedUrlHosts: [],
+    now: new Date(),
+  },
+): LeadDetail {
   const summary = mapLeadSummary(row);
   const sourceRow = toNullableInteger(
     row.source_row,
     Number.NEGATIVE_INFINITY,
+  );
+  const sensitiveInsights = mapSensitiveLeadInsights(
+    row.risk_flags,
+    row.positive_signals,
+    sensitiveAccess,
+    row.expires_at,
+  );
+  const evidences = mapSensitiveLeadEvidences(
+    row.evidences,
+    sensitiveAccess,
+    row.expires_at,
+  );
+  const strategicReport = mapSensitiveStrategicReport(
+    row.strategic_report_markdown,
+    row.strategic_report_match_count,
+    row.strategic_report_integrity_status,
+    sensitiveAccess,
+    row.strategic_report_expires_at ?? null,
   );
 
   return {
@@ -80,22 +118,10 @@ export function mapLeadDetail(row: LeadDetailRow): LeadDetail {
     icpScore: toNullableScore(row.icp_score),
     strategicAssetScore: toNullableScore(row.strategic_asset_score),
     strategicTier: toNullableText(row.strategic_tier),
-    riskFlags: {
-      status: "unavailable",
-      items: null,
-    },
-    positiveSignals: {
-      status: "unavailable",
-      items: null,
-    },
-    evidences: {
-      status: "omitted_by_policy",
-      content: null,
-    },
-    strategicReport: {
-      status: "omitted_by_policy",
-      content: null,
-    },
+    riskFlags: sensitiveInsights.riskFlags,
+    positiveSignals: sensitiveInsights.positiveSignals,
+    evidences,
+    strategicReport,
     audit: {
       decision_id: row.decision_id,
       import_batch_id: row.import_batch_id,
@@ -111,14 +137,22 @@ export function mapLeadDetail(row: LeadDetailRow): LeadDetail {
       expires_at: toNullableIsoString(row.expires_at),
     },
     dataQuality: [
-      {
-        code: "CONTENT_WITHHELD",
-        field: "evidences",
-      },
-      {
-        code: "CONTENT_WITHHELD",
-        field: "strategicReport",
-      },
+      ...(evidences.status === "omitted_by_policy"
+        ? [
+            {
+              code: "CONTENT_WITHHELD" as const,
+              field: "evidences",
+            },
+          ]
+        : []),
+      ...(strategicReport.status === "omitted_by_policy"
+        ? [
+            {
+              code: "CONTENT_WITHHELD" as const,
+              field: "strategicReport",
+            },
+          ]
+        : []),
     ],
   };
 }

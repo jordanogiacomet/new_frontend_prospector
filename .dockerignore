@@ -5,6 +5,14 @@
 .specs
 coverage
 db
+!db/
+db/*
+!db/app/
+db/app/*
+!db/app/001_app_schema_forward.sql
+!db/app/003_app_schema_grants.sql
+!db/app/004_commercial_audit_redaction_forward.sql
+!db/app/005_commercial_audit_request_context_forward.sql
 docs
 node_modules
 tests

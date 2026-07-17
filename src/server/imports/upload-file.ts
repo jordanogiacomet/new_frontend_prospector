@@ -2,6 +2,8 @@ import "server-only";
 
 import { createHash } from "node:crypto";
 
+import { getServerEnv } from "../env";
+
 export const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
 
 export const APPROVED_CSV_MEDIA_TYPES = [
@@ -46,14 +48,15 @@ export class UploadFileValidationError extends Error {
 
 export async function validateAndHashUploadFile(
   file: UploadFileInput,
+  maximumBytes = getServerEnv().IMPORT_MAX_BYTES,
 ): Promise<ValidatedUploadFile> {
   validateFilename(file.name);
   const mediaType = validateMediaType(file.type);
-  validateReportedSize(file.size);
+  validateReportedSize(file.size, maximumBytes);
 
   const bytes = Uint8Array.from(new Uint8Array(await file.arrayBuffer()));
 
-  if (bytes.byteLength > MAX_UPLOAD_BYTES) {
+  if (bytes.byteLength > maximumBytes) {
     throw new UploadFileValidationError("FILE_TOO_LARGE");
   }
 
@@ -96,12 +99,12 @@ function validateMediaType(mediaType: string): string {
   return normalized;
 }
 
-function validateReportedSize(size: number): void {
+function validateReportedSize(size: number, maximumBytes: number): void {
   if (!Number.isSafeInteger(size) || size < 0) {
     throw new UploadFileValidationError("INVALID_SIZE");
   }
 
-  if (size > MAX_UPLOAD_BYTES) {
+  if (size > maximumBytes) {
     throw new UploadFileValidationError("FILE_TOO_LARGE");
   }
 }

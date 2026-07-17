@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
@@ -177,7 +178,10 @@ export default function LeadListPage() {
 
         {currentState.status === "success" &&
         currentState.response.data.length === 0 ? (
-          hasActiveFilters ? (
+          currentState.response.meta.total > 0 &&
+          currentState.response.meta.page > 1 ? (
+            <NoLeadsOnPage />
+          ) : hasActiveFilters ? (
             <NoMatchingLeads />
           ) : (
             <NoLeadData />
@@ -249,6 +253,28 @@ function NoMatchingLeads() {
         Não encontramos resultados para os filtros atuais. Revise ou remova os
         critérios acima para ampliar a consulta.
       </p>
+    </section>
+  );
+}
+
+function NoLeadsOnPage() {
+  return (
+    <section className="border-y border-[oklch(82%_0.025_82)] py-12">
+      <p className="text-xs font-bold tracking-[0.16em] text-[oklch(45%_0.105_174)] uppercase">
+        Página sem resultados
+      </p>
+      <h2 className="mt-3 font-serif text-3xl tracking-[-0.03em]">
+        Esta página não tem decisões
+      </h2>
+      <p className="mt-4 max-w-xl text-sm leading-6 text-[oklch(43%_0.03_252)]">
+        Há decisões disponíveis em outras páginas da consulta.
+      </p>
+      <Link
+        href="/leads"
+        className="mt-6 inline-flex min-h-11 items-center border-b border-[oklch(45%_0.105_174)] px-1 text-sm font-bold text-[oklch(37%_0.095_174)] transition-colors hover:border-[oklch(24%_0.035_252)] hover:text-[oklch(24%_0.035_252)] focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-[oklch(45%_0.105_174)] motion-reduce:transition-none"
+      >
+        Voltar à primeira página
+      </Link>
     </section>
   );
 }

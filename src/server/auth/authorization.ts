@@ -5,6 +5,8 @@ import type { Permission } from "./permissions";
 export interface AuthorizationPolicy {
   issuer: string;
   organizationId: string;
+  costsReadEnabled: boolean;
+  costsReadSubjects: readonly string[];
 }
 
 export interface AuthorizedActor {
@@ -37,22 +39,84 @@ export function createDevelopmentAuthorization(
   nodeEnv: string | undefined,
   organizationId: string,
   demoDataEnabled = false,
+  demo2FullAccessEnabled = false,
+  sensitiveContentEnabled = false,
+  costsEnabled = false,
+  costsReadSubjects: readonly string[] = [],
+  demo2K8sRuntimeEnabled = false,
+  demo3LocalRuntimeEnabled = false,
 ): ServerSessionAuthorization | null {
-  if (!enabled || (nodeEnv !== "development" && !demoDataEnabled)) {
+  const isApprovedDemo2Runtime =
+    nodeEnv === "development" || demo2K8sRuntimeEnabled;
+
+  if (
+    !enabled ||
+    (nodeEnv !== "development" &&
+      !demoDataEnabled &&
+      !demo2K8sRuntimeEnabled &&
+      !demo3LocalRuntimeEnabled)
+  ) {
     return null;
   }
+
+  const hasDemo2FullAccess =
+    demo2FullAccessEnabled &&
+    isApprovedDemo2Runtime &&
+    !demoDataEnabled;
+  const hasDemo3FullAccess =
+    demo3LocalRuntimeEnabled &&
+    nodeEnv === "production" &&
+    !demoDataEnabled &&
+    !demo2FullAccessEnabled &&
+    !demo2K8sRuntimeEnabled;
+  const subject = hasDemo3FullAccess
+    ? "demo3-preproduction-user"
+    : demoDataEnabled
+      ? "local-demo-user"
+      : "local-development-user";
+  const hasCostsReadAccess =
+    (hasDemo2FullAccess || hasDemo3FullAccess) &&
+    costsEnabled &&
+    costsReadSubjects.includes(subject);
+  const permissions: readonly Permission[] = hasDemo2FullAccess
+    ? [
+        "leads:read",
+        "imports:read",
+        "imports:create",
+        "commercial:read",
+        "commercial:write",
+        "commercial:assign",
+        "audit:read",
+        ...(sensitiveContentEnabled ? (["sensitive:read"] as const) : []),
+        ...(hasCostsReadAccess ? (["costs:read"] as const) : []),
+      ]
+    : hasDemo3FullAccess
+      ? [
+          "leads:read",
+          "imports:read",
+          "imports:create",
+          "commercial:read",
+          "commercial:write",
+          "commercial:assign",
+          "audit:read",
+          ...(sensitiveContentEnabled ? (["sensitive:read"] as const) : []),
+          ...(hasCostsReadAccess ? (["costs:read"] as const) : []),
+        ]
+    : demoDataEnabled
+      ? ["leads:read", "commercial:read"]
+      : [];
 
   return {
     status: "authorized",
     actor: {
-      issuer: demoDataEnabled
-        ? "urn:prospecta:local-demo"
-        : "urn:prospecta:local-development",
-      subject: demoDataEnabled
-        ? "local-demo-user"
-        : "local-development-user",
+      issuer: hasDemo3FullAccess
+        ? "urn:prospecta:demo3-preproduction"
+        : demoDataEnabled
+          ? "urn:prospecta:local-demo"
+          : "urn:prospecta:local-development",
+      subject,
       organizationId,
-      permissions: [],
+      permissions,
     },
   };
 }
@@ -106,6 +170,16 @@ function authorizeIdentityFields(
   };
 }
 
+function permissionsForIdentity(
+  identity: AuthorizedIdentityFields,
+  policy: AuthorizationPolicy,
+): readonly Permission[] {
+  return policy.costsReadEnabled &&
+    policy.costsReadSubjects.includes(identity.subject)
+    ? ["costs:read"]
+    : [];
+}
+
 export function authorizeIdentityClaims(
   claims: Record<string, unknown>,
   policy: AuthorizationPolicy,
@@ -125,7 +199,7 @@ export function authorizeIdentityClaims(
     status: "authorized",
     actor: {
       ...authorization.identity,
-      permissions: [],
+      permissions: permissionsForIdentity(authorization.identity, policy),
     },
   };
 }
@@ -158,7 +232,7 @@ export function authorizeRetainedActor(
     status: "authorized",
     actor: {
       ...authorization.identity,
-      permissions: [],
+      permissions: permissionsForIdentity(authorization.identity, policy),
     },
   };
 }

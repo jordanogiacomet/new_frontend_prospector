@@ -51,10 +51,7 @@ interface ProducerBatchObservationRow {
 interface MutableObservations {
   lastObservedAt: Date | null;
   acceptedRowsBySourceRow: Map<number, BatchAcceptedRowFact>;
-  terminalOutcomesBySourceRowAndClass: Map<
-    string,
-    BatchTerminalOutcomeFact
-  >;
+  terminalOutcomesByIdentity: Map<string, BatchTerminalOutcomeFact>;
   close: BatchCloseFact | null;
   retainedLegacyObservationsByIdentity: Map<
     string,
@@ -124,7 +121,7 @@ function mapObservationRows(
   const observations: MutableObservations = {
     lastObservedAt: null,
     acceptedRowsBySourceRow: new Map(),
-    terminalOutcomesBySourceRowAndClass: new Map(),
+    terminalOutcomesByIdentity: new Map(),
     close: null,
     retainedLegacyObservationsByIdentity: new Map(),
   };
@@ -154,7 +151,7 @@ function mapObservationRows(
       bySourceRow,
     ),
     terminalOutcomes: Array.from(
-      observations.terminalOutcomesBySourceRowAndClass.values(),
+      observations.terminalOutcomesByIdentity.values(),
     ).sort(byTerminalOutcome),
     close: observations.close,
     retainedLegacyObservations: Array.from(
@@ -203,8 +200,6 @@ function recordTerminalOutcome(
     return;
   }
 
-  const key = `${sourceRow}:${terminalClass}`;
-
   if (terminalClass === "MATERIALIZED") {
     const leadRunId = toPresentText(row.lead_run_id);
 
@@ -212,16 +207,19 @@ function recordTerminalOutcome(
       return;
     }
 
-    observations.terminalOutcomesBySourceRowAndClass.set(key, {
-      factSource: TERMINAL_FACT_SOURCE,
-      sourceRow,
-      terminalClass,
-      leadRunId,
-    });
+    observations.terminalOutcomesByIdentity.set(
+      `${sourceRow}:${terminalClass}:${leadRunId}`,
+      {
+        factSource: TERMINAL_FACT_SOURCE,
+        sourceRow,
+        terminalClass,
+        leadRunId,
+      },
+    );
     return;
   }
 
-  observations.terminalOutcomesBySourceRowAndClass.set(key, {
+  observations.terminalOutcomesByIdentity.set(`${sourceRow}:${terminalClass}`, {
     factSource: TERMINAL_FACT_SOURCE,
     sourceRow,
     terminalClass,
@@ -379,8 +377,13 @@ function byTerminalOutcome(
 ): number {
   return (
     left.sourceRow - right.sourceRow ||
-    left.terminalClass.localeCompare(right.terminalClass)
+    left.terminalClass.localeCompare(right.terminalClass) ||
+    terminalLeadRunId(left).localeCompare(terminalLeadRunId(right))
   );
+}
+
+function terminalLeadRunId(fact: BatchTerminalOutcomeFact): string {
+  return fact.terminalClass === "MATERIALIZED" ? fact.leadRunId : "";
 }
 
 function byRetainedLegacyObservation(

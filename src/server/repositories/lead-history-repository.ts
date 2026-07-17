@@ -14,7 +14,7 @@ import {
   mapLeadHistoryItem,
   type LeadHistoryRow,
 } from "../mappers/lead-history-mapper";
-import { buildProductionRunPredicate } from "./production-run-predicate";
+import { buildLeadRunVisibilityPredicate } from "./production-run-predicate";
 
 const maximumRetainedHistoryRows = 6;
 const retainedHistoryCompleteness = "retained_only";
@@ -22,27 +22,30 @@ const retainedHistoryLabel = "Análises retidas encontradas";
 const retainedHistoryCaveat =
   "Análises mais antigas podem não estar presentes.";
 
-const eligibleHistoryCte = `WITH eligible_history AS (
+function buildEligibleHistoryCte(includeDemo2TestRuns = false): string {
+  return `WITH eligible_history AS (
   SELECT
     history.id,
     history.import_batch_id,
     history.lead_run_id,
     history.source_row,
-    history.created_at,
+    history.run_created_at AS created_at,
     history.final_action,
     history.reason
   FROM public.company_validation_runs AS history
   WHERE history.integrity_status = $1
     AND history.processing_result = $2
-    AND ${buildProductionRunPredicate("history")}
+    AND ${buildLeadRunVisibilityPredicate("history", includeDemo2TestRuns)}
     AND BTRIM(history.lead_run_id) <> $3
     AND history.lead_run_id ~ $4
     AND history.cnpj_normalizado = $5
     AND BTRIM(history.final_action) <> $3
     AND history.run_created_at <= CURRENT_TIMESTAMP
 )`;
+}
 
-const currentDecisionCtes = `current_terminal_candidates AS (
+function buildCurrentDecisionCtes(includeDemo2TestRuns = false): string {
+  return `current_terminal_candidates AS (
   SELECT
     current_terminal.id::text AS decision_id,
     COUNT(*) OVER (
@@ -60,7 +63,7 @@ const currentDecisionCtes = `current_terminal_candidates AS (
     AND current_projection.cnpj_normalizado = $5
     AND current_terminal.integrity_status = $1
     AND current_terminal.processing_result = $2
-    AND ${buildProductionRunPredicate("current_terminal")}
+    AND ${buildLeadRunVisibilityPredicate("current_terminal", includeDemo2TestRuns)}
     AND current_terminal.lead_run_id ~ $4
     AND current_terminal.cnpj_normalizado = current_projection.cnpj_normalizado
     AND current_terminal.import_batch_id IS NOT DISTINCT FROM current_projection.last_import_batch_id
@@ -73,6 +76,7 @@ current_decision AS (
   FROM current_terminal_candidates
   WHERE current_terminal_candidates.terminal_count = $6
 )`;
+}
 
 interface LeadHistoryCountRow {
   total: number;
@@ -90,9 +94,12 @@ export interface LeadHistoryResult {
   readonly caveat: typeof retainedHistoryCaveat;
 }
 
-function buildCountStatement(cnpj: string): SqlStatement {
+function buildCountStatement(
+  cnpj: string,
+  includeDemo2TestRuns = false,
+): SqlStatement {
   return {
-    text: `${eligibleHistoryCte}
+    text: `${buildEligibleHistoryCte(includeDemo2TestRuns)}
 SELECT COUNT(*)::integer AS total
 FROM eligible_history`,
     values: [
@@ -108,6 +115,7 @@ FROM eligible_history`,
 function buildDataStatement(
   cnpj: string,
   input: LeadHistoryQuery,
+  includeDemo2TestRuns = false,
 ): SqlStatement {
   const values: unknown[] = [
     "OK",
@@ -121,8 +129,8 @@ function buildDataStatement(
   ];
 
   return {
-    text: `${eligibleHistoryCte},
-${currentDecisionCtes}
+    text: `${buildEligibleHistoryCte(includeDemo2TestRuns)},
+${buildCurrentDecisionCtes(includeDemo2TestRuns)}
 SELECT
   history.id::text AS id,
   history.import_batch_id,
@@ -153,9 +161,10 @@ function isApprovedTotal(total: unknown): total is number {
 export async function listLeadHistory(
   cnpj: string,
   input: LeadHistoryQuery,
+  options: { readonly includeDemo2TestRuns?: boolean } = {},
 ): Promise<LeadHistoryResult> {
   const [countRow] = await databaseQuery<LeadHistoryCountRow>(
-    buildCountStatement(cnpj),
+    buildCountStatement(cnpj, options.includeDemo2TestRuns),
   );
 
   if (!countRow || !isApprovedTotal(countRow.total)) {
@@ -163,7 +172,7 @@ export async function listLeadHistory(
   }
 
   const rows = await databaseQuery<LeadHistoryQueryRow>(
-    buildDataStatement(cnpj, input),
+    buildDataStatement(cnpj, input, options.includeDemo2TestRuns),
   );
 
   return {

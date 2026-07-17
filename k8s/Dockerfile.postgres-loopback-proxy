@@ -1,0 +1,8 @@
+FROM alpine:3.20
+
+RUN apk add --no-cache socat \
+  && adduser -D -H -u 65532 prospecta
+
+USER 65532
+
+ENTRYPOINT ["socat"]

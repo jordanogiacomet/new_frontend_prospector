@@ -383,13 +383,45 @@ describe("controlled import upload page", () => {
       "A tentativa foi registrada, mas a confirmação do fluxo não ficou disponível",
     );
     expect(fetchMock).toHaveBeenCalledOnce();
-    expect(screen.getByRole("button", { name: "Nova tentativa" })).toBeEnabled();
+    expect(
+      screen.queryByRole("button", { name: "Nova tentativa" }),
+    ).not.toBeInTheDocument();
     expect(
       screen.getByRole("link", { name: "Acompanhar progresso do lote" }),
     ).toHaveAttribute(
       "href",
       "/imports/batches/00000000-0000-4000-8000-000000000042",
     );
+  });
+
+  it("treats transport failure after POST starts as unknown and preserves the attempt", async () => {
+    const file = csvFile("transporte-incerto.csv");
+    fetchMock.mockRejectedValueOnce(new TypeError("synthetic network failure"));
+    render(<ImportUploadPage />);
+
+    uploadSelectedFile(file);
+    submitUpload();
+
+    expect(
+      await screen.findByRole("heading", { name: "Resultado desconhecido" }),
+    ).toBeInTheDocument();
+    expect(document.body).toHaveTextContent(
+      "Não foi possível confirmar se a tentativa foi registrada",
+    );
+    expect(document.body).toHaveTextContent(
+      "Arquivo selecionado: transporte-incerto.csv",
+    );
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(idempotencyHeader(firstFetchCall()[1])).toBe(
+      "11111111-1111-4111-8111-111111111111",
+    );
+    expect(randomUUIDMock).toHaveBeenCalledTimes(1);
+    expect(
+      screen.queryByRole("button", { name: "Nova tentativa" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: "Consultar importações registradas" }),
+    ).toHaveAttribute("href", "/imports/batches");
   });
 
   it("does not create a batch link from an invalid submission identifier", async () => {

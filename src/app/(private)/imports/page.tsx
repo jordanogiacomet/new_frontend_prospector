@@ -12,7 +12,11 @@ type UploadStatus =
   | { kind: "selected" }
   | { kind: "loading" }
   | { kind: "acknowledged"; submissionId: string | null }
-  | { kind: "unknown"; submissionId: string | null }
+  | {
+      kind: "unknown";
+      submissionId: string | null;
+      appRecordConfirmed: boolean;
+    }
   | { kind: "conflict" }
   | { kind: "validationError"; message: string }
   | { kind: "accessError" }
@@ -195,13 +199,15 @@ export default function ImportUploadPage() {
           ? payload.data.submissionId
           : null;
 
-        setStatus({
-          kind:
-            payload.data.producerOutcome === "acknowledged"
-              ? "acknowledged"
-              : "unknown",
-          submissionId,
-        });
+        setStatus(
+          payload.data.producerOutcome === "acknowledged"
+            ? { kind: "acknowledged", submissionId }
+            : {
+                kind: "unknown",
+                submissionId,
+                appRecordConfirmed: true,
+              },
+        );
         return;
       }
 
@@ -225,7 +231,11 @@ export default function ImportUploadPage() {
 
       setStatus({ kind: "genericError" });
     } catch {
-      setStatus({ kind: "genericError" });
+      setStatus({
+        kind: "unknown",
+        submissionId: null,
+        appRecordConfirmed: false,
+      });
     }
   }
 
@@ -320,7 +330,7 @@ export default function ImportUploadPage() {
             <li>Um arquivo CSV por tentativa.</li>
             <li>Formato aceito: .csv em texto UTF-8.</li>
             <li>Limite atual: até {maximumUploadMegabytes} MiB.</li>
-            <li>Uma nova tentativa só começa pelo botão abaixo.</li>
+            <li>Consulte o histórico antes de qualquer novo envio.</li>
           </ul>
         </aside>
       </div>
@@ -434,14 +444,26 @@ function ResultState({
             →
           </span>
         </Link>
+      ) : status.kind === "unknown" ? (
+        <Link
+          href="/imports/batches"
+          className="mt-6 inline-flex min-h-11 items-center border-b border-[oklch(45%_0.105_174)] px-1 text-sm font-bold text-[oklch(24%_0.035_252)] transition-colors hover:border-[oklch(24%_0.035_252)] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[oklch(45%_0.105_174)] motion-reduce:transition-none"
+        >
+          Consultar importações registradas
+          <span aria-hidden="true" className="ml-1">
+            →
+          </span>
+        </Link>
       ) : null}
-      <button
-        type="button"
-        onClick={onNewAttempt}
-        className="mt-7 min-h-12 border-b-2 border-[oklch(45%_0.105_174)] px-1 py-3 text-sm font-bold text-[oklch(24%_0.035_252)] transition-colors hover:border-[oklch(24%_0.035_252)] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[oklch(45%_0.105_174)] active:text-[oklch(18%_0.04_252)] motion-reduce:transition-none"
-      >
-        Nova tentativa
-      </button>
+      {status.kind === "unknown" ? null : (
+        <button
+          type="button"
+          onClick={onNewAttempt}
+          className="mt-7 min-h-12 border-b-2 border-[oklch(45%_0.105_174)] px-1 py-3 text-sm font-bold text-[oklch(24%_0.035_252)] transition-colors hover:border-[oklch(24%_0.035_252)] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[oklch(45%_0.105_174)] active:text-[oklch(18%_0.04_252)] motion-reduce:transition-none"
+        >
+          Nova tentativa
+        </button>
+      )}
     </section>
   );
 }
@@ -473,7 +495,9 @@ function resultMessage(status: UploadStatus): {
       return {
         kicker: "Retorno pendente",
         title: "Resultado desconhecido",
-        body: "A tentativa foi registrada, mas a confirmação do fluxo não ficou disponível para esta tela.",
+        body: status.appRecordConfirmed
+          ? "A tentativa foi registrada, mas a confirmação do fluxo não ficou disponível para esta tela. Consulte o histórico antes de qualquer novo envio."
+          : "Não foi possível confirmar se a tentativa foi registrada. O arquivo e a chave desta tentativa foram preservados nesta tela. Consulte o histórico antes de qualquer novo envio.",
       };
     case "conflict":
       return {

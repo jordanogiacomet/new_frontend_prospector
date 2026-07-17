@@ -1,9 +1,9 @@
 # Decision: Sensitive Content Policy
 
 **Status:** APPROVED CONTROL FRAMEWORK — production semantic allowlists require
-LGPD/data-policy owner  
+LGPD/data-policy owner
 **Decision owner:** Repository owner for controls; production data-policy owner
-unassigned  
+unassigned
 **Date:** 2026-07-03
 
 ## Principle
@@ -40,6 +40,25 @@ Names, email addresses, phone numbers, CRM status/history, opt-out, and
 do-not-call information remain withheld. They require a separate contact
 policy and are not enabled by `sensitive:read` alone.
 
+## Restricted cost-control exception
+
+The internal cost-control feature may, after its source and query gates pass,
+return only an estimated LLM-cost decimal in USD plus its approved coverage
+state. It requires `costs:read`, `FEATURE_COSTS_ENABLED`, and an exact match
+of the verified actor subject against the server-only `COSTS_READ_SUBJECTS`
+allowlist. An absent or empty list denies access. Roles, permissions, and
+subjects supplied in an OIDC JWT/session never grant this access.
+
+The sole candidate producer value is
+`public.company_validation_runs.llm_estimated_cost_usd`. It is mapped only as
+a canonical decimal estimate; it is not a paid amount, invoice, price, or
+financial reconciliation. The server may use approved technical fields to
+classify coverage, but never returns them to the browser.
+
+This exception does not authorize `llm_usage`, input/output/total tokens,
+model names, cached-token counts, model pricing, unit prices, function output,
+or any other cost field. Every other cost-related value remains withheld.
+
 ## Always Withheld from Business Responses
 
 - raw/normalized payloads and rows;
@@ -47,7 +66,8 @@ policy and are not enabled by `sensitive:read` alone.
 - search queries;
 - raw `report_json` or unsanitized Markdown;
 - integrity errors, dead letters, and error payloads;
-- tokens, secrets, costs, SQL, or n8n execution IDs;
+- tokens, secrets, costs outside the restricted estimated LLM-cost decimal,
+  SQL, or n8n execution IDs;
 - input/external snapshots;
 - upload idempotency keys and hashes outside a restricted audit need.
 

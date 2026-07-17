@@ -3,7 +3,14 @@ import { resolve } from "node:path";
 
 import { describe, expect, it, vi } from "vitest";
 
+const mocks = vi.hoisted(() => ({
+  getServerEnv: vi.fn(() => ({ IMPORT_MAX_BYTES: 10 * 1024 * 1024 })),
+}));
+
 vi.mock("server-only", () => ({}));
+vi.mock("../env", () => ({
+  getServerEnv: mocks.getServerEnv,
+}));
 
 import {
   APPROVED_CSV_MEDIA_TYPES,
@@ -36,8 +43,11 @@ function upload(
 async function expectError(
   file: UploadFileInput,
   code: UploadFileValidationError["code"],
+  maximumBytes = MAX_UPLOAD_BYTES,
 ): Promise<void> {
-  await expect(validateAndHashUploadFile(file)).rejects.toMatchObject({
+  await expect(
+    validateAndHashUploadFile(file, maximumBytes),
+  ).rejects.toMatchObject({
     name: "UploadFileValidationError",
     message: "CSV upload validation failed.",
     code,
@@ -111,6 +121,34 @@ describe("validateAndHashUploadFile", () => {
     content.set(bytes("header\n"));
 
     await expectError(upload(content, { size: 1 }), "FILE_TOO_LARGE");
+  });
+
+  it("uses the configured limit before reading reported oversized files", async () => {
+    const configuredMaximumBytes = 32;
+    const file = upload(bytes("header\nvalue\n"), {
+      size: configuredMaximumBytes + 1,
+    });
+
+    await expectError(file, "FILE_TOO_LARGE", configuredMaximumBytes);
+    expect(file.arrayBuffer).not.toHaveBeenCalled();
+  });
+
+  it("uses the configured limit for actual bytes when reported size is smaller", async () => {
+    const configuredMaximumBytes = 8;
+    const file = upload(bytes("header\nvalue\n"), { size: 1 });
+
+    await expectError(file, "FILE_TOO_LARGE", configuredMaximumBytes);
+    expect(file.arrayBuffer).toHaveBeenCalledOnce();
+  });
+
+  it("uses IMPORT_MAX_BYTES when the caller does not override the limit", async () => {
+    const file = upload(bytes("header\nvalue\n"), { size: 1 });
+    mocks.getServerEnv.mockReturnValueOnce({ IMPORT_MAX_BYTES: 8 });
+
+    await expect(validateAndHashUploadFile(file)).rejects.toMatchObject({
+      code: "FILE_TOO_LARGE",
+    });
+    expect(file.arrayBuffer).toHaveBeenCalledOnce();
   });
 
   it.each([-1, 1.5, Number.NaN, Number.POSITIVE_INFINITY])(

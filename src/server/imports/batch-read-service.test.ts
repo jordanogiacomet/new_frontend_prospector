@@ -7,9 +7,11 @@ const mocks = vi.hoisted(() => ({
   listImportSubmissions: vi.fn(),
   getImportSubmissionDetail: vi.fn(),
   readProducerBatchObservations: vi.fn(),
+  getServerEnv: vi.fn(),
 }));
 
 vi.mock("server-only", () => ({}));
+vi.mock("../env", () => ({ getServerEnv: mocks.getServerEnv }));
 vi.mock("../repositories/imports/import-submissions-repository", () => ({
   listImportSubmissions: mocks.listImportSubmissions,
   getImportSubmissionDetail: mocks.getImportSubmissionDetail,
@@ -216,6 +218,9 @@ function source(): string {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.getServerEnv.mockReturnValue({
+    FEATURE_BATCH_OBSERVATION_ENABLED: true,
+  });
   mocks.listImportSubmissions.mockResolvedValue(listResult());
   mocks.getImportSubmissionDetail.mockResolvedValue({
     kind: "found",
@@ -386,6 +391,31 @@ describe("listImportBatches", () => {
     expect(result.batches[0]).toMatchObject({
       status: "ACCEPTED",
       rowCountAccepted: 3,
+      terminalCount: null,
+      blockedCount: null,
+      failedCount: null,
+      leadCount: null,
+      statusBasis: "ACCEPTANCE_CONFIRMED",
+      observationStatus: "UNAVAILABLE",
+      observationBasis: "PRODUCER_SOURCE_UNAVAILABLE",
+    });
+  });
+
+  it("keeps observation facts unavailable without producer reads when the feature is disabled", async () => {
+    mocks.listImportSubmissions.mockResolvedValueOnce(
+      listResult({ submissions: [acceptedSubmission()] }),
+    );
+
+    const result = await listImportBatches(
+      { organizationId },
+      { batchObservationEnabled: false },
+    );
+
+    expect(mocks.readProducerBatchObservations).not.toHaveBeenCalled();
+    expect(result.batches[0]).toMatchObject({
+      status: "ACCEPTED",
+      rowCountAccepted: 3,
+      lastObservedAt: null,
       terminalCount: null,
       blockedCount: null,
       failedCount: null,
@@ -662,6 +692,35 @@ describe("getImportBatchDetail", () => {
         submissionId,
         status: "COMPLETED",
         statusBasis: "PRODUCER_CLOSED_ALL_ROWS_TERMINAL",
+      },
+    });
+  });
+
+  it("keeps detail observation facts unavailable without producer reads when the feature is disabled", async () => {
+    mocks.getImportSubmissionDetail.mockResolvedValueOnce({
+      kind: "found",
+      submission: acceptedSubmission(),
+    });
+
+    const result = await getImportBatchDetail(
+      { organizationId, submissionId },
+      { batchObservationEnabled: false },
+    );
+
+    expect(mocks.readProducerBatchObservations).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      kind: "found",
+      batch: {
+        status: "ACCEPTED",
+        rowCountAccepted: 3,
+        lastObservedAt: null,
+        terminalCount: null,
+        blockedCount: null,
+        failedCount: null,
+        leadCount: null,
+        statusBasis: "ACCEPTANCE_CONFIRMED",
+        observationStatus: "UNAVAILABLE",
+        observationBasis: "PRODUCER_SOURCE_UNAVAILABLE",
       },
     });
   });

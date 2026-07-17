@@ -3,7 +3,11 @@ import { configDefaults, defineConfig } from "vitest/config";
 export default defineConfig({
   test: {
     environment: "node",
-    include: ["tests/integration/**/*.test.ts"],
+    include: [
+      "src/**/*.integration.test.ts",
+      "tests/integration/**/*.test.ts",
+    ],
+    fileParallelism: false,
     exclude: [
       ...configDefaults.exclude,
       "**/{.next,out,build,coverage}/**",

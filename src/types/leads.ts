@@ -56,6 +56,17 @@ export interface PolicyOmittedContent {
   content: null;
 }
 
+export interface LeadEvidenceItem {
+  title: string;
+  summary: Nullable<string>;
+  url: Nullable<string>;
+}
+
+export interface AvailableEvidenceContent {
+  status: "available";
+  content: readonly LeadEvidenceItem[];
+}
+
 export interface MissingContent {
   status: "missing";
   content: null;
@@ -66,7 +77,19 @@ export interface UnavailableContent {
   content: null;
 }
 
-export type LeadSensitiveContent =
+export interface AvailableStrategicReportContent {
+  status: "available";
+  content: string;
+}
+
+export type LeadEvidenceContent =
+  | AvailableEvidenceContent
+  | MissingContent
+  | UnavailableContent
+  | PolicyOmittedContent;
+
+export type LeadStrategicReportContent =
+  | AvailableStrategicReportContent
   | MissingContent
   | UnavailableContent
   | PolicyOmittedContent;
@@ -114,8 +137,8 @@ export interface LeadDetail extends LeadSummary {
   strategicTier: Nullable<string>;
   riskFlags: LeadInsightCollection;
   positiveSignals: LeadInsightCollection;
-  evidences: LeadSensitiveContent;
-  strategicReport: LeadSensitiveContent;
+  evidences: LeadEvidenceContent;
+  strategicReport: LeadStrategicReportContent;
   audit: LeadAudit;
   dataQuality: DataQualityNotice[];
 }

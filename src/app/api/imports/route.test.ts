@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ApiAuthorizationContext } from "../../../server/auth/require-api-session";
 import type {
+  BatchReadServiceDependencies,
   ListImportBatchesInput,
   ListImportBatchesResult,
 } from "../../../server/imports/batch-read-service";
@@ -19,6 +20,8 @@ import type { BatchSummary } from "../../../types/imports";
 
 type ImportsFeatureEnvironment = {
   readonly FEATURE_IMPORTS_ENABLED: boolean;
+  readonly IMPORT_MAX_BYTES: number;
+  readonly DEMO3_LOCAL_RUNTIME_ENABLED?: boolean;
 };
 
 const mocks = vi.hoisted(() => ({
@@ -27,7 +30,14 @@ const mocks = vi.hoisted(() => ({
   requireSameOrigin: vi.fn<(request: Pick<Request, "headers" | "url">) => void>(),
   getServerEnv: vi.fn<() => ImportsFeatureEnvironment>(),
   listImportBatches:
-    vi.fn<(input: ListImportBatchesInput) => Promise<ListImportBatchesResult>>(),
+    vi.fn<
+      (
+        input: ListImportBatchesInput,
+        dependencies?: BatchReadServiceDependencies,
+      ) => Promise<ListImportBatchesResult>
+    >(),
+  recordDemo3Import:
+    vi.fn<(input: SubmitImportInput) => Promise<SubmitImportResult>>(),
   submitImport:
     vi.fn<
       (
@@ -40,6 +50,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("server-only", () => ({}));
 vi.mock("../../../server/auth/require-api-session", () => ({
   requireApiSession: mocks.requireApiSession,
+  requirePermission: mocks.requireApiSession,
   requireSameOrigin: mocks.requireSameOrigin,
 }));
 vi.mock("../../../server/env", () => ({
@@ -47,6 +58,9 @@ vi.mock("../../../server/env", () => ({
 }));
 vi.mock("../../../server/imports/batch-read-service", () => ({
   listImportBatches: mocks.listImportBatches,
+}));
+vi.mock("../../../server/demo/demo3-import", () => ({
+  recordDemo3Import: mocks.recordDemo3Import,
 }));
 vi.mock("../../../server/imports/submit-import", () => ({
   submitImport: mocks.submitImport,
@@ -73,6 +87,7 @@ const submittedAt = new Date("2026-07-07T16:00:00.000Z");
 const acknowledgedAt = new Date("2026-07-07T16:01:00.000Z");
 const importBatchId = "empresaqui_2026-07-07T16:00:00.000Z";
 const routeUrl = "http://localhost/api/imports";
+const configuredMaximumUploadBytes = 1024;
 
 interface SyntheticRouteRequest
   extends Pick<Request, "headers" | "url" | "formData"> {
@@ -282,6 +297,14 @@ function submittedUnknownResult(): SubmitImportResult {
   };
 }
 
+function submittedRecordedUnknownResult(): SubmitImportResult {
+  return {
+    kind: "submitted",
+    producerOutcome: "unknown",
+    submission: submission(),
+  };
+}
+
 function duplicateAcknowledgedResult(): SubmitImportResult {
   return {
     kind: "duplicate",
@@ -333,8 +356,11 @@ beforeEach(() => {
   mocks.requireSameOrigin.mockImplementation(() => undefined);
   mocks.getServerEnv.mockReturnValue({
     FEATURE_IMPORTS_ENABLED: true,
+    IMPORT_MAX_BYTES: configuredMaximumUploadBytes,
+    DEMO3_LOCAL_RUNTIME_ENABLED: false,
   });
   mocks.listImportBatches.mockResolvedValue(batchListResult());
+  mocks.recordDemo3Import.mockResolvedValue(submittedRecordedUnknownResult());
   mocks.submitImport.mockResolvedValue(submittedAcknowledgedResult());
   vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
     throw new Error("Unexpected external fetch.");
@@ -396,6 +422,7 @@ describe("GET /api/imports", () => {
   it("requires the server-side import feature flag before validation or service work", async () => {
     mocks.getServerEnv.mockReturnValueOnce({
       FEATURE_IMPORTS_ENABLED: false,
+      IMPORT_MAX_BYTES: configuredMaximumUploadBytes,
     });
 
     const response = await get("?page=invalid");
@@ -419,7 +446,10 @@ describe("GET /api/imports", () => {
     });
     mocks.getServerEnv.mockImplementationOnce(() => {
       events.push("feature");
-      return { FEATURE_IMPORTS_ENABLED: true };
+      return {
+        FEATURE_IMPORTS_ENABLED: true,
+        IMPORT_MAX_BYTES: configuredMaximumUploadBytes,
+      };
     });
     mocks.listImportBatches.mockImplementationOnce(async () => {
       events.push("service");
@@ -633,6 +663,7 @@ describe("GET /api/imports", () => {
     const source = routeSource();
 
     expect(response.status).toBe(200);
+    expect(mocks.requireApiSession).toHaveBeenCalledWith("imports:read");
     expect(mocks.submitImport).not.toHaveBeenCalled();
     expect(mocks.requireSameOrigin).not.toHaveBeenCalled();
     expect(globalThis.fetch).not.toHaveBeenCalled();
@@ -641,6 +672,26 @@ describe("GET /api/imports", () => {
     expect(source).not.toMatch(
       /N8N_IMPORT_URL|webhook|192\.168\.0\.20|n8n|fetch\s*\(/i,
     );
+  });
+
+  it("reads real pre-production submissions with configured producer observations", async () => {
+    mocks.getServerEnv.mockReturnValueOnce({
+      FEATURE_IMPORTS_ENABLED: true,
+      IMPORT_MAX_BYTES: configuredMaximumUploadBytes,
+      DEMO3_LOCAL_RUNTIME_ENABLED: true,
+    });
+
+    const response = await get("?page=2&pageSize=5");
+
+    expect(response.status).toBe(200);
+    expect(mocks.listImportBatches).toHaveBeenCalledWith(
+      {
+        organizationId,
+        page: 2,
+        pageSize: 5,
+      },
+    );
+    expect(globalThis.fetch).not.toHaveBeenCalled();
   });
 });
 
@@ -700,6 +751,7 @@ describe("POST /api/imports", () => {
   it("requires the server-side feature flag before body or service work", async () => {
     mocks.getServerEnv.mockReturnValueOnce({
       FEATURE_IMPORTS_ENABLED: false,
+      IMPORT_MAX_BYTES: configuredMaximumUploadBytes,
     });
     const request = createRequest();
 
@@ -723,7 +775,10 @@ describe("POST /api/imports", () => {
     });
     mocks.getServerEnv.mockImplementationOnce(() => {
       events.push("feature");
-      return { FEATURE_IMPORTS_ENABLED: true };
+      return {
+        FEATURE_IMPORTS_ENABLED: true,
+        IMPORT_MAX_BYTES: configuredMaximumUploadBytes,
+      };
     });
     request.formData.mockImplementationOnce(async () => {
       events.push("body");
@@ -865,6 +920,7 @@ describe("POST /api/imports", () => {
     const [input, dependencies] = firstSubmitImportCall();
 
     expect(response.status).toBe(202);
+    expect(mocks.requireApiSession).toHaveBeenCalledWith("imports:create");
     expect(mocks.submitImport).toHaveBeenCalledOnce();
     expect(input).toMatchObject({
       organizationId,
@@ -873,6 +929,37 @@ describe("POST /api/imports", () => {
       file,
     });
     expect(typeof dependencies.ingressClient.fetch).toBe("function");
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
+  it("uses the normal producer submission service in Demo 3 pre-production", async () => {
+    mocks.getServerEnv.mockReturnValueOnce({
+      FEATURE_IMPORTS_ENABLED: true,
+      IMPORT_MAX_BYTES: configuredMaximumUploadBytes,
+      DEMO3_LOCAL_RUNTIME_ENABLED: true,
+    });
+    const file = uploadFile();
+    const request = createRequest({ formData: validFormData(file) });
+
+    const response = await post(request);
+
+    expect(response.status).toBe(202);
+    expect(await response.json()).toMatchObject({
+      data: {
+        submissionId,
+        appStatus: "PRODUCER_ACKNOWLEDGED",
+        statusFactSource: "workflow_acknowledgement",
+        producerOutcome: "acknowledged",
+        workflowAcknowledgement: {
+          import_batch_id: importBatchId,
+          row_count: 2,
+        },
+        durableAcceptance: null,
+      },
+      meta: { result: "submitted" },
+    });
+    expect(mocks.recordDemo3Import).not.toHaveBeenCalled();
+    expect(mocks.submitImport).toHaveBeenCalledOnce();
     expect(globalThis.fetch).not.toHaveBeenCalled();
   });
 
@@ -995,6 +1082,36 @@ describe("POST /api/imports", () => {
     expect(mocks.submitImport).not.toHaveBeenCalled();
   });
 
+  it("uses the configured upload limit for Content-Length preflight", async () => {
+    const request = createRequest({
+      contentLength: String(configuredMaximumUploadBytes + 64 * 1024 + 1),
+    });
+
+    const response = await post(request);
+
+    expect(response.status).toBe(413);
+    expect(request.formData).not.toHaveBeenCalled();
+    expect(mocks.submitImport).not.toHaveBeenCalled();
+  });
+
+  it("rejects an oversized file before service work when Content-Length is absent", async () => {
+    const oversizedFile = new File(
+      [new Uint8Array(configuredMaximumUploadBytes + 1)],
+      "empresas-sinteticas.csv",
+      { type: "text/csv" },
+    );
+    const request = createRequest({
+      contentLength: null,
+      formData: validFormData(oversizedFile),
+    });
+
+    const response = await post(request);
+
+    expect(response.status).toBe(413);
+    expect(request.formData).toHaveBeenCalledOnce();
+    expect(mocks.submitImport).not.toHaveBeenCalled();
+  });
+
   it("does not leak internal failures, SQL, secrets, stacks, CSV content, or endpoints", async () => {
     const failure = Object.assign(
       new Error(
@@ -1050,7 +1167,7 @@ describe("POST /api/imports", () => {
   it("has no direct fetch call, HMAC, retry, or reprocessing source", () => {
     const source = routeSource();
 
-    expect(source).toContain("requireApiSession");
+    expect(source).toContain("requirePermission");
     expect(source).toContain("requireSameOrigin");
     expect(source).toContain("FEATURE_IMPORTS_ENABLED");
     expect(source).not.toMatch(/\bfetch\s*\(/);

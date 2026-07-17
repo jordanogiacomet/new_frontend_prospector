@@ -199,8 +199,9 @@ runtime coverage. Deployment identity/version, safe failure semantics, the
 10 MiB compatibility bound, persistence ordering, and X4 facts do not.
 
 Accordingly, current app configuration requires only the server-side
-`N8N_IMPORT_URL` for the exact `empresaqui/import` webhook path and accepts
-HTTP or HTTPS under the owner's internal-use decision. Optional HMAC settings
+`N8N_IMPORT_URL`. HTTPS remains allowed for the approved `empresaqui/import`
+webhook forms; HTTP is limited to the owner's exact internal exception,
+`http://192.168.0.20:30098/webhook/empresaqui/import`. Optional HMAC settings
 are unused deferred hardening and do not establish authentication. A future
 client operating under this profile must send zero authentication headers;
 client-generated HMAC-like headers would not be verified by the target.

@@ -32,6 +32,23 @@ export default async function PrivateLayout({
     return <AccessDenied />;
   }
 
+  const permissions = authorization.actor.permissions;
+  const showLeads = permissions.includes("leads:read");
+  const showCommercial = permissions.includes("commercial:read");
+  const showImports =
+    permissions.includes("imports:read") ||
+    permissions.includes("imports:create");
+  const showCosts = permissions.includes("costs:read");
+  const homeHref = showLeads
+    ? "/leads"
+    : showCommercial
+      ? "/work-queue"
+      : showImports
+        ? "/imports"
+        : showCosts
+          ? "/costs"
+          : "/login";
+
   return (
     <div className="min-h-svh bg-[oklch(97%_0.012_82)] text-[oklch(24%_0.035_252)] lg:grid lg:grid-cols-[18rem_minmax(0,1fr)]">
       <a
@@ -44,14 +61,19 @@ export default async function PrivateLayout({
       <header className="flex border-b border-[oklch(35%_0.05_246)] bg-[oklch(22%_0.052_246)] px-5 py-5 text-[oklch(94%_0.018_85)] sm:px-8 lg:min-h-svh lg:flex-col lg:border-b-0 lg:border-r lg:px-7 lg:py-8">
         <div className="flex w-full flex-wrap items-center gap-x-8 gap-y-5 lg:block">
           <Link
-            href="/leads"
+            href={homeHref}
             className="flex min-h-11 items-center gap-3 text-sm font-semibold tracking-[0.1em] uppercase focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[oklch(77%_0.09_174)]"
           >
             <BrandMark />
             <span>Inteligência comercial</span>
           </Link>
 
-          <PrivateNavigation />
+          <PrivateNavigation
+            showCommercial={showCommercial}
+            showCosts={showCosts}
+            showImports={showImports}
+            showLeads={showLeads}
+          />
         </div>
 
         <div className="mt-6 ml-auto flex items-center gap-4 border-l border-[oklch(38%_0.045_246)] pl-5 lg:mt-auto lg:ml-0 lg:block lg:border-t lg:border-l-0 lg:pt-6 lg:pl-0">

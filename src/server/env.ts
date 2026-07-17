@@ -10,6 +10,11 @@ export interface ServerEnv {
   AUTH_OIDC_CLIENT_SECRET: string;
   AUTH_ALLOWED_ORG_ID: string;
   AUTH_DEV_BYPASS_ENABLED: boolean;
+  FEATURE_COSTS_ENABLED: boolean;
+  COSTS_READ_SUBJECTS: readonly string[];
+  DEMO2_FULL_ACCESS_ENABLED: boolean;
+  DEMO2_K8S_RUNTIME_ENABLED: boolean;
+  DEMO3_LOCAL_RUNTIME_ENABLED: boolean;
 }
 
 export interface ProspectaServerEnv {
@@ -37,6 +42,8 @@ const N8N_IMPORT_PATHS = new Set([
   "/webhook/empresaqui/import",
   "/webhook-test/empresaqui/import",
 ]);
+const N8N_INTERNAL_HTTP_ORIGIN = "http://192.168.0.20:30098";
+const N8N_INTERNAL_HTTP_PATH = "/webhook/empresaqui/import";
 
 const serverOnlyNames = [
   "DATABASE_URL",
@@ -48,6 +55,11 @@ const serverOnlyNames = [
   "AUTH_OIDC_CLIENT_SECRET",
   "AUTH_ALLOWED_ORG_ID",
   "AUTH_DEV_BYPASS_ENABLED",
+  "FEATURE_COSTS_ENABLED",
+  "COSTS_READ_SUBJECTS",
+  "DEMO2_FULL_ACCESS_ENABLED",
+  "DEMO2_K8S_RUNTIME_ENABLED",
+  "DEMO3_LOCAL_RUNTIME_ENABLED",
   "AUTH_ROLE_CLAIM",
   "AUTH_ROLE_MAPPING",
   "N8N_IMPORT_URL",
@@ -139,20 +151,29 @@ function validateHttpsUrl(
 function validateN8nImportUrl(value: string, errors: string[]): void {
   try {
     const url = new URL(value);
+    const isApprovedHttps =
+      url.protocol === "https:" && N8N_IMPORT_PATHS.has(url.pathname);
+    const isApprovedInternalHttp =
+      url.protocol === "http:" &&
+      url.origin === N8N_INTERNAL_HTTP_ORIGIN &&
+      url.pathname === N8N_INTERNAL_HTTP_PATH;
 
     if (
-      (url.protocol !== "http:" && url.protocol !== "https:") ||
-      !url.hostname ||
+      (!isApprovedHttps && !isApprovedInternalHttp) ||
       url.username ||
       url.password ||
       url.search ||
       url.hash ||
-      !N8N_IMPORT_PATHS.has(url.pathname)
+      !url.hostname
     ) {
-      errors.push("N8N_IMPORT_URL must be an approved HTTP or HTTPS URL");
+      errors.push(
+        "N8N_IMPORT_URL must be an approved HTTPS URL or the exact internal HTTP target",
+      );
     }
   } catch {
-    errors.push("N8N_IMPORT_URL must be an approved HTTP or HTTPS URL");
+    errors.push(
+      "N8N_IMPORT_URL must be an approved HTTPS URL or the exact internal HTTP target",
+    );
   }
 }
 
@@ -201,6 +222,30 @@ function parseOptionalBoolean(
   return value === undefined ? false : parseBoolean(name, value, errors);
 }
 
+function parseCostsReadSubjects(
+  value: string | undefined,
+  errors: string[],
+): readonly string[] {
+  if (value === undefined || value === "") {
+    return [];
+  }
+
+  const subjects = value.split(",");
+
+  if (
+    subjects.some(
+      (subject) => subject === "" || subject.trim() !== subject,
+    )
+  ) {
+    errors.push(
+      "COSTS_READ_SUBJECTS must contain only exact non-empty subjects",
+    );
+    return [];
+  }
+
+  return [...new Set(subjects)];
+}
+
 function normalizeHostname(value: string): string | null {
   if (
     value.length === 0 ||
@@ -244,9 +289,13 @@ function normalizeHostname(value: string): string | null {
 }
 
 function parseSensitiveUrlHosts(
-  value: string,
+  value: string | undefined,
   errors: string[],
 ): readonly string[] {
+  if (value === undefined || value.trim() === "") {
+    return [];
+  }
+
   const hosts = value.split(",").map((host) => normalizeHostname(host.trim()));
 
   if (hosts.length === 0 || hosts.some((host) => host === null)) {
@@ -304,7 +353,7 @@ export function parseServerEnv(input: EnvironmentInput): ParsedServerEnv {
       "IMPORT_PRODUCER_TIMEOUT_MS",
       errors,
     ),
-    SENSITIVE_URL_HOSTS: readRequired(input, "SENSITIVE_URL_HOSTS", errors),
+    SENSITIVE_URL_HOSTS: readOptional(input, "SENSITIVE_URL_HOSTS"),
     FEATURE_IMPORTS_ENABLED: readRequired(
       input,
       "FEATURE_IMPORTS_ENABLED",
@@ -329,6 +378,8 @@ export function parseServerEnv(input: EnvironmentInput): ParsedServerEnv {
       input,
       "FEATURE_DEMO_DATA_ENABLED",
     ),
+    FEATURE_COSTS_ENABLED: readOptional(input, "FEATURE_COSTS_ENABLED"),
+    COSTS_READ_SUBJECTS: readOptional(input, "COSTS_READ_SUBJECTS"),
   };
 
   rejectPublicServerSettings(input, errors);
@@ -357,18 +408,84 @@ export function parseServerEnv(input: EnvironmentInput): ParsedServerEnv {
     errors,
   );
 
+  const costsEnabled = parseOptionalBoolean(
+    "FEATURE_COSTS_ENABLED",
+    raw.FEATURE_COSTS_ENABLED,
+    errors,
+  );
+
+  const commercialEnabled = parseBoolean(
+    "FEATURE_COMMERCIAL_ENABLED",
+    raw.FEATURE_COMMERCIAL_ENABLED,
+    errors,
+  );
+
   const authDevelopmentBypassEnabled = parseOptionalBoolean(
     "AUTH_DEV_BYPASS_ENABLED",
     input.AUTH_DEV_BYPASS_ENABLED,
     errors,
   );
 
+  const demo2FullAccessEnabled = parseOptionalBoolean(
+    "DEMO2_FULL_ACCESS_ENABLED",
+    input.DEMO2_FULL_ACCESS_ENABLED,
+    errors,
+  );
+
+  const demo2K8sRuntimeEnabled = parseOptionalBoolean(
+    "DEMO2_K8S_RUNTIME_ENABLED",
+    input.DEMO2_K8S_RUNTIME_ENABLED,
+    errors,
+  );
+
+  const demo3LocalRuntimeEnabled = parseOptionalBoolean(
+    "DEMO3_LOCAL_RUNTIME_ENABLED",
+    input.DEMO3_LOCAL_RUNTIME_ENABLED,
+    errors,
+  );
+
+  const isApprovedDemo2Runtime =
+    input.NODE_ENV === "development" || demo2K8sRuntimeEnabled;
+
   if (
     authDevelopmentBypassEnabled &&
     input.NODE_ENV === "production" &&
-    !demoDataEnabled
+    !demoDataEnabled &&
+    !demo2K8sRuntimeEnabled &&
+    !demo3LocalRuntimeEnabled
   ) {
     errors.push("AUTH_DEV_BYPASS_ENABLED is forbidden in production");
+  }
+
+  if (
+    demo2FullAccessEnabled &&
+    (!authDevelopmentBypassEnabled ||
+      !isApprovedDemo2Runtime ||
+      demoDataEnabled)
+  ) {
+    errors.push(
+      "DEMO2_FULL_ACCESS_ENABLED is limited to an approved Demo 2 test runtime",
+    );
+  }
+
+  if (demo2K8sRuntimeEnabled && !demo2FullAccessEnabled) {
+    errors.push(
+      "DEMO2_K8S_RUNTIME_ENABLED requires DEMO2_FULL_ACCESS_ENABLED",
+    );
+  }
+
+  if (
+    demo3LocalRuntimeEnabled &&
+    (input.NODE_ENV !== "production" ||
+      !authDevelopmentBypassEnabled ||
+      demoDataEnabled ||
+      !commercialEnabled ||
+      demo2FullAccessEnabled ||
+      demo2K8sRuntimeEnabled)
+  ) {
+    errors.push(
+      "DEMO3_LOCAL_RUNTIME_ENABLED requires the isolated pre-production profile",
+    );
   }
 
   if (raw.N8N_IMPORT_URL) {
@@ -399,6 +516,14 @@ export function parseServerEnv(input: EnvironmentInput): ParsedServerEnv {
     AUTH_OIDC_CLIENT_SECRET: raw.AUTH_OIDC_CLIENT_SECRET,
     AUTH_ALLOWED_ORG_ID: raw.AUTH_ALLOWED_ORG_ID,
     AUTH_DEV_BYPASS_ENABLED: authDevelopmentBypassEnabled,
+    FEATURE_COSTS_ENABLED: costsEnabled,
+    COSTS_READ_SUBJECTS: parseCostsReadSubjects(
+      raw.COSTS_READ_SUBJECTS,
+      errors,
+    ),
+    DEMO2_FULL_ACCESS_ENABLED: demo2FullAccessEnabled,
+    DEMO2_K8S_RUNTIME_ENABLED: demo2K8sRuntimeEnabled,
+    DEMO3_LOCAL_RUNTIME_ENABLED: demo3LocalRuntimeEnabled,
     N8N_IMPORT_URL: raw.N8N_IMPORT_URL,
     N8N_HMAC_KEY_ID: raw.N8N_HMAC_KEY_ID,
     N8N_HMAC_SECRET: raw.N8N_HMAC_SECRET,
@@ -427,11 +552,7 @@ export function parseServerEnv(input: EnvironmentInput): ParsedServerEnv {
       raw.FEATURE_BATCH_OBSERVATION_ENABLED,
       errors,
     ),
-    FEATURE_COMMERCIAL_ENABLED: parseBoolean(
-      "FEATURE_COMMERCIAL_ENABLED",
-      raw.FEATURE_COMMERCIAL_ENABLED,
-      errors,
-    ),
+    FEATURE_COMMERCIAL_ENABLED: commercialEnabled,
     FEATURE_SENSITIVE_CONTENT_ENABLED: parseBoolean(
       "FEATURE_SENSITIVE_CONTENT_ENABLED",
       raw.FEATURE_SENSITIVE_CONTENT_ENABLED,

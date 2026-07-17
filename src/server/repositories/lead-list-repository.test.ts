@@ -87,8 +87,8 @@ describe("listLeads", () => {
     expect(mocks.query).toHaveBeenCalledTimes(3);
   });
 
-  it("fails closed above 20 projections before count or data runs", async () => {
-    mocks.query.mockResolvedValueOnce(projectionRows(21));
+  it("fails closed above 1,000 projections before count or data runs", async () => {
+    mocks.query.mockResolvedValueOnce(projectionRows(1_001));
 
     const error = await listLeads(defaultQuery).catch(
       (caught: unknown) => caught,
@@ -103,7 +103,7 @@ describe("listLeads", () => {
   });
 
   it("runs the source guard without business or eligibility filters", async () => {
-    mocks.query.mockResolvedValueOnce(projectionRows(21));
+    mocks.query.mockResolvedValueOnce(projectionRows(1_001));
 
     await expect(listLeads(defaultQuery)).rejects.toBeInstanceOf(SafeApiError);
 
@@ -112,7 +112,7 @@ describe("listLeads", () => {
       /SELECT\s+company_validations\.cnpj\s+FROM\s+public\.company_validations\s+AS\s+company_validations\s+LIMIT\s+\$1/i,
     );
     expect(guard.text).not.toMatch(/\bWHERE\b/i);
-    expect(guard.values).toEqual([21]);
+    expect(guard.values).toEqual([1_001]);
   });
 
   it("establishes the current eligible relation before business filters", async () => {
@@ -166,6 +166,21 @@ describe("listLeads", () => {
     expect(count.values).toContain(approvedRunIdPattern);
     expect(count.text).not.toContain("RECEBIDO");
     expect(count.text).not.toMatch(/grupo_teste/i);
+  });
+
+  it("includes test-marked runs only for the explicit Demo 2 reader option", async () => {
+    mocks.query
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ total: 0 }])
+      .mockResolvedValueOnce([]);
+
+    await listLeads(defaultQuery, { includeDemo2TestRuns: true });
+
+    const [, count, data] = statements();
+    expect(count.text).toMatch(/AND\s+TRUE\s+AND\s+terminal\.lead_run_id/i);
+    expect(data.text).toMatch(/AND\s+TRUE\s+AND\s+terminal\.lead_run_id/i);
+    expect(count.text).toContain("terminal.processing_result = $3");
+    expect(count.text).toContain("terminal.run_created_at <= CURRENT_TIMESTAMP");
   });
 
   it("requires exactly one eligible terminal per current projection", async () => {
@@ -447,7 +462,7 @@ describe("listLeads", () => {
   });
 
   it("exposes only safe source-limit errors without SQL or internal data", async () => {
-    mocks.query.mockResolvedValueOnce(projectionRows(21));
+    mocks.query.mockResolvedValueOnce(projectionRows(1_001));
 
     const error = await listLeads({
       ...defaultQuery,

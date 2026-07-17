@@ -13,8 +13,9 @@ import type {
   DataQualityNotice,
   LeadAudit,
   LeadDetail,
+  LeadEvidenceContent,
   LeadInsightCollection,
-  LeadSensitiveContent,
+  LeadStrategicReportContent,
 } from "../../../../types/leads";
 
 interface LeadDetailEnvelope {
@@ -51,7 +52,14 @@ const insightStatuses = new Set([
   "unavailable",
   "omitted_by_policy",
 ]);
-const sensitiveContentStatuses = new Set([
+const strategicReportStatuses = new Set([
+  "available",
+  "missing",
+  "unavailable",
+  "omitted_by_policy",
+]);
+const evidenceContentStatuses = new Set([
+  "available",
   "missing",
   "unavailable",
   "omitted_by_policy",
@@ -136,15 +144,47 @@ function isLeadInsightCollection(
   return value.items === null;
 }
 
-function isLeadSensitiveContent(
+function isLeadEvidenceContent(
   value: unknown,
-): value is LeadSensitiveContent {
+): value is LeadEvidenceContent {
+  if (
+    !isRecord(value) ||
+    !isString(value.status) ||
+    !evidenceContentStatuses.has(value.status)
+  ) {
+    return false;
+  }
+
+  if (value.status !== "available") {
+    return value.content === null;
+  }
+
   return (
-    isRecord(value) &&
-    isString(value.status) &&
-    sensitiveContentStatuses.has(value.status) &&
-    value.content === null
+    Array.isArray(value.content) &&
+    value.content.every(
+      (item) =>
+        isRecord(item) &&
+        isString(item.title) &&
+        isNullableString(item.summary) &&
+        isNullableString(item.url),
+    )
   );
+}
+
+function isLeadStrategicReportContent(
+  value: unknown,
+): value is LeadStrategicReportContent {
+  if (
+    !isRecord(value) ||
+    !isString(value.status) ||
+    !strategicReportStatuses.has(value.status)
+  ) {
+    return false;
+  }
+
+  return value.status === "available"
+    ? isString(value.content) && value.content.trim().length > 0
+    : value.content === null;
 }
 
 function isDataQualityNotice(
@@ -203,8 +243,8 @@ function isLeadDetailEnvelope(value: unknown): value is LeadDetailEnvelope {
     isNullableInteger(lead.strategicAssetScore, 0, 100) &&
     isLeadInsightCollection(lead.riskFlags) &&
     isLeadInsightCollection(lead.positiveSignals) &&
-    isLeadSensitiveContent(lead.evidences) &&
-    isLeadSensitiveContent(lead.strategicReport) &&
+    isLeadEvidenceContent(lead.evidences) &&
+    isLeadStrategicReportContent(lead.strategicReport) &&
     isLeadAudit(lead.audit) &&
     Array.isArray(lead.dataQuality) &&
     lead.dataQuality.every(isDataQualityNotice)

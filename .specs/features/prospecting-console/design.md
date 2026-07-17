@@ -1,7 +1,7 @@
 # Prospecta Design
 
-**Spec:** `.specs/features/prospecting-console/spec.md`  
-**Context:** `.specs/features/prospecting-console/context.md`  
+**Spec:** `.specs/features/prospecting-console/spec.md`
+**Context:** `.specs/features/prospecting-console/context.md`
 **Status:** APPROVED FOR STAGED IMPLEMENTATION
 
 ## Current State
@@ -110,8 +110,10 @@ These are contractual component boundaries, not implementation tasks.
 
 ### Official n8n integration configuration
 
-- **Webhook URL:** server-only environment variable containing the complete
-  test or production n8n URL for the configured `empresaqui/import` path.
+- **Webhook URL:** server-only environment variable containing an approved
+  HTTPS n8n URL for the configured `empresaqui/import` path, or the exact
+  internal HTTP exception
+  `http://192.168.0.20:30098/webhook/empresaqui/import`.
 - **Current required setting:** `N8N_IMPORT_URL` only; it does not authorize a
   call while the import feature is disabled.
 - **Deferred authentication settings:** `N8N_HMAC_KEY_ID` and

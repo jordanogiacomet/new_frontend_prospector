@@ -127,6 +127,24 @@ describe("listLeadHistory", () => {
     expect(count.text).not.toMatch(/grupo_teste/i);
   });
 
+  it("includes test-marked history only for the explicit Demo 2 reader option", async () => {
+    mocks.query
+      .mockResolvedValueOnce([{ total: 0 }])
+      .mockResolvedValueOnce([]);
+
+    await listLeadHistory(syntheticCnpj, defaultPage, {
+      includeDemo2TestRuns: true,
+    });
+
+    const [count, data] = statements();
+    expect(count.text).toMatch(/AND\s+TRUE\s+AND\s+BTRIM\(history\.lead_run_id\)/i);
+    expect(data.text).toMatch(
+      /AND\s+TRUE\s+AND\s+current_terminal\.lead_run_id\s*~/i,
+    );
+    expect(count.text).toContain("history.processing_result = $2");
+    expect(data.text).toContain("current_terminal.processing_result = $2");
+  });
+
   it("preserves distinct decisions and run identifiers without grouping", async () => {
     mocks.query
       .mockResolvedValueOnce([{ total: 3 }])
@@ -224,6 +242,12 @@ describe("listLeadHistory", () => {
     await listLeadHistory(syntheticCnpj, defaultPage);
 
     const [, data] = statements();
+    expect(data.text).toMatch(
+      /history\.run_created_at\s+AS\s+created_at/i,
+    );
+    expect(data.text).not.toMatch(
+      /history\.created_at\s+AS\s+created_at/i,
+    );
     expect(data.text).toMatch(
       /ORDER BY\s+history\.created_at\s+DESC,\s+history\.id\s+DESC/i,
     );

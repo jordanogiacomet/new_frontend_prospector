@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { buildProductionRunPredicate } from "./production-run-predicate";
+import {
+  buildLeadRunVisibilityPredicate,
+  buildProductionRunPredicate,
+} from "./production-run-predicate";
 
 describe("buildProductionRunPredicate", () => {
   it("accepts a null test marker", () => {
@@ -45,5 +48,14 @@ describe("buildProductionRunPredicate", () => {
         "(run.test_case_id IS NULL OR run.test_case_id = 'SR_' || run.source_row)",
       ]),
     );
+  });
+
+  it("includes test-marked runs only when the Demo 2 option is explicit", () => {
+    expect(
+      buildLeadRunVisibilityPredicate("terminal", true),
+    ).toBe("TRUE");
+    expect(
+      buildLeadRunVisibilityPredicate("terminal"),
+    ).toBe(buildProductionRunPredicate("terminal"));
   });
 });

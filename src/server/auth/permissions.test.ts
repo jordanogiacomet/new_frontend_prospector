@@ -20,6 +20,7 @@ describe("permission policy", () => {
       "commercial:assign",
       "sensitive:read",
       "audit:read",
+      "costs:read",
     ]);
   });
 
@@ -89,9 +90,10 @@ describe("permission policy", () => {
   });
 
   it.each(["reader", "seller", "manager", "auditor"] as const)(
-    "does not grant sensitive access through the %s bundle",
+    "does not grant sensitive or cost access through the %s bundle",
     (bundle) => {
       expect(PERMISSION_BUNDLES[bundle]).not.toContain("sensitive:read");
+      expect(PERMISSION_BUNDLES[bundle]).not.toContain("costs:read");
     },
   );
 

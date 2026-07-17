@@ -9,7 +9,33 @@ const omittedReport: LeadDetail["strategicReport"] = {
   content: null,
 };
 
+const availableReport: LeadDetail["strategicReport"] = {
+  status: "available",
+  content: "Prioridade estratégica registrada para análise.",
+};
+
 describe("strategic report", () => {
+  it("renders a sanitized report supplied by the approved contract", () => {
+    render(<StrategicReport report={availableReport} />);
+
+    expect(
+      screen.getByRole("status", { name: "Relatório disponível" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Análise estratégica registrada"),
+    ).toBeInTheDocument();
+    expect(screen.getByText(availableReport.content)).toBeInTheDocument();
+    expect(screen.queryByText("Retido por política")).toBeNull();
+    expect(
+      screen.getByText("Conteúdo disponível para consulta nesta análise."),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText(
+        "Conteúdo sintético disponível para esta análise de demonstração.",
+      ),
+    ).toBeNull();
+  });
+
   it("renders the policy-omitted state in clear business language", () => {
     render(<StrategicReport report={omittedReport} />);
 

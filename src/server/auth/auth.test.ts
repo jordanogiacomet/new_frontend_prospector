@@ -8,6 +8,7 @@ vi.mock("server-only", () => ({}));
 import type { ServerEnv } from "../env";
 import {
   authorizeIdentityClaims,
+  authorizeRetainedActor,
   classifyServerSession,
   createDevelopmentAuthorization,
 } from "./authorization";
@@ -25,11 +26,18 @@ const environment: ServerEnv = {
   AUTH_OIDC_CLIENT_SECRET: "synthetic-client-secret",
   AUTH_ALLOWED_ORG_ID: "synthetic-organization",
   AUTH_DEV_BYPASS_ENABLED: false,
+  FEATURE_COSTS_ENABLED: false,
+  COSTS_READ_SUBJECTS: [],
+  DEMO2_FULL_ACCESS_ENABLED: false,
+  DEMO2_K8S_RUNTIME_ENABLED: false,
+  DEMO3_LOCAL_RUNTIME_ENABLED: false,
 };
 
 const policy = {
   issuer: environment.AUTH_OIDC_ISSUER,
   organizationId: environment.AUTH_ALLOWED_ORG_ID,
+  costsReadEnabled: environment.FEATURE_COSTS_ENABLED,
+  costsReadSubjects: environment.COSTS_READ_SUBJECTS,
 };
 
 const validClaims = {
@@ -99,7 +107,210 @@ describe("server authentication and authorization", () => {
         issuer: "urn:prospecta:local-demo",
         subject: "local-demo-user",
         organizationId: "synthetic-organization",
-        permissions: [],
+        permissions: ["leads:read", "commercial:read"],
+      },
+    });
+  });
+
+  it("creates a full-access actor only for the local Demo 2 profile", () => {
+    expect(
+      createDevelopmentAuthorization(
+        true,
+        "development",
+        "synthetic-organization",
+        false,
+        true,
+      ),
+    ).toEqual({
+      status: "authorized",
+      actor: {
+        issuer: "urn:prospecta:local-development",
+        subject: "local-development-user",
+        organizationId: "synthetic-organization",
+        permissions: [
+          "leads:read",
+          "imports:read",
+          "imports:create",
+          "commercial:read",
+          "commercial:write",
+          "commercial:assign",
+          "audit:read",
+        ],
+      },
+    });
+
+    expect(
+      createDevelopmentAuthorization(
+        true,
+        "production",
+        "synthetic-organization",
+        true,
+        true,
+      ),
+    ).toMatchObject({
+      actor: { permissions: ["leads:read", "commercial:read"] },
+    });
+  });
+
+  it("creates a full-access actor for the explicit Demo 2 Kubernetes runtime", () => {
+    expect(
+      createDevelopmentAuthorization(
+        true,
+        "production",
+        "synthetic-organization",
+        false,
+        true,
+        false,
+        false,
+        [],
+        true,
+      ),
+    ).toMatchObject({
+      actor: {
+        permissions: [
+          "leads:read",
+          "imports:read",
+          "imports:create",
+          "commercial:read",
+          "commercial:write",
+          "commercial:assign",
+          "audit:read",
+        ],
+      },
+    });
+  });
+
+  it("creates a flag-bounded full-access actor only for Demo 3 pre-production", () => {
+    expect(
+      createDevelopmentAuthorization(
+        true,
+        "production",
+        "synthetic-organization",
+        false,
+        false,
+        true,
+        true,
+        ["demo3-preproduction-user"],
+        false,
+        true,
+      ),
+    ).toEqual({
+      status: "authorized",
+      actor: {
+        issuer: "urn:prospecta:demo3-preproduction",
+        subject: "demo3-preproduction-user",
+        organizationId: "synthetic-organization",
+        permissions: [
+          "leads:read",
+          "imports:read",
+          "imports:create",
+          "commercial:read",
+          "commercial:write",
+          "commercial:assign",
+          "audit:read",
+          "sensitive:read",
+          "costs:read",
+        ],
+      },
+    });
+
+    expect(
+      createDevelopmentAuthorization(
+        true,
+        "production",
+        "synthetic-organization",
+        true,
+        false,
+        true,
+        true,
+        ["demo3-preproduction-user"],
+        false,
+        true,
+      ),
+    ).toMatchObject({
+      actor: { permissions: ["leads:read", "commercial:read"] },
+    });
+  });
+
+  it("adds sensitive access only when the Demo 2 feature is explicitly enabled", () => {
+    expect(
+      createDevelopmentAuthorization(
+        true,
+        "development",
+        "synthetic-organization",
+        false,
+        true,
+        true,
+      ),
+    ).toMatchObject({
+      actor: {
+        permissions: expect.arrayContaining(["sensitive:read"]),
+      },
+    });
+
+    expect(
+      createDevelopmentAuthorization(
+        true,
+        "production",
+        "synthetic-organization",
+        true,
+        true,
+        true,
+      ),
+    ).toMatchObject({
+      actor: { permissions: ["leads:read", "commercial:read"] },
+    });
+  });
+
+  it("grants Demo 2 cost access only with the feature and allowlisted subject", () => {
+    expect(
+      createDevelopmentAuthorization(
+        true,
+        "development",
+        "synthetic-organization",
+        false,
+        true,
+        false,
+        true,
+        ["local-development-user"],
+      ),
+    ).toMatchObject({
+      actor: {
+        permissions: expect.arrayContaining(["costs:read"]),
+      },
+    });
+
+    expect(
+      createDevelopmentAuthorization(
+        true,
+        "development",
+        "synthetic-organization",
+        false,
+        true,
+        false,
+        false,
+        ["local-development-user"],
+      ),
+    ).toMatchObject({
+      actor: {
+        permissions: expect.not.arrayContaining(["costs:read"]),
+      },
+    });
+
+    expect(
+      createDevelopmentAuthorization(
+        true,
+        "development",
+        "synthetic-organization",
+        false,
+        true,
+        false,
+        true,
+        [],
+      ),
+    ).toMatchObject({
+      actor: {
+        permissions: expect.not.arrayContaining(["costs:read"]),
       },
     });
   });
@@ -193,6 +404,50 @@ describe("server authentication and authorization", () => {
     });
   });
 
+  it("grants cost access only from the server-side feature and subject allowlist", () => {
+    const costsPolicy = {
+      ...policy,
+      costsReadEnabled: true,
+      costsReadSubjects: [validClaims.sub],
+    };
+
+    expect(authorizeIdentityClaims(validClaims, costsPolicy)).toEqual({
+      status: "authorized",
+      actor: {
+        ...authorizedActor,
+        permissions: ["costs:read"],
+      },
+    });
+
+    expect(
+      authorizeIdentityClaims(
+        {
+          ...validClaims,
+          permissions: ["costs:read"],
+        },
+        policy,
+      ),
+    ).toEqual({
+      status: "authorized",
+      actor: authorizedActor,
+    });
+
+    expect(
+      authorizeRetainedActor(
+        {
+          issuer: authorizedActor.issuer,
+          subject: authorizedActor.subject,
+          organizationId: authorizedActor.organizationId,
+          permissions: ["costs:read"],
+        },
+        policy,
+      ),
+    ).toEqual({
+      status: "authorized",
+      actor: authorizedActor,
+    });
+  });
+
   it("distinguishes an absent session", () => {
     expect(classifyServerSession(null, policy)).toEqual({
       status: "missing",
@@ -222,7 +477,8 @@ describe("server authentication and authorization", () => {
   });
 
   it("rejects a missing organization claim", () => {
-    const { org_id: _orgId, ...claims } = validClaims;
+    const claims: Record<string, unknown> = { ...validClaims };
+    delete claims.org_id;
 
     expect(authorizeIdentityClaims(claims, policy)).toEqual({
       status: "unauthorized",
@@ -267,7 +523,8 @@ describe("server authentication and authorization", () => {
   });
 
   it("rejects a missing subject", () => {
-    const { sub: _subject, ...claims } = validClaims;
+    const claims: Record<string, unknown> = { ...validClaims };
+    delete claims.sub;
 
     expect(authorizeIdentityClaims(claims, policy)).toEqual({
       status: "unauthorized",

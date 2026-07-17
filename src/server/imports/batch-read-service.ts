@@ -1,5 +1,6 @@
 import "server-only";
 
+import { getServerEnv } from "../env";
 import { mapBatchStatus } from "../mappers/batch-status-mapper";
 import {
   getImportSubmissionDetail,
@@ -18,6 +19,8 @@ import type {
 
 const APP_SUBMISSION_FACT_SOURCE = "app_submission";
 const WORKFLOW_ACKNOWLEDGEMENT_FACT_SOURCE = "workflow_acknowledgement";
+const BATCH_OBSERVATION_GATE_FACT_SOURCE =
+  "app_batch_observation_feature_gate";
 const MAX_ORGANIZATION_ID_LENGTH = 128;
 const MAX_PAGE = 10_000;
 
@@ -61,6 +64,7 @@ export interface BatchReadServiceOperations {
 
 export interface BatchReadServiceDependencies {
   readonly operations?: Partial<BatchReadServiceOperations>;
+  readonly batchObservationEnabled?: boolean;
 }
 
 export class BatchReadServiceInputError extends Error {
@@ -86,6 +90,7 @@ export async function listImportBatches(
   validateListInput(input);
 
   const operations = resolveOperations(dependencies);
+  const batchObservationEnabled = resolveBatchObservationEnabled(dependencies);
   const result = await operations.listImportSubmissions({
     organizationId: input.organizationId,
     page: input.page,
@@ -93,7 +98,11 @@ export async function listImportBatches(
   });
   const batches = await Promise.all(
     result.submissions.map((submission) =>
-      composeBatchSummary(submission, operations),
+      composeBatchSummary(
+        submission,
+        operations,
+        batchObservationEnabled,
+      ),
     ),
   );
 
@@ -112,6 +121,7 @@ export async function getImportBatchDetail(
   validateDetailInput(input);
 
   const operations = resolveOperations(dependencies);
+  const batchObservationEnabled = resolveBatchObservationEnabled(dependencies);
   const result = await operations.getImportSubmissionDetail({
     organizationId: input.organizationId,
     submissionId: input.submissionId,
@@ -123,7 +133,11 @@ export async function getImportBatchDetail(
 
   return {
     kind: "found",
-    batch: await composeBatchSummary(result.submission, operations),
+    batch: await composeBatchSummary(
+      result.submission,
+      operations,
+      batchObservationEnabled,
+    ),
   };
 }
 
@@ -136,13 +150,24 @@ function resolveOperations(
   };
 }
 
+function resolveBatchObservationEnabled(
+  dependencies: BatchReadServiceDependencies,
+): boolean {
+  return (
+    dependencies.batchObservationEnabled ??
+    getServerEnv().FEATURE_BATCH_OBSERVATION_ENABLED
+  );
+}
+
 async function composeBatchSummary(
   submission: ImportSubmissionReadModel,
   operations: BatchReadServiceOperations,
+  batchObservationEnabled: boolean,
 ): Promise<BatchSummary> {
   const producerObservations = await readCorrelatedProducerObservations(
     submission,
     operations,
+    batchObservationEnabled,
   );
 
   return operations.mapBatchStatus({
@@ -157,7 +182,12 @@ async function composeBatchSummary(
 async function readCorrelatedProducerObservations(
   submission: ImportSubmissionReadModel,
   operations: BatchReadServiceOperations,
+  batchObservationEnabled: boolean,
 ): Promise<BatchProducerObservationFacts | null> {
+  if (!batchObservationEnabled) {
+    return unavailableProducerObservations();
+  }
+
   const importBatchId = correlatedImportBatchId(submission);
 
   if (importBatchId === null) {
@@ -167,6 +197,19 @@ async function readCorrelatedProducerObservations(
   return operations.readProducerBatchObservations({
     import_batch_id: importBatchId,
   });
+}
+
+function unavailableProducerObservations(): BatchProducerObservationFacts {
+  return {
+    factSource: BATCH_OBSERVATION_GATE_FACT_SOURCE,
+    availability: "UNAVAILABLE",
+    unavailableBasis: "PRODUCER_SOURCE_UNAVAILABLE",
+    lastObservedAt: null,
+    acceptedRows: [],
+    terminalOutcomes: [],
+    close: null,
+    retainedLegacyObservations: [],
+  };
 }
 
 function mapSubmissionFact(

@@ -138,8 +138,19 @@ function InsightState({ collection, kind }: InsightStateProps) {
 }
 
 function EvidenceState({ evidence }: EvidenceStateProps) {
+  const hasContent =
+    evidence.status === "available" && evidence.content.length > 0;
   const copy =
-    evidence.status === "missing"
+    evidence.status === "available"
+      ? {
+          label: hasContent
+            ? "Evidências registradas"
+            : "Sem evidências registradas",
+          description: hasContent
+            ? "A análise armazenada contém evidências aprovadas para esta visualização."
+            : "A análise armazenada contém uma coleção vazia de evidências.",
+        }
+      : evidence.status === "missing"
       ? {
           label: "Evidências ausentes",
           description:
@@ -169,6 +180,31 @@ function EvidenceState({ evidence }: EvidenceStateProps) {
       <p className="mt-2 max-w-xl text-sm leading-6">
         {copy.description}
       </p>
+      {hasContent ? (
+        <ul className="mt-4 grid gap-3 text-sm leading-6">
+          {evidence.content.map((item, index) => (
+            <li
+              key={`${item.title}-${index}`}
+              className="border-l-2 border-current pl-3"
+            >
+              <p className="font-semibold">{item.title}</p>
+              {item.summary === null ? null : (
+                <p className="mt-1">{item.summary}</p>
+              )}
+              {item.url === null ? null : (
+                <a
+                  className="mt-2 inline-flex font-semibold underline underline-offset-4"
+                  href={item.url}
+                  target="_blank"
+                  rel="noreferrer noopener"
+                >
+                  Abrir fonte aprovada
+                </a>
+              )}
+            </li>
+          ))}
+        </ul>
+      ) : null}
     </div>
   );
 }

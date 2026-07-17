@@ -3,13 +3,28 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-const navigationItems = [
-  { href: "/leads", label: "Leads" },
-  { href: "/imports", label: "Importações" },
-] as const;
+interface PrivateNavigationProps {
+  readonly showCommercial: boolean;
+  readonly showCosts: boolean;
+  readonly showImports: boolean;
+  readonly showLeads: boolean;
+}
 
-export function PrivateNavigation() {
+export function PrivateNavigation({
+  showCommercial,
+  showCosts,
+  showImports,
+  showLeads,
+}: PrivateNavigationProps) {
   const pathname = usePathname();
+  const visibleNavigationItems = [
+    showLeads ? { href: "/leads", label: "Leads" } : null,
+    showCommercial
+      ? { href: "/work-queue", label: "Fila comercial" }
+      : null,
+    showImports ? { href: "/imports", label: "Importações" } : null,
+    showCosts ? { href: "/costs", label: "Custos" } : null,
+  ].filter((item): item is { href: string; label: string } => item !== null);
 
   return (
     <nav
@@ -17,7 +32,7 @@ export function PrivateNavigation() {
       className="ml-auto lg:ml-0 lg:mt-14"
     >
       <ul className="flex flex-wrap gap-x-6 gap-y-2 lg:block">
-        {navigationItems.map((item) => {
+        {visibleNavigationItems.map((item) => {
           const current =
             pathname === item.href || pathname.startsWith(`${item.href}/`);
 

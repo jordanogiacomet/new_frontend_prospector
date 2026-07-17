@@ -8,8 +8,11 @@ import {
   mapApiError,
   paginatedSuccessResponse,
 } from "../../../../../server/api/errors";
-import { requireApiSession } from "../../../../../server/auth/require-api-session";
-import { isDemoDataEnabled } from "../../../../../server/demo/mode";
+import { requirePermission } from "../../../../../server/auth/require-api-session";
+import {
+  isDemo2TestRunVisibilityEnabled,
+  isDemoDataEnabled,
+} from "../../../../../server/demo/mode";
 import { listDemoLeadHistory } from "../../../../../server/demo/prospecta-demo-data";
 import { listLeadHistory } from "../../../../../server/repositories/lead-history-repository";
 
@@ -26,7 +29,7 @@ export async function GET(
   context: LeadHistoryRouteContext,
 ): Promise<NextResponse> {
   try {
-    await requireApiSession();
+    await requirePermission("leads:read");
 
     const { cnpj } = leadDetailParamsSchema.parse(
       await context.params,
@@ -42,7 +45,11 @@ export async function GET(
       caveat,
     } = isDemoDataEnabled()
       ? listDemoLeadHistory(cnpj, query)
-      : await listLeadHistory(cnpj, query);
+      : isDemo2TestRunVisibilityEnabled()
+        ? await listLeadHistory(cnpj, query, {
+            includeDemo2TestRuns: true,
+          })
+        : await listLeadHistory(cnpj, query);
 
     return NextResponse.json(
       paginatedSuccessResponse(history, {

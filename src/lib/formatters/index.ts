@@ -3,11 +3,22 @@ export const UNAVAILABLE_LABEL = "Não disponível";
 const CNPJ_PATTERN = /^\d{14}$/;
 const ISO_UTC_PATTERN =
   /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?Z$/;
+const USD_ESTIMATED_COST_PATTERN = /^(0|[1-9]\d{0,29})(?:\.(\d{1,8}))?$/;
 
 const brazilianDateFormatter = new Intl.DateTimeFormat("pt-BR", {
   day: "2-digit",
   month: "2-digit",
   year: "numeric",
+  timeZone: "America/Sao_Paulo",
+});
+
+const brazilianDateTimeFormatter = new Intl.DateTimeFormat("pt-BR", {
+  day: "2-digit",
+  month: "2-digit",
+  year: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+  hour12: false,
   timeZone: "America/Sao_Paulo",
 });
 
@@ -82,12 +93,39 @@ export function formatBrazilianDate(value: string | null): string {
   return brazilianDateFormatter.format(new Date(value));
 }
 
+export function formatBrazilianDateTime(value: string | null): string {
+  if (typeof value !== "string" || !isValidIsoUtcTimestamp(value)) {
+    return UNAVAILABLE_LABEL;
+  }
+
+  return brazilianDateTimeFormatter.format(new Date(value));
+}
+
 export function formatBrlCurrency(value: number | null): string {
   if (typeof value !== "number" || !Number.isFinite(value)) {
     return UNAVAILABLE_LABEL;
   }
 
   return brlCurrencyFormatter.format(value);
+}
+
+export function formatUsdEstimatedCost(value: string | null): string {
+  if (typeof value !== "string") {
+    return UNAVAILABLE_LABEL;
+  }
+
+  const match = USD_ESTIMATED_COST_PATTERN.exec(value);
+
+  if (!match) {
+    return UNAVAILABLE_LABEL;
+  }
+
+  const [, integerPart, fractionalPart = ""] = match;
+  const significantFraction = fractionalPart.replace(/0+$/, "");
+  const formattedFraction = significantFraction.padEnd(2, "0");
+  const formattedInteger = integerPart.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+
+  return `US$\u00a0${formattedInteger},${formattedFraction}`;
 }
 
 export function formatScore(value: number | null): string {

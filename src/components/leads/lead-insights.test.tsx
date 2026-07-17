@@ -270,6 +270,35 @@ describe("lead facts and insights", () => {
     expect(within(evidence).queryByRole("link")).toBeNull();
   });
 
+  it("renders only validated evidence fields in a safe external link", () => {
+    renderInsights({
+      evidences: {
+        status: "available",
+        content: [
+          {
+            title: "Fonte sintética aprovada",
+            summary: "Resumo sintético aprovado",
+            url: "https://evidence.example.com/source/1",
+          },
+        ],
+      },
+    });
+
+    const evidence = screen.getByRole("region", { name: "Evidências" });
+    const link = within(evidence).getByRole("link", {
+      name: "Abrir fonte aprovada",
+    });
+
+    expect(evidence).toHaveTextContent("Fonte sintética aprovada");
+    expect(evidence).toHaveTextContent("Resumo sintético aprovado");
+    expect(link).toHaveAttribute(
+      "href",
+      "https://evidence.example.com/source/1",
+    );
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(link).toHaveAttribute("rel", "noreferrer noopener");
+  });
+
   it("ignores malformed or unsafe evidence extras supplied at runtime", () => {
     const leadWithUnapprovedEvidence = {
       ...completeLead,

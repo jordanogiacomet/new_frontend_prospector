@@ -19,6 +19,12 @@ const developmentAuthorization = createDevelopmentAuthorization(
   process.env.NODE_ENV,
   environment.AUTH_ALLOWED_ORG_ID,
   environment.FEATURE_DEMO_DATA_ENABLED,
+  environment.DEMO2_FULL_ACCESS_ENABLED,
+  environment.FEATURE_SENSITIVE_CONTENT_ENABLED,
+  environment.FEATURE_COSTS_ENABLED,
+  environment.COSTS_READ_SUBJECTS,
+  environment.DEMO2_K8S_RUNTIME_ENABLED,
+  environment.DEMO3_LOCAL_RUNTIME_ENABLED,
 );
 const authentication = NextAuth(
   createAuthConfig(

@@ -217,6 +217,25 @@ describe("getLeadDetail", () => {
     expect(statement().text).not.toMatch(/execution_mode|PRODUCTION_E2E/i);
   });
 
+  it("includes test-marked runs only for the explicit Demo 2 reader option", async () => {
+    mocks.query.mockResolvedValueOnce([]);
+
+    await getLeadDetail(
+      syntheticCnpj,
+      undefined,
+      undefined,
+      { includeDemo2TestRuns: true },
+    );
+
+    expect(statement().text).toMatch(
+      /AND\s+TRUE\s+AND\s+terminal\.lead_run_id/i,
+    );
+    expect(statement().text).toContain("terminal.processing_result = $3");
+    expect(statement().text).toContain(
+      "terminal.run_created_at <= CURRENT_TIMESTAMP",
+    );
+  });
+
   it("requires exactly one eligible terminal row per projection", async () => {
     mocks.query.mockResolvedValueOnce([]);
 
@@ -275,7 +294,7 @@ describe("getLeadDetail", () => {
     expect(statement().text).toMatch(/\bLIMIT\s+1\b/i);
   });
 
-  it("does not query report, evidence, raw, JSON, or integrity-error content", async () => {
+  it("does not select sensitive columns without server-sensitive access", async () => {
     mocks.query.mockResolvedValueOnce([syntheticRow]);
 
     const detail = await getLeadDetail(syntheticCnpj);
@@ -286,6 +305,69 @@ describe("getLeadDetail", () => {
     );
     expect(detail?.evidences.status).toBe("omitted_by_policy");
     expect(detail?.strategicReport.status).toBe("omitted_by_policy");
+  });
+
+  it("selects only the approved sensitive columns with server-sensitive access", async () => {
+    mocks.query.mockResolvedValueOnce([
+      {
+        ...syntheticRow,
+        risk_flags: ["Synthetic operational risk"],
+        positive_signals: ["Synthetic positive signal"],
+        evidences: [
+          {
+            title: "Synthetic source",
+            summary: "Synthetic approved summary",
+            url: "https://evidence.example.com/source/1",
+          },
+        ],
+        strategic_report_match_count: 1,
+        strategic_report_integrity_status: "OK",
+        strategic_report_expires_at: "2026-07-30T00:00:00.000Z",
+        strategic_report_markdown: "Synthetic strategic report",
+      },
+    ]);
+
+    const detail = await getLeadDetail(syntheticCnpj, undefined, {
+      enabled: true,
+      allowedUrlHosts: ["evidence.example.com"],
+      now: new Date("2026-07-01T00:00:00.000Z"),
+    });
+    const sql = statement().text;
+
+    expect(sql).toMatch(/company_validations\.risk_flags/i);
+    expect(sql).toMatch(/company_validations\.positive_signals/i);
+    expect(sql).toMatch(/company_validations\.evidences/i);
+    expect(sql).toMatch(
+      /company_strategic_research_reports AS report/i,
+    );
+    expect(sql).toMatch(/report\.report_markdown/i);
+    expect(sql).not.toMatch(
+      /report_json|raw_payload|search_queries|agent_summary|crm_history|integrity_error|#>>|->>/i,
+    );
+    expect(detail).toMatchObject({
+      riskFlags: {
+        status: "available",
+        items: ["Synthetic operational risk"],
+      },
+      positiveSignals: {
+        status: "available",
+        items: ["Synthetic positive signal"],
+      },
+      evidences: {
+        status: "available",
+        content: [
+          {
+            title: "Synthetic source",
+            summary: "Synthetic approved summary",
+            url: "https://evidence.example.com/source/1",
+          },
+        ],
+      },
+      strategicReport: {
+        status: "available",
+        content: "Synthetic strategic report",
+      },
+    });
   });
 
   it("does not infer absence, integrity, or multiplicity from unqueried content", async () => {

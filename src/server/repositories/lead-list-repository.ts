@@ -14,9 +14,9 @@ import {
   mapLeadSummary,
   type LeadSummaryRow,
 } from "../mappers/lead-summary-mapper";
-import { buildProductionRunPredicate } from "./production-run-predicate";
+import { buildLeadRunVisibilityPredicate } from "./production-run-predicate";
 
-const maximumCurrentProjections = 20;
+const maximumCurrentProjections = 1_000;
 const sourceGuardLimit = maximumCurrentProjections + 1;
 
 const sourceGuardStatement: SqlStatement = {
@@ -26,7 +26,8 @@ LIMIT $1`,
   values: [sourceGuardLimit],
 };
 
-const eligibleCurrentCte = `WITH current_terminal_candidates AS (
+function buildEligibleCurrentCte(includeDemo2TestRuns = false): string {
+  return `WITH current_terminal_candidates AS (
   SELECT
     terminal.id::text AS decision_id,
     terminal.import_batch_id,
@@ -60,7 +61,7 @@ const eligibleCurrentCte = `WITH current_terminal_candidates AS (
     AND company_validations.validated_at <= CURRENT_TIMESTAMP
     AND terminal.integrity_status = $1
     AND terminal.processing_result = $3
-    AND ${buildProductionRunPredicate("terminal")}
+    AND ${buildLeadRunVisibilityPredicate("terminal", includeDemo2TestRuns)}
     AND terminal.lead_run_id ~ $5
     AND terminal.cnpj_normalizado = company_validations.cnpj_normalizado
     AND terminal.import_batch_id IS NOT DISTINCT FROM company_validations.last_import_batch_id
@@ -91,6 +92,7 @@ eligible_current AS (
   FROM current_terminal_candidates
   WHERE current_terminal_candidates.terminal_count = $6
 )`;
+}
 
 const baseValues: readonly unknown[] = [
   "OK",
@@ -112,6 +114,10 @@ interface LeadCountRow {
 export interface LeadListResult {
   readonly leads: LeadSummary[];
   readonly total: number;
+}
+
+export interface LeadListOptions {
+  readonly includeDemo2TestRuns?: boolean;
 }
 
 interface FilterStatements {
@@ -147,9 +153,12 @@ function buildFilters(input: LeadListQuery): FilterStatements {
   };
 }
 
-function buildCountStatement(filters: FilterStatements): SqlStatement {
+function buildCountStatement(
+  filters: FilterStatements,
+  options: LeadListOptions,
+): SqlStatement {
   return {
-    text: `${eligibleCurrentCte}
+    text: `${buildEligibleCurrentCte(options.includeDemo2TestRuns)}
 SELECT COUNT(*)::integer AS total
 FROM eligible_current AS lead${filters.clause}`,
     values: filters.values,
@@ -159,6 +168,7 @@ FROM eligible_current AS lead${filters.clause}`,
 function buildDataStatement(
   filters: FilterStatements,
   input: LeadListQuery,
+  options: LeadListOptions,
 ): SqlStatement {
   const values = [...filters.values, input.pageSize];
   const limitParameter = `$${values.length}`;
@@ -166,7 +176,7 @@ function buildDataStatement(
   const offsetParameter = `$${values.length}`;
 
   return {
-    text: `${eligibleCurrentCte}
+    text: `${buildEligibleCurrentCte(options.includeDemo2TestRuns)}
 SELECT
   lead.decision_id,
   lead.import_batch_id,
@@ -203,6 +213,7 @@ function isValidTotal(total: unknown): total is number {
 
 export async function listLeads(
   input: LeadListQuery,
+  options: LeadListOptions = {},
 ): Promise<LeadListResult> {
   const sourceRows = await databaseQuery<SourceGuardRow>(sourceGuardStatement);
 
@@ -212,7 +223,7 @@ export async function listLeads(
 
   const filters = buildFilters(input);
   const [countRow] = await databaseQuery<LeadCountRow>(
-    buildCountStatement(filters),
+    buildCountStatement(filters, options),
   );
 
   if (!countRow || !isValidTotal(countRow.total)) {
@@ -220,7 +231,7 @@ export async function listLeads(
   }
 
   const rows = await databaseQuery<LeadSummaryRow>(
-    buildDataStatement(filters, input),
+    buildDataStatement(filters, input, options),
   );
 
   return {

@@ -10,7 +10,8 @@ import {
   mapLeadDetail,
   type LeadDetailRow,
 } from "../mappers/lead-detail-mapper";
-import { buildProductionRunPredicate } from "./production-run-predicate";
+import type { SensitiveContentAccess } from "../mappers/lead-sensitive-content";
+import { buildLeadRunVisibilityPredicate } from "./production-run-predicate";
 
 const baseValues: readonly unknown[] = [
   "OK",
@@ -24,8 +25,48 @@ const baseValues: readonly unknown[] = [
 function buildDetailStatement(
   cnpj: string,
   leadRunId?: string,
+  includeSensitiveContent = false,
+  includeDemo2TestRuns = false,
 ): SqlStatement {
   const values: unknown[] = [...baseValues, cnpj];
+  const strategicReportCte = includeSensitiveContent
+    ? `,
+report_detail AS (
+  SELECT
+    eligible_detail.*,
+    strategic_report.strategic_report_match_count,
+    strategic_report.strategic_report_markdown,
+    strategic_report.strategic_report_integrity_status,
+    strategic_report.strategic_report_expires_at
+  FROM eligible_detail
+  LEFT JOIN LATERAL (
+    SELECT
+      COUNT(report.lead_run_id)::integer AS strategic_report_match_count,
+      CASE
+        WHEN COUNT(report.lead_run_id) = 1
+          AND BOOL_AND(report.integrity_status = $1)
+          THEN MAX(report.report_markdown)
+        ELSE NULL
+      END AS strategic_report_markdown,
+      CASE
+        WHEN COUNT(report.lead_run_id) = 1
+          THEN MAX(report.integrity_status)
+        ELSE NULL
+      END AS strategic_report_integrity_status,
+      CASE
+        WHEN COUNT(report.lead_run_id) = 1
+          THEN MAX(report.expires_at)
+        ELSE NULL
+      END AS strategic_report_expires_at
+    FROM public.company_strategic_research_reports AS report
+    WHERE report.lead_run_id = eligible_detail.lead_run_id
+      AND report.cnpj = eligible_detail.cnpj_normalizado
+  ) AS strategic_report ON TRUE
+)`
+    : "";
+  const detailSource = includeSensitiveContent
+    ? "report_detail"
+    : "eligible_detail";
   const exactRunClause =
     leadRunId === undefined
       ? ""
@@ -67,6 +108,9 @@ function buildDetailStatement(
     company_validations.created_at,
     company_validations.updated_at,
     company_validations.expires_at,
+    ${includeSensitiveContent ? "company_validations.risk_flags," : ""}
+    ${includeSensitiveContent ? "company_validations.positive_signals," : ""}
+    ${includeSensitiveContent ? "company_validations.evidences," : ""}
     company_validations.id AS projection_id,
     COUNT(*) OVER (
       PARTITION BY company_validations.id
@@ -82,7 +126,7 @@ function buildDetailStatement(
     AND company_validations.validated_at <= CURRENT_TIMESTAMP
     AND terminal.integrity_status = $1
     AND terminal.processing_result = $3
-    AND ${buildProductionRunPredicate("terminal")}
+    AND ${buildLeadRunVisibilityPredicate("terminal", includeDemo2TestRuns)}
     AND terminal.lead_run_id ~ $5
     AND terminal.cnpj_normalizado = company_validations.cnpj_normalizado
     AND terminal.import_batch_id IS NOT DISTINCT FROM company_validations.last_import_batch_id
@@ -96,6 +140,7 @@ eligible_detail AS (
   FROM detail_candidates
   WHERE detail_candidates.terminal_count = $6
 )
+${strategicReportCte}
 SELECT
   detail.decision_id,
   detail.import_batch_id,
@@ -129,8 +174,8 @@ SELECT
   detail.validated_at,
   detail.created_at,
   detail.updated_at,
-  detail.expires_at
-FROM eligible_detail AS detail
+  detail.expires_at${includeSensitiveContent ? ",\n  detail.risk_flags,\n  detail.positive_signals,\n  detail.evidences,\n  detail.strategic_report_match_count,\n  detail.strategic_report_markdown,\n  detail.strategic_report_integrity_status,\n  detail.strategic_report_expires_at" : ""}
+FROM ${detailSource} AS detail
 ORDER BY detail.validated_at DESC, detail.projection_id DESC
 LIMIT 1`,
     values,
@@ -140,10 +185,21 @@ LIMIT 1`,
 export async function getLeadDetail(
   cnpj: string,
   leadRunId?: string,
+  sensitiveAccess: SensitiveContentAccess = {
+    enabled: false,
+    allowedUrlHosts: [],
+    now: new Date(),
+  },
+  options: { readonly includeDemo2TestRuns?: boolean } = {},
 ): Promise<LeadDetail | null> {
   const [row] = await databaseQuery<LeadDetailRow>(
-    buildDetailStatement(cnpj, leadRunId),
+    buildDetailStatement(
+      cnpj,
+      leadRunId,
+      sensitiveAccess.enabled,
+      options.includeDemo2TestRuns,
+    ),
   );
 
-  return row ? mapLeadDetail(row) : null;
+  return row ? mapLeadDetail(row, sensitiveAccess) : null;
 }

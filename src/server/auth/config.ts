@@ -37,6 +37,8 @@ export function createAuthorizationPolicy(
   return {
     issuer: environment.AUTH_OIDC_ISSUER,
     organizationId: environment.AUTH_ALLOWED_ORG_ID,
+    costsReadEnabled: environment.FEATURE_COSTS_ENABLED,
+    costsReadSubjects: environment.COSTS_READ_SUBJECTS,
   };
 }
 

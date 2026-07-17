@@ -16,6 +16,12 @@ const producerReadPassword = "prospecta-producer-read-synthetic-password";
 const forwardSql = readSql("001_app_schema_forward.sql");
 const rollbackSql = readSql("002_app_schema_rollback.sql");
 const grantsSql = readSql("003_app_schema_grants.sql");
+const auditRedactionSql = readSql(
+  "004_commercial_audit_redaction_forward.sql",
+);
+const auditRequestContextSql = readSql(
+  "005_commercial_audit_request_context_forward.sql",
+);
 const disposableTargets = [
   {
     hostname: "localhost",
@@ -132,6 +138,8 @@ async function resetDisposableDatabase(): Promise<void> {
   await execute(`DROP SCHEMA IF EXISTS ${producerLikeSchema} CASCADE`);
   await resetSyntheticRoles();
   await execute(forwardSql);
+  await execute(auditRedactionSql);
+  await execute(auditRequestContextSql);
   await execute(grantsSql);
   await createProducerLikeObjects();
 }
@@ -517,6 +525,9 @@ async function insertAppendOnlyRows(client: Pool = pool): Promise<AppendOnlyRowI
         organization_id,
         workspace_id,
         actor_subject,
+        actor_issuer,
+        request_correlation_id,
+        authorization_basis,
         action,
         target_type,
         target_id,
@@ -525,13 +536,16 @@ async function insertAppendOnlyRows(client: Pool = pool): Promise<AppendOnlyRowI
         new_metadata,
         metadata
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $3, $7, $8, $9, $10)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $3, $10, $11, $12, $13)
     `,
     [
       auditEventId,
       "org-synthetic-a",
       workspaceId,
       "oidc|synthetic-manager",
+      "https://identity.synthetic.test/tenant",
+      "00000000-0000-4000-8000-000000000901",
+      "verified_oidc",
       "STAGE_CHANGED",
       "lead_workspace",
       "lead-run-append-only-001",
@@ -1027,6 +1041,9 @@ describe("Prospecta app-owned schema migration", () => {
           organization_id,
           workspace_id,
           actor_subject,
+          actor_issuer,
+          request_correlation_id,
+          authorization_basis,
           action,
           target_type,
           target_id,
@@ -1035,13 +1052,16 @@ describe("Prospecta app-owned schema migration", () => {
           new_metadata,
           metadata
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $3, $7, $8, $9, $10)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $3, $10, $11, $12, $13)
       `,
       [
         syntheticUuid(501),
         "org-synthetic-a",
         syntheticUuid(101),
         "oidc|synthetic-manager",
+        "https://identity.synthetic.test/tenant",
+        "00000000-0000-4000-8000-000000000902",
+        "verified_oidc",
         "STAGE_CHANGED",
         "lead_workspace",
         "lead-run-synthetic-001",
@@ -1059,18 +1079,24 @@ describe("Prospecta app-owned schema migration", () => {
             organization_id,
             workspace_id,
             actor_subject,
+            actor_issuer,
+            request_correlation_id,
+            authorization_basis,
             action,
             target_type,
             target_id,
             metadata
           )
-          VALUES ($1, $2, $3, $4, $5, $6, $3, $7)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $3, $10)
         `,
         [
           syntheticUuid(502),
           "org-synthetic-a",
           syntheticUuid(101),
           "oidc|synthetic-manager",
+          "https://identity.synthetic.test/tenant",
+          "00000000-0000-4000-8000-000000000903",
+          "verified_oidc",
           "NOTE_APPENDED",
           "lead_note",
           { note_body: "conteudo proibido" },

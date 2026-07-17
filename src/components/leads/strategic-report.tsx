@@ -15,6 +15,8 @@ const stateAppearance: Record<
   StrategicReportDisplayState["status"],
   string
 > = {
+  available:
+    "border-[oklch(72%_0.075_174)] bg-[oklch(94%_0.035_174)] text-[oklch(32%_0.09_174)]",
   omitted_by_policy:
     "border-[oklch(77%_0.07_77)] bg-[oklch(96%_0.025_77)] text-[oklch(36%_0.065_62)]",
   missing:
@@ -25,7 +27,14 @@ const stateAppearance: Record<
 
 export function StrategicReport({ report }: StrategicReportProps) {
   const copy =
-    report.status === "omitted_by_policy"
+    report.status === "available"
+      ? {
+          label: "Relatório disponível",
+          title: "Análise estratégica registrada",
+          description: "Conteúdo disponível para consulta nesta análise.",
+          note: null,
+        }
+      : report.status === "omitted_by_policy"
       ? {
           label: "Retido por política",
           title: "Conteúdo não exibido",
@@ -81,6 +90,11 @@ export function StrategicReport({ report }: StrategicReportProps) {
           <p className="mt-3 max-w-2xl text-sm leading-6">
             {copy.description}
           </p>
+          {report.status === "available" ? (
+            <p className="mt-5 max-w-2xl whitespace-pre-wrap border-t border-current/20 pt-4 text-sm leading-6">
+              {report.content}
+            </p>
+          ) : null}
           {copy.note === null ? null : (
             <p className="mt-3 max-w-2xl border-t border-current/20 pt-3 text-xs leading-5">
               {copy.note}

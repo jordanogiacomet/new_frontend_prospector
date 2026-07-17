@@ -113,10 +113,12 @@ export does not consume `submission_id`, upload-level `idempotency_key`,
 ## Current App Configuration Boundary
 
 - `N8N_IMPORT_URL` is the only required n8n setting in this phase.
-- It may be an absolute HTTP or HTTPS URL without credentials, query, or
-  fragment, and must use the standard n8n production
-  `/webhook/empresaqui/import` or test
+- HTTPS may use an absolute URL without credentials, query, or fragment and
+  must use the standard n8n production `/webhook/empresaqui/import` or test
   `/webhook-test/empresaqui/import` form.
+- HTTP is accepted only for the exact approved internal target
+  `http://192.168.0.20:30098/webhook/empresaqui/import`. No other HTTP host,
+  port, path, query, fragment, credentials, or test-webhook form is allowed.
 - `N8N_HMAC_KEY_ID` and `N8N_HMAC_SECRET` are optional, server-only, unused
   deferred-hardening placeholders. Their presence does not mean the current
   workflow authenticates or validates HMAC and must not cause a client to emit
@@ -131,8 +133,8 @@ export does not consume `submission_id`, upload-level `idempotency_key`,
 
 The direct T019 harness uses `N8N_CONTRACT_URL` and requires
 `N8N_CONTRACT_ALLOW_INSECURE_HTTP=true` for the scoped internal HTTP target.
-`N8N_IMPORT_URL` now accepts the same internal HTTP URL without an additional
-flag. Both settings remain server-only.
+`N8N_IMPORT_URL` accepts only that exact internal HTTP target without an
+additional flag. Both settings remain server-only.
 
 Run it with process-only test configuration:
 

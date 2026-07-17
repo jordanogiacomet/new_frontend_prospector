@@ -9,7 +9,7 @@ import {
   type ValidationErrorDetail,
 } from "../../../server/api/errors";
 import {
-  requireApiSession,
+  requirePermission,
   requireSameOrigin,
 } from "../../../server/auth/require-api-session";
 import { isDemoDataEnabled } from "../../../server/demo/mode";
@@ -17,6 +17,7 @@ import {
   listDemoImportBatches,
   submitDemoImport,
 } from "../../../server/demo/prospecta-demo-data";
+import { recordDemo3Import } from "../../../server/demo/demo3-import";
 import { getServerEnv } from "../../../server/env";
 import { listImportBatches } from "../../../server/imports/batch-read-service";
 import {
@@ -25,14 +26,13 @@ import {
   type SubmitImportResult,
 } from "../../../server/imports/submit-import";
 import {
-  MAX_UPLOAD_BYTES,
   UploadFileValidationError,
 } from "../../../server/imports/upload-file";
 import type { ImportSubmissionRecord } from "../../../server/repositories/imports/import-submissions-repository";
 
 const uploadFieldName = "arquivo_csv";
 const idempotencyHeaderName = "idempotency-key";
-const maximumMultipartBytes = MAX_UPLOAD_BYTES + 64 * 1024;
+const multipartEnvelopeAllowanceBytes = 64 * 1024;
 const defaultPage = 1;
 const defaultPageSize = 20;
 const maximumPage = 10_000;
@@ -74,11 +74,21 @@ interface ImportRouteErrorResponse {
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
-    const authorization = await requireApiSession();
-    requireImportsFeatureEnabled();
+    const authorization = await requirePermission("imports:read");
+    const environment = requireImportsFeatureEnabled();
 
     const query = parseImportListQuery(request.nextUrl.searchParams);
-    const result = isDemoDataEnabled()
+    const result =
+      environment.DEMO3_LOCAL_RUNTIME_ENABLED && isDemoDataEnabled()
+      ? await listImportBatches(
+          {
+            organizationId: authorization.actor.organizationId,
+            page: query.page,
+            pageSize: query.pageSize,
+          },
+          { batchObservationEnabled: false },
+        )
+      : isDemoDataEnabled()
       ? listDemoImportBatches({
           page: query.page,
           pageSize: query.pageSize,
@@ -109,17 +119,27 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
-    const authorization = await requireApiSession();
+    const authorization = await requirePermission("imports:create");
     requireSameOrigin(request);
-    requireImportsFeatureEnabled();
+    const environment = requireImportsFeatureEnabled();
+    const maximumUploadBytes = environment.IMPORT_MAX_BYTES;
 
     const idempotencyKey = readIdempotencyKey(request);
     requireMultipartRequest(request);
-    requireBoundedContentLength(request);
+    requireBoundedContentLength(request, maximumUploadBytes);
 
     const formData = await readFormData(request);
     const file = extractSingleUploadFile(formData);
-    const result = isDemoDataEnabled()
+    requireBoundedFileSize(file, maximumUploadBytes);
+    const result =
+      environment.DEMO3_LOCAL_RUNTIME_ENABLED && isDemoDataEnabled()
+      ? await recordDemo3Import({
+          organizationId: authorization.actor.organizationId,
+          actor: authorization.actor,
+          idempotencyKey,
+          file,
+        })
+      : isDemoDataEnabled()
       ? await submitDemoImport({
           organizationId: authorization.actor.organizationId,
           actor: authorization.actor,
@@ -209,10 +229,14 @@ function parsePositiveIntegerQuery(
   return parsed;
 }
 
-function requireImportsFeatureEnabled(): void {
-  if (!getServerEnv().FEATURE_IMPORTS_ENABLED) {
+function requireImportsFeatureEnabled(): ReturnType<typeof getServerEnv> {
+  const environment = getServerEnv();
+
+  if (!environment.FEATURE_IMPORTS_ENABLED) {
     throw new SafeApiError("ACCESS_DENIED");
   }
+
+  return environment;
 }
 
 function readIdempotencyKey(request: NextRequest): string {
@@ -243,7 +267,10 @@ function requireMultipartRequest(request: NextRequest): void {
   }
 }
 
-function requireBoundedContentLength(request: NextRequest): void {
+function requireBoundedContentLength(
+  request: NextRequest,
+  maximumUploadBytes: number,
+): void {
   const contentLength = request.headers.get("content-length");
 
   if (contentLength === null) {
@@ -256,7 +283,17 @@ function requireBoundedContentLength(request: NextRequest): void {
     throw validationError("request");
   }
 
-  if (parsedLength > maximumMultipartBytes) {
+  if (parsedLength > maximumUploadBytes + multipartEnvelopeAllowanceBytes) {
+    throw new UploadFileValidationError("FILE_TOO_LARGE");
+  }
+}
+
+function requireBoundedFileSize(file: File, maximumUploadBytes: number): void {
+  if (!Number.isSafeInteger(file.size) || file.size < 0) {
+    throw new UploadFileValidationError("INVALID_SIZE");
+  }
+
+  if (file.size > maximumUploadBytes) {
     throw new UploadFileValidationError("FILE_TOO_LARGE");
   }
 }
