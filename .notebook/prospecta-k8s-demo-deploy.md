@@ -57,7 +57,7 @@ Demo 3 edge gotcha: all nginx temporary paths are redirected to the shared
 Demo 3 preprod:
 - Entry: `scripts/deploy-demo3-k8s.mjs`
 - Manifest: `k8s/prospecta-demo3.yaml`
-- Frontend-only NodePort: `https://192.168.0.20:30100`
+- Frontend-only NodePort: `http://192.168.0.20:30100`
 - Mandatory Basic Auth at `k8s/demo3-nginx.conf`; anonymous app paths return
   `401`, while `/healthz` remains available to probes
 - Shared application actor exists only behind the gateway; demo data and both
@@ -71,9 +71,10 @@ Preflight: exact context, HTTPS API server, kube-system UID, non-production
 namespace labels, source Secret shape, producer endpoint, release tag, and
 distinct credentials. Failed preflight mutates nothing.
 
-NodePort smoke: direct HTTPS only; proves anonymous `401`, authenticated page
-and API success, real producer availability, and zero-restart readiness.
-Self-signed certificate requires explicit browser acceptance on the local LAN.
+NodePort smoke: direct HTTP only; proves anonymous `401`, authenticated page
+and API success, real producer availability, and zero-restart readiness. The
+owner accepts that Basic Auth credentials and response data are plaintext on
+this exact local target; never reuse this profile for internet or production.
 
 Rollback: Deployment revision rollback; preserve Demo 3 PVC and audit history;
 never change producer contents.

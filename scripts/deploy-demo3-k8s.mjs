@@ -2,7 +2,6 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { createHmac } from "node:crypto";
 import {
   closeSync,
-  mkdtempSync,
   openSync,
   readFileSync,
   rmSync,
@@ -14,7 +13,7 @@ import { join } from "node:path";
 const namespace = "prospecta-demo3";
 const environmentFile = ".env.demo3.local";
 const manifestFile = "k8s/prospecta-demo3.yaml";
-const nodePortUrl = "https://192.168.0.20:30100";
+const nodePortUrl = "http://192.168.0.20:30100";
 const gatewayUsername = "prospecta";
 const sourceSecretNamespace = "prospecta-demo";
 const sourceSecretName = "prospecta-demo-secrets";
@@ -311,52 +310,11 @@ function createGatewayMaterial(configuration) {
     fail("could not create the release-scoped gateway credential");
   }
 
-  const directory = mkdtempSync(join(tmpdir(), "prospecta-demo3-tls-"));
-  const keyPath = join(directory, "tls.key");
-  const certificatePath = join(directory, "tls.crt");
-
-  try {
-    const certificate = spawnSync(
-      "openssl",
-      [
-        "req",
-        "-x509",
-        "-newkey",
-        "rsa:2048",
-        "-sha256",
-        "-nodes",
-        "-days",
-        "30",
-        "-subj",
-        "/CN=192.168.0.20",
-        "-addext",
-        "subjectAltName=IP:192.168.0.20",
-        "-keyout",
-        keyPath,
-        "-out",
-        certificatePath,
-      ],
-      {
-        encoding: "utf8",
-        stdio: ["ignore", "ignore", "ignore"],
-        timeout: 30_000,
-      },
-    );
-
-    if (certificate.status !== 0) {
-      fail("could not create the release-scoped TLS certificate");
-    }
-
-    return {
-      username: gatewayUsername,
-      password,
-      htpasswd: htpasswd.stdout.trim(),
-      certificate: readFileSync(certificatePath, "utf8"),
-      privateKey: readFileSync(keyPath, "utf8"),
-    };
-  } finally {
-    rmSync(directory, { force: true, recursive: true });
-  }
+  return {
+    username: gatewayUsername,
+    password,
+    htpasswd: htpasswd.stdout.trim(),
+  };
 }
 
 function assertTarget(configuration) {
@@ -648,8 +606,6 @@ function secretManifest(
           DEMO3_GATEWAY_USERNAME: gatewayMaterial.username,
           DEMO3_GATEWAY_PASSWORD: gatewayMaterial.password,
           htpasswd: gatewayMaterial.htpasswd,
-          "tls.crt": gatewayMaterial.certificate,
-          "tls.key": gatewayMaterial.privateKey,
         },
       },
     ],
@@ -670,7 +626,6 @@ function applyStdin(value) {
 
 function smokeRequest(url, gatewayMaterial, authenticated) {
   const args = [
-    "--insecure",
     "--silent",
     "--show-error",
     "--output",

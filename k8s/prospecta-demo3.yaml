@@ -17,7 +17,7 @@ metadata:
     app.kubernetes.io/version: __RELEASE_ID__
 data:
   NODE_ENV: production
-  AUTH_URL: https://192.168.0.20:30100
+  AUTH_URL: http://192.168.0.20:30100
   AUTH_DEV_BYPASS_ENABLED: "true"
   AUTH_OIDC_ISSUER: https://identity.example.com/demo3
   AUTH_OIDC_CLIENT_ID: demo3-local-placeholder
@@ -245,12 +245,12 @@ spec:
           imagePullPolicy: Always
           ports:
             - name: edge
-              containerPort: 8443
+              containerPort: 8080
           readinessProbe:
             httpGet:
               path: /healthz
               port: edge
-              scheme: HTTPS
+              scheme: HTTP
             initialDelaySeconds: 5
             periodSeconds: 5
             timeoutSeconds: 3
@@ -258,7 +258,7 @@ spec:
             httpGet:
               path: /healthz
               port: edge
-              scheme: HTTPS
+              scheme: HTTP
             initialDelaySeconds: 20
             periodSeconds: 15
             timeoutSeconds: 3
@@ -281,9 +281,6 @@ spec:
               mountPath: /tmp
             - name: gateway-auth
               mountPath: /etc/nginx/auth
-              readOnly: true
-            - name: gateway-tls
-              mountPath: /etc/nginx/tls
               readOnly: true
         - name: postgres-loopback-proxy
           image: __PROXY_IMAGE__
@@ -318,14 +315,6 @@ spec:
             items:
               - key: htpasswd
                 path: htpasswd
-        - name: gateway-tls
-          secret:
-            secretName: __GATEWAY_SECRET_NAME__
-            items:
-              - key: tls.crt
-                path: tls.crt
-              - key: tls.key
-                path: tls.key
 ---
 apiVersion: v1
 kind: Service
@@ -341,8 +330,8 @@ spec:
     app.kubernetes.io/name: prospecta
     app.kubernetes.io/instance: demo3
   ports:
-    - name: https
-      port: 443
+    - name: http
+      port: 80
       targetPort: edge
       nodePort: 30100
 ---

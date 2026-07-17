@@ -1,7 +1,7 @@
 # State
 
 **Last Updated:** 2026-07-17
-**Current Work:** Demo 3 local pre-production promotion - completed
+**Current Work:** Demo 3 local pre-production HTTP transport
 
 ---
 
@@ -66,6 +66,17 @@ local browser acceptance.
 can exercise real reads and app-owned writes without anonymously exposing the
 application on the LAN.
 
+### AD-006: Demo 3 local pre-production uses HTTP (2026-07-17)
+
+**Decision:** Replace the self-signed HTTPS edge with plain HTTP on the exact
+local `192.168.0.20:30100` target while retaining mandatory gateway Basic Auth.
+**Reason:** The owner explicitly accepted real producer facts over HTTP to
+remove the browser certificate interruption for the current LAN test.
+**Trade-off:** Gateway credentials and response data can be intercepted on the
+local network. This profile is unsuitable for internet or production access.
+**Impact:** The shared actor, real read-only producer access, isolated app-owned
+writes, immutable release, preflight, and anonymous `401` remain unchanged.
+
 ---
 
 ## Active Blockers
@@ -120,3 +131,5 @@ application on the LAN.
       `https://192.168.0.20:30100`.
 - [x] Promote Demo 3 to local pre-production with real producer SELECTs,
       isolated app-owned writes, HTTPS gateway authentication, and full UAT.
+- [ ] Release the owner-approved HTTP transport for the exact Demo 3 LAN
+      target while retaining gateway authentication.

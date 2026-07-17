@@ -6,7 +6,7 @@
 
 ```text
 LAN browser
-  -> HTTPS NodePort 192.168.0.20:30100
+  -> HTTP NodePort 192.168.0.20:30100
   -> nginx gateway authentication
   -> Next.js shared pre-production actor
       -> prospecta_producer_read -> real producer SELECTs
@@ -14,10 +14,11 @@ LAN browser
       -> approved internal n8n ingress -> controlled import submission
 ```
 
-The request gateway terminates a release-scoped self-signed certificate and
-requires a generated strong credential. Next.js continues to use its
-server-only authorization boundary; the shared actor is accepted only for this
-local single-tester profile.
+The request gateway requires a generated strong credential but intentionally
+does not terminate TLS for this owner-approved local target. The credential and
+response data are observable in plaintext on the LAN. Next.js continues to use
+its server-only authorization boundary; the shared actor is accepted only for
+this local single-tester profile.
 
 The producer URL is copied in memory from the existing identified Kubernetes
 Secret into a release-scoped Demo 3 Secret. It is never written to a manifest,
@@ -44,7 +45,7 @@ statements retain a two-second timeout.
 Application, gateway, PostgreSQL, and database-proxy images use the same
 immutable release identifier. Health probes use an unauthenticated `/healthz`
 location; all application paths require gateway authentication. Smoke checks
-run directly against HTTPS NodePort, verify `401` without credentials, and
+run directly against the HTTP NodePort, verify `401` without credentials, and
 verify authenticated page/API success.
 
 Rollback uses the previous Deployment/StatefulSet revisions and never changes

@@ -12,8 +12,8 @@ recoverable Kubernetes release.
 
 ## Goals
 
-- Serve the existing NodePort through HTTPS with mandatory gateway
-  authentication.
+- Serve the existing NodePort through owner-approved HTTP with mandatory
+  gateway authentication on the exact local LAN target.
 - Keep the application actor private behind that gateway and grant every
   implemented business permission required by the single tester.
 - Read real leads, lead details/history, batch observations, estimated costs,
@@ -33,13 +33,14 @@ recoverable Kubernetes release.
 - Direct producer writes, workflow administration, reprocessing, or automatic
   retries.
 - Individual user attribution behind the shared local gateway actor.
+- HTTPS transport for this exact temporary local LAN profile.
 - Copying real records into source control, fixtures, logs, or evidence files.
 - Migrating or reusing the existing `prospecta_app_prod` database.
 
 ## Requirements
 
 1. Anonymous requests to NodePort `30100` SHALL receive `401`.
-2. Authenticated gateway requests SHALL use HTTPS and reach every private page.
+2. Authenticated gateway requests SHALL use HTTP and reach every private page.
 3. The runtime SHALL reject the Demo 3 profile unless demo data and both Demo 2
    gates are disabled.
 4. Producer credentials SHALL come from the identified cluster Secret and
@@ -55,6 +56,9 @@ recoverable Kubernetes release.
    success, real-source availability, and Kubernetes readiness.
 9. Rollback SHALL leave the producer untouched and preserve the Demo 3 app
    database and audit history.
+10. The release evidence SHALL state that Basic Auth credentials and response
+    data are observable in plaintext on the local network and that this profile
+    is forbidden for internet or production exposure.
 
 ## Success criteria
 

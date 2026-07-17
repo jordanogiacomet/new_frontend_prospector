@@ -19,6 +19,9 @@
       smoke/UAT for every implemented page.
 - [x] D3P-09 Record release evidence, credential retrieval, limitations, and
       rollback.
+- [ ] D3P-10 Replace the self-signed HTTPS edge with owner-approved HTTP on the
+      exact LAN target, retain mandatory gateway authentication, roll out an
+      immutable release, and record the plaintext transport limitation.
 
 ## Completion evidence
 

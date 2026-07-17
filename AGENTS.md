@@ -32,15 +32,19 @@
   copied into repository fixtures, logs, images, or release evidence.
 - Because the available OIDC configuration is a placeholder, this exact local
   profile may use the shared `demo3-preproduction-user` actor only behind
-  HTTPS and mandatory gateway authentication on NodePort `30100`.
+  mandatory gateway authentication on NodePort `30100`. On 2026-07-17 the
+  owner explicitly authorized plain HTTP for this exact local LAN target while
+  retaining gateway authentication. Basic Auth credentials and response data
+  are therefore exposed to interception on the local network; this is an
+  accepted temporary limitation for this target only and must not be reused
+  for internet or production access.
   `DEMO3_LOCAL_RUNTIME_ENABLED` may grant lead, import, commercial,
   assignment, audit, sensitive, and cost permissions only when
   `NODE_ENV=production`, auth bypass is explicit, demo data and both Demo 2
   gates are false, feature flags and sensitive/cost allowlists independently
   permit the response, and the gateway is configured by the immutable Demo 3
   release. This is an accepted single-tester LAN limitation: it does not
-  establish individual audit identity and must not be reused for internet or
-  production access.
+  establish individual audit identity.
 - The exact internal n8n ingress at
   `http://192.168.0.20:30098/webhook/empresaqui/import` may be exercised from
   this profile through the Prospecta API. The app still sends one exact-byte
