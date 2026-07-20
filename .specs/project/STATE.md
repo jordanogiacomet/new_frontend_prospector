@@ -1,7 +1,8 @@
 # State
 
-**Last Updated:** 2026-07-17
-**Current Work:** Demo 3 local pre-production HTTP transport - completed
+**Last Updated:** 2026-07-20
+**Current Work:** Batch import/n8n alignment — local execution started at T01;
+external targets remain gated
 
 ---
 
@@ -81,7 +82,16 @@ writes, immutable release, preflight, and anonymous `401` remain unchanged.
 
 ## Active Blockers
 
-- None for the authorized Demo 3 local pre-production release.
+- Batch alignment needs an identified non-production URL/path for the separate
+  versioned n8n ingress.
+- End-to-end processing needs an approved producer-owned worker/subworkflow
+  interface; the productive workflow cannot be edited or cloned.
+- Producer acceptance ledger/function/view need a disposable target, database
+  owner, credentials, rollback owner, and explicit approval before execution.
+- Late acceptance reconciliation and the environment-specific `NO_UPDATE`
+  window need operational owners.
+
+The completed Demo 3 local pre-production release itself has no active blocker.
 
 ---
 

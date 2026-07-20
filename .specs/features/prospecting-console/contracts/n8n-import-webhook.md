@@ -461,3 +461,28 @@ target:
 
 T018 and T019 remain incomplete until the applicable contract is executed and
 recorded against the named non-production endpoint.
+
+## Planned Versioned Successor — Local Artifact Only
+
+The separately developed successor is specified under
+`.specs/features/batch-import-n8n-alignment/`. It is not behavior attributed
+to the current official endpoint.
+
+Its local artifact uses the logical webhook path
+`prospecta/empresaqui/import/v1` and keeps the current five-field success shape,
+but changes the evidence behind it:
+
+- `import_batch_id` must be the canonical producer ID matching
+  `^ib_[0-9a-f]{64}$`;
+- `row_count` must be a positive durable accepted-row count;
+- the `202` response must depend on one committed producer acceptance
+  transaction;
+- the app confirms that acceptance through a producer-owned read-only view
+  before storing `DURABLE_ACCEPTED`;
+- timeout recovery is producer `SELECT` plus app-owned reconciliation, never
+  another upload.
+
+No remote URL, workflow ID, version ID, credential, worker interface, migration
+target, publication, or activation is approved by this local contract. The
+current `/webhook/empresaqui/import` behavior and authorization remain
+unchanged until a separate cutover is identified and approved.

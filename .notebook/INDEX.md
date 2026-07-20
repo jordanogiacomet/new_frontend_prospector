@@ -1,7 +1,7 @@
 # .notebook
 > Project intelligence — read before every mission
 
-Last updated: 2026-07-17
+Last updated: 2026-07-20
 
 - [prospecta-producer-history-grants](prospecta-producer-history-grants.md) — Histórico usa colunas concedidas ao papel read-only | gotcha | prospecta, producer, grants
 - [prospecta-k8s-demo-deploy](prospecta-k8s-demo-deploy.md) — Demo 3 preprod via HTTP NodePort e gateway autenticado | flow | prospecta, k8s, demo3

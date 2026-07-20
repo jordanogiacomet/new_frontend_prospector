@@ -60,4 +60,26 @@ Gate: T018/T019 pending; T011 implemented by explicit owner override
 - T012–T017 remain blocked
 - App `N8N_IMPORT_URL` accepts HTTP/HTTPS only on official ingress paths
 
-Updated: 2026-07-15
+Planning findings (2026-07-20):
+
+- The worktree does not currently contain
+  `private-workflows/EmpresaAqui_Webhook_Import_v1.json` or
+  `integrations/n8n/prospecting-import-v1/`. The mapped behavior remains
+  documentation/evidence, not a locally reviewable workflow source.
+- Current n8n acknowledgement IDs use `empresaqui_<ISO>`, while the structured
+  producer schema requires `lead_import_batches.import_batch_id` to match
+  `ib_<64 hex>`.
+- The app schema already has `durable_accepted_at`,
+  `durable_accepted_row_count`, `DURABLE_ACCEPTED`, and
+  `RECONCILIATION_OBSERVED`, but no repository/service currently persists that
+  promotion.
+- The producer's structured claim function can canonicalize replayed files and
+  rows, but current mapped n8n writes only legacy qualification tables.
+- A safe alignment therefore needs a separate versioned ingress, one atomic
+  producer acceptance function/ledger/view, response after commit, and a
+  producer-owned worker interface. Without that worker interface, acceptance
+  can be tested in isolation but import cannot be promoted end to end.
+- Full planning lives in
+  `.specs/features/batch-import-n8n-alignment/{context,spec,design,tasks}.md`.
+
+Updated: 2026-07-20

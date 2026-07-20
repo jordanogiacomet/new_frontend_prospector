@@ -110,6 +110,27 @@ but it cannot advance the batch to `ACCEPTED` or `COMPLETED` under this
 contract. `SUBMITTED` remains the last independently proven app status until
 durable acceptance evidence exists.
 
+## Planned Versioned Acceptance Source
+
+The local implementation plan introduces a producer-owned acceptance ledger
+and an allowlisted read view keyed by the app `submissionId`. This source is a
+planned contract, not a fact exposed by the current workflow.
+
+For the versioned ingress, the app may persist `DURABLE_ACCEPTED` only when a
+read-back matches all of:
+
+- organization-scoped app submission;
+- exact app-owned file SHA-256;
+- canonical producer `import_batch_id`;
+- positive durable accepted-row count;
+- producer acceptance timestamp.
+
+The promotion and its append-only reconciliation event must commit in one
+app-owned transaction. Missing or conflicting read-back preserves the previous
+status. A timeout does not trigger another n8n call. `NO_UPDATE` remains
+disabled until its environment-specific freshness window has an operational
+owner.
+
 ## Terminal Fact Contract
 
 Approved contract-level terminal classes:
