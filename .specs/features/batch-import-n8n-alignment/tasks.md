@@ -78,14 +78,20 @@ de aceitação/resposta.
 
 **Done when:**
 
-- [ ] O artefato tem identidade local versionada, README e rollback.
-- [ ] O teste prova que `Respond to Webhook` depende do nó de aceitação.
-- [ ] O teste rejeita credenciais/URLs/secrets embutidos e referências ao
+- [x] O artefato tem identidade local versionada, README e rollback.
+- [x] O teste prova que `Respond to Webhook` depende do nó de aceitação.
+- [x] O teste rejeita credenciais/URLs/secrets embutidos e referências ao
       workflow produtivo.
-- [ ] O teste prova campos multipart e resposta allowlisted.
+- [x] O teste prova campos multipart e resposta allowlisted.
 
 **Tests:** contract estático
-**Gate:** `pnpm test:contract`
+**Gate:** contrato estático focado; o contrato remoto completo permanece T12
+
+**Status:** Completed locally on 20/07/2026. RED: 7 tests failed because the
+artifact was absent. GREEN: 7 tests passed with
+`node_modules/.bin/vitest run --config vitest.contract.config.ts
+tests/contract/n8n-import-workflow-artifact.contract.test.ts`. The workflow is
+inactive, has no remote identity/credential, and is not published.
 
 ### T03: Implementar aceitação produtora atômica
 

@@ -203,7 +203,7 @@ descartável e provar quantidade de queries, paginação e comportamento parcial
 
 | ID | Requisito | Prioridade | Status |
 | --- | --- | --- | --- |
-| ALIGN-01 | Ingress separado e artefato versionado; zero mudança no workflow produtivo | P1 | Draft |
+| ALIGN-01 | Ingress separado e artefato versionado; zero mudança no workflow produtivo | P1 | Scaffold local inativo implementado; fluxo completo/remoto pendente |
 | ALIGN-02 | Intent app-owned antes de uma única chamada com bytes exatos | P1 | Já implementado; preservar |
 | ALIGN-03 | Metadados versionados de correlação e verificação SHA-256 no ingress | P1 | Draft |
 | ALIGN-04 | Erros 4xx seguros antes de escrita para entrada inválida | P1 | Draft |
@@ -217,8 +217,8 @@ descartável e provar quantidade de queries, paginação e comportamento parcial
 | ALIGN-12 | Fechamento produtor explícito separado de execução n8n | P1 | Draft |
 | ALIGN-13 | Conclusão/incompletude conforme contrato, com conflitos fail-closed | P1 | Parcial; reforço pendente |
 | ALIGN-14 | Observações/aceitações produtoras consultadas em lote | P2 | Draft |
-| ALIGN-15 | Sem CSV, payload bruto, segredo ou erro produtor em logs/respostas | P1 | Draft |
-| ALIGN-16 | Contrato sintético comprova identidade, correlação, timing e X4 | P1 | Parcial; evidências pendentes |
+| ALIGN-15 | Sem CSV, payload bruto, segredo ou erro produtor em logs/respostas | P1 | Gate estático do artefato implementado; cobertura fim a fim pendente |
+| ALIGN-16 | Contrato sintético comprova identidade, correlação, timing e X4 | P1 | 7 testes estáticos implementados; evidências remotas pendentes |
 | ALIGN-17 | HTTP sem auth apenas no alvo LAN exato; produção bloqueada | P1 | Política existente; preservar |
 | ALIGN-18 | Rollout/rollback imutável, sem apagar auditoria ou produtor | P1 | Draft |
 

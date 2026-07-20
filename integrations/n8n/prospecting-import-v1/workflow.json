@@ -1,0 +1,135 @@
+{
+  "name": "Prospecta - EmpresaAqui Import v1 - Batch Acceptance",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "prospecta/empresaqui/import/v1",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "a20fe59a-4b5e-4afd-9cc4-946a2aa8d890",
+      "name": "Webhook Prospecta Import v1",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.all();"
+      },
+      "id": "399e1ba5-a1b6-4731-883d-bade6c3ee709",
+      "name": "Validate Import Contract",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT public.prospecta_accept_empresaqui_batch_v1($1::jsonb) AS acceptance;",
+        "options": {
+          "queryReplacement": "={{ [$json.acceptance_payload] }}"
+        }
+      },
+      "id": "6de7f88a-0b35-4bef-804c-5cc7cb1bd02f",
+      "name": "Accept Batch Atomically",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        480,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.all();"
+      },
+      "id": "ee80b91b-03a7-48aa-9bbd-a56d2a52eb47",
+      "name": "Prepare Durable Acceptance Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {
+          "responseCode": 202
+        }
+      },
+      "id": "9d8cf89a-88aa-4f25-9db7-73d400a5425f",
+      "name": "Respond Durable Acceptance",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        960,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook Prospecta Import v1": {
+      "main": [
+        [
+          {
+            "node": "Validate Import Contract",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Import Contract": {
+      "main": [
+        [
+          {
+            "node": "Accept Batch Atomically",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Accept Batch Atomically": {
+      "main": [
+        [
+          {
+            "node": "Prepare Durable Acceptance Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Durable Acceptance Response": {
+      "main": [
+        [
+          {
+            "node": "Respond Durable Acceptance",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "none",
+    "saveManualExecutions": false
+  },
+  "pinData": {}
+}

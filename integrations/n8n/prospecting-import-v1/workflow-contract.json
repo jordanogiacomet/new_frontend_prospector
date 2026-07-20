@@ -1,0 +1,30 @@
+{
+  "contractVersion": "prospecta-import-v1",
+  "workflowName": "Prospecta - EmpresaAqui Import v1 - Batch Acceptance",
+  "webhookPath": "prospecta/empresaqui/import/v1",
+  "request": {
+    "contentType": "multipart/form-data",
+    "binaryField": "arquivo_csv",
+    "fields": [
+      "arquivo_csv",
+      "submission_id",
+      "idempotency_key",
+      "file_sha256",
+      "contract_version"
+    ]
+  },
+  "successResponse": {
+    "statusCode": 202,
+    "exactFields": [
+      "accepted",
+      "import_batch_id",
+      "message",
+      "row_count",
+      "source"
+    ],
+    "importBatchIdPattern": "^ib_[0-9a-f]{64}$",
+    "minimumAcceptedRows": 1
+  },
+  "acceptanceNodeName": "Accept Batch Atomically",
+  "responseNodeName": "Respond Durable Acceptance"
+}
