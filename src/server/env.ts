@@ -23,6 +23,7 @@ export interface ProspectaServerEnv {
   N8N_IMPORT_URL: string;
   N8N_HMAC_KEY_ID: string | undefined;
   N8N_HMAC_SECRET: string | undefined;
+  N8N_IMPORT_EVENT_SECRET: string | undefined;
   IMPORT_MAX_BYTES: number;
   IMPORT_PRODUCER_TIMEOUT_MS: number;
   SENSITIVE_URL_HOSTS: readonly string[];
@@ -67,6 +68,7 @@ const serverOnlyNames = [
   "N8N_IMPORT_URL",
   "N8N_HMAC_KEY_ID",
   "N8N_HMAC_SECRET",
+  "N8N_IMPORT_EVENT_SECRET",
   "IMPORT_MAX_BYTES",
   "IMPORT_PRODUCER_TIMEOUT_MS",
   "SENSITIVE_URL_HOSTS",
@@ -349,6 +351,10 @@ export function parseServerEnv(input: EnvironmentInput): ParsedServerEnv {
     N8N_IMPORT_URL: readRequired(input, "N8N_IMPORT_URL", errors),
     N8N_HMAC_KEY_ID: readOptional(input, "N8N_HMAC_KEY_ID"),
     N8N_HMAC_SECRET: readOptional(input, "N8N_HMAC_SECRET"),
+    N8N_IMPORT_EVENT_SECRET: readOptional(
+      input,
+      "N8N_IMPORT_EVENT_SECRET",
+    ),
     IMPORT_MAX_BYTES: readRequired(input, "IMPORT_MAX_BYTES", errors),
     IMPORT_PRODUCER_TIMEOUT_MS: readRequired(
       input,
@@ -508,6 +514,13 @@ export function parseServerEnv(input: EnvironmentInput): ParsedServerEnv {
     errors.push("N8N_HMAC_SECRET must contain at least 32 bytes");
   }
 
+  if (
+    raw.N8N_IMPORT_EVENT_SECRET &&
+    Buffer.byteLength(raw.N8N_IMPORT_EVENT_SECRET, "utf8") < 32
+  ) {
+    errors.push("N8N_IMPORT_EVENT_SECRET must contain at least 32 bytes");
+  }
+
   const environment: ParsedServerEnv = {
     DATABASE_URL: raw.DATABASE_URL,
     PRODUCER_DATABASE_URL: raw.PRODUCER_DATABASE_URL,
@@ -529,6 +542,7 @@ export function parseServerEnv(input: EnvironmentInput): ParsedServerEnv {
     N8N_IMPORT_URL: raw.N8N_IMPORT_URL,
     N8N_HMAC_KEY_ID: raw.N8N_HMAC_KEY_ID,
     N8N_HMAC_SECRET: raw.N8N_HMAC_SECRET,
+    N8N_IMPORT_EVENT_SECRET: raw.N8N_IMPORT_EVENT_SECRET,
     IMPORT_MAX_BYTES: parsePositiveInteger(
       "IMPORT_MAX_BYTES",
       raw.IMPORT_MAX_BYTES,

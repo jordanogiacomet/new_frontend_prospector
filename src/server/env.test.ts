@@ -23,6 +23,8 @@ const validEnvironment = {
     "https://automation.example.com/webhook/empresaqui/import",
   N8N_HMAC_KEY_ID: "replace-with-active-key-id",
   N8N_HMAC_SECRET: "replace-with-a-random-hmac-secret-of-at-least-32-bytes",
+  N8N_IMPORT_EVENT_SECRET:
+    "replace-with-a-random-event-secret-of-at-least-32-bytes",
   IMPORT_MAX_BYTES: "10485760",
   IMPORT_PRODUCER_TIMEOUT_MS: "15000",
   SENSITIVE_URL_HOSTS: "evidence.example.com, reports.example.com",
@@ -146,6 +148,27 @@ describe("server environment", () => {
         N8N_HMAC_SECRET: "too-short",
       }),
     ).toThrow(/N8N_HMAC_SECRET/);
+  });
+
+  it("accepts an absent import event secret with the receiver disabled", () => {
+    const withoutEventSecret: Record<string, string | undefined> = {
+      ...validEnvironment,
+    };
+    delete withoutEventSecret.N8N_IMPORT_EVENT_SECRET;
+
+    expect(
+      environment.parseServerEnv(withoutEventSecret)
+        .N8N_IMPORT_EVENT_SECRET,
+    ).toBeUndefined();
+  });
+
+  it("rejects an import event secret shorter than 32 bytes", () => {
+    expect(() =>
+      environment.parseServerEnv({
+        ...validEnvironment,
+        N8N_IMPORT_EVENT_SECRET: "too-short",
+      }),
+    ).toThrow(/N8N_IMPORT_EVENT_SECRET/);
   });
 
   it("starts without deferred role settings", () => {
@@ -438,6 +461,7 @@ describe("server environment", () => {
         NEXT_PUBLIC_FEATURE_COSTS_ENABLED: "true",
         NEXT_PUBLIC_COSTS_READ_SUBJECTS: "synthetic-subject",
         NEXT_PUBLIC_N8N_HMAC_SECRET: leakedValue,
+        NEXT_PUBLIC_N8N_IMPORT_EVENT_SECRET: leakedValue,
       }),
     ).toThrowError(
       expect.objectContaining({
@@ -548,6 +572,9 @@ describe("server environment", () => {
     expect(parsed.N8N_HMAC_SECRET).toBe(
       validEnvironment.N8N_HMAC_SECRET,
     );
+    expect(parsed.N8N_IMPORT_EVENT_SECRET).toBe(
+      validEnvironment.N8N_IMPORT_EVENT_SECRET,
+    );
     expect(environment).not.toHaveProperty("clientEnv");
   });
 
@@ -579,6 +606,9 @@ describe("server environment", () => {
       '"https://replace-n8n.example.com/webhook/empresaqui/import"',
     );
     expect(valuesByKey.get("N8N_HMAC_SECRET")).toContain("replace-");
+    expect(valuesByKey.get("N8N_IMPORT_EVENT_SECRET")).toContain(
+      "replace-",
+    );
     expect(example).toContain(
       "# Deferred: optional and unused until T019 approves and tests authentication.",
     );
