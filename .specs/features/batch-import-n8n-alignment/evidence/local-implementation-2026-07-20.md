@@ -31,7 +31,7 @@ equivalentes do `package.json` via `npm` e os binários já instalados em
 | --- | --- |
 | `npm run lint` | passou sem warning |
 | `npm run typecheck -- --pretty false` | passou |
-| `npm test` | 74 arquivos, 1.744 testes passaram |
+| `npm test` | 74 arquivos, 1.745 testes passaram |
 | `npm run test:integration` | 8 arquivos, 87 testes passaram, incluindo o orçamento `EXPLAIN` |
 | contrato estático/local | 2 arquivos, 16 testes passaram |
 | contratos HTTP remotos | 2 suites / 57 casos não executados por ausência de alvo |
@@ -59,6 +59,25 @@ deploy passou a usar `--stdin` e a exigir a pós-condição `0|1`, e as imagens 
 publicadas foram reaplicadas sem rebuild. A aplicação anterior continua
 compatível com o índice não único, portanto o rollback de imagem não exige
 reverter essa mudança app-owned.
+
+## Diagnóstico de lote sem fatos correlacionados
+
+Uma submissão reportada na Demo 3 foi correlacionada sem registrar seu
+identificador na evidência. O diagnóstico read-only encontrou:
+
+- um registro app-owned em `PRODUCER_ACKNOWLEDGED`;
+- acknowledgement legado para uma linha;
+- zero aceitações duráveis;
+- zero fatos na view produtora para o lote;
+- ausência da view de aceitações v1 no produtor atual.
+
+O estado `SUBMITTED` e as contagens nulas estão corretos. O problema app-side
+era a frase “Observações disponíveis” quando apenas a consulta à fonte havia
+passado. O teste RED/GREEN passou a distinguir fonte disponível sem fatos, e a
+release `demo3-preprod-20260722-empty-observations-001` foi publicada. A API e
+a página do lote retornaram `200`, o bundle continha a nova mensagem e a janela
+sanitizada de logs permaneceu sem erros. Nenhum upload ou endpoint n8n foi
+chamado durante o diagnóstico/release.
 
 Na execução inicial de 20/07, o primeiro gate de integração expôs uma asserção
 antiga que procurava `actor_issuer`, `request_correlation_id` e

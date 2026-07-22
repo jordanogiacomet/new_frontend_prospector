@@ -117,6 +117,17 @@ Release `demo3-preprod-20260722-batch-alignment-001`:
 - no CSV was submitted, no n8n endpoint was called, and the configured ingress
   remained the approved legacy target rather than the inactive v1 artifact
 
+Release `demo3-preprod-20260722-empty-observations-001`:
+- diagnosed one legacy-acknowledged submission with no durable acceptance and
+  no correlated producer facts, without recording its identifier or payload
+- UI now distinguishes a healthy producer-source query from the presence of
+  facts for a specific batch; unsupported counts remain unavailable
+- focused 18/18, full 74 files / 1,745 unit tests, build, 87 PostgreSQL
+  integration tests and 16 static contracts passed; 57 remote HTTP cases stayed
+  skipped
+- target page/API smoke and deployed-copy inspection passed; no upload or n8n
+  call was performed
+
 Rollback: Deployment revision rollback; preserve Demo 3 PVC and audit history;
 never change producer contents.
 

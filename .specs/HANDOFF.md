@@ -1,6 +1,6 @@
 # Handoff
 
-**Date:** 2026-07-22T11:39:23-02:00
+**Date:** 2026-07-22T12:08:33-02:00
 **Feature:** Batch import/n8n alignment
 **Task:** Consolidated locally and released in the authorized Demo 3 app target
 
@@ -29,6 +29,12 @@
   changing its values or versioning the file.
 - The current 98-node n8n workflow was only inspected statically from the
   ignored local export. It was not modified, cloned, called or administered.
+- Runtime diagnosis of the reported batch found one app submission, a legacy
+  workflow acknowledgement for one row, zero durable acceptances, zero
+  correlated producer observations and no v1 acceptance view on the producer.
+- Release `demo3-preprod-20260722-empty-observations-001` now labels that state
+  as a successful source query with no correlated facts. The deployed bundle,
+  target detail API/page and zero-error log window were verified.
 
 ## Commits
 
@@ -44,14 +50,15 @@
 - `af9fbf9` `docs(n8n): record current workflow integration review`
 - `5d4b60d` `fix(demo3): apply app reconciliation migration safely`
 - `37e8ca1` `fix(demo3): stream and verify app migrations`
+- `8bc2af4` `fix(imports): distinguish empty producer observations`
 - Current documentation/evidence/notebook update:
-  `docs(demo3): record batch-alignment app release`.
+  `docs(imports): record empty producer observation diagnosis`.
 
 ## Checks
 
 - `npm run lint`: passed without warnings.
 - `npm run typecheck -- --pretty false`: passed.
-- `npm test`: 74 files / 1,744 tests passed.
+- `npm test`: 74 files / 1,745 tests passed.
 - Safe process-only `npm run build`: passed, 23 routes generated. A first
   attempt correctly rejected `AUTH_DEV_BYPASS_ENABLED` inherited from
   `.env.local`; that file was not changed.
@@ -73,6 +80,9 @@
   producer write, retry or rollout occurred.
 - Plain HTTP plus shared Basic Auth remains an accepted limitation only for
   this exact single-tester LAN target.
+- The reported batch has no approved producer facts to populate acceptance,
+  terminal, lead, blocked or failed counts. Showing numbers would violate the
+  batch-status contract until the separate v1 producer path exists.
 
 ## Pending / Blockers
 

@@ -1,8 +1,8 @@
 # State
 
 **Last Updated:** 2026-07-22
-**Current Work:** Demo 3 updated at the approved local target with the
-batch-alignment app code; the separate n8n v1/producer-worker promotion remains
+**Current Work:** Demo 3 distinguishes an available producer source from an
+empty correlation result; the separate n8n v1/producer-worker promotion remains
 gated by OPEN-01–OPEN-05
 
 ---
@@ -129,6 +129,20 @@ but intentionally does not recreate the obsolete unique index.
 index state and authenticated route/API smoke passed. No producer DDL or n8n
 change was made.
 
+### AD-010: Source availability does not imply correlated facts (2026-07-22)
+
+**Decision:** Present `observationStatus = AVAILABLE` with
+`lastObservedAt = null` as “fonte consultada sem fatos do lote”, not as
+“observações disponíveis”. Keep every unsupported count as unavailable.
+**Reason:** A diagnosed legacy submission had one workflow acknowledgement but
+no durable acceptance and no producer observation row. The producer query was
+healthy, so the previous green availability copy overstated the evidence.
+**Trade-off:** The UI is more explicit about the integration gap and does not
+offer a synthetic progress estimate.
+**Impact:** Release `demo3-preprod-20260722-empty-observations-001` is running at
+the approved Demo 3 target. The diagnosed batch remains truthfully `SUBMITTED`;
+no data, status or count was invented.
+
 ---
 
 ## Active Blockers
@@ -213,3 +227,5 @@ never consumed.
       target while retaining gateway authentication.
 - [x] Release `demo3-preprod-20260722-batch-alignment-001` with the app-owned
       reconciliation index migrated and verified.
+- [x] Release `demo3-preprod-20260722-empty-observations-001` with distinct
+      source-available/no-correlated-facts presentation.

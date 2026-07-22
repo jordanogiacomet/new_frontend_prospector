@@ -57,4 +57,12 @@ Runtime configuration (Demo 2, 2026-07-14):
   exist. `lastObservedAt` needs a matching observation; accepted and terminal
   counts remain `null` without a durable acceptance fact.
 
-Updated: 2026-07-14
+Runtime configuration (Demo 3, 2026-07-22):
+- a reported legacy batch had a workflow acknowledgement for one row but zero
+  rows in `prospecta_import_batch_observations_v1`, zero durable acceptances and
+  no installed `prospecta_import_acceptances_v1` view
+- batch detail presentation now uses `lastObservedAt` to distinguish
+  source-available/empty-correlation from actual correlated observations; this
+  is presentation only and never promotes legacy evidence
+
+Updated: 2026-07-22
