@@ -308,6 +308,7 @@ describe("private application shell", () => {
       "api/auth/[...nextauth]/route.ts",
       "api/costs/route.ts",
       "api/imports/[id]/route.ts",
+      "api/imports/events/route.ts",
       "api/imports/route.ts",
       "api/leads/[cnpj]/history/route.ts",
       "api/leads/[cnpj]/route.ts",

@@ -4,7 +4,6 @@ import { randomUUID } from "node:crypto";
 
 import {
   transaction,
-  type AppDatabaseTransaction,
   type SqlStatement,
 } from "../../db/app-client";
 
