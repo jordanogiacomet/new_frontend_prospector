@@ -131,24 +131,32 @@ export does not consume `submission_id`, upload-level `idempotency_key`,
   and testing of an approved server-to-server authentication and replay
   mechanism.
 
-The direct T019 harness uses `N8N_CONTRACT_URL` and requires
-`N8N_CONTRACT_ALLOW_INSECURE_HTTP=true` for the scoped internal HTTP target.
-`N8N_IMPORT_URL` accepts only that exact internal HTTP target without an
-additional flag. Both settings remain server-only.
+The legacy T019 baseline uses `N8N_LEGACY_CONTRACT_URL` (with
+`N8N_CONTRACT_URL` retained as a compatibility fallback) and requires
+`N8N_LEGACY_CONTRACT_ALLOW_INSECURE_HTTP=true` for the scoped internal HTTP
+target. `N8N_IMPORT_URL` accepts only that exact internal HTTP target without
+an additional flag. These settings remain server-only.
 
 Run it with process-only test configuration:
 
 ```sh
-N8N_CONTRACT_URL=<AUTHORIZED_NON_PRODUCTION_URL> \
-N8N_CONTRACT_ALLOW_INSECURE_HTTP=true \
+N8N_LEGACY_CONTRACT_URL=<AUTHORIZED_LEGACY_NON_PRODUCTION_URL> \
+N8N_LEGACY_CONTRACT_ALLOW_INSECURE_HTTP=true \
 pnpm test:contract
 ```
 
-The suite keeps runtime workflow identity/version, correlation, durable
-acceptance, persistence timing, and X4 as explicit missing evidence.
-Their `N8N_CONTRACT_*_EVIDENCE` attestations must not be set from owner
-assertion alone; each requires the independently inspected non-production
-fact named by the test.
+The legacy suite is a behavioral baseline only. It no longer contains
+`N8N_CONTRACT_*_EVIDENCE=verified` assertions because those variables were
+manual attestations rather than evidence of durable producer facts.
+
+The separate v1 remote gate requires
+`N8N_VERSIONED_CONTRACT_REQUIRED=true`, an HTTPS
+`N8N_VERSIONED_CONTRACT_URL`, a read-only
+`N8N_VERSIONED_CONTRACT_PRODUCER_DATABASE_URL`, and an inspected workflow
+evidence file whose artifact SHA-256 matches the local versioned export.
+It verifies durable acceptance and X4 through the allowlisted producer views.
+Without those inputs the local artifact tests run, but the remote gate is
+reported as not executed rather than inferred as passing.
 
 This configuration validation does not implement an n8n client, authorize a
 call, or by itself enable the internal feature.
@@ -208,6 +216,12 @@ Observed response shape:
   "source": "EmpresaAqui"
 }
 ```
+
+The app treats these five fields as the required acknowledgement subset.
+Additional producer-owned metadata is ignored and is never persisted or
+returned to the browser. This compatibility rule is necessary because the
+authorized internal runtime may add informational fields that do not change
+the acknowledgement contract.
 
 | Field | Observed origin and meaning |
 | --- | --- |
@@ -391,7 +405,8 @@ acknowledgement-only upload slice may proceed.
 ## Accepted Limitations for the Internal `/api/imports`
 
 - Remote identity/version is behaviorally matched but not attested.
-- The unversioned five-field `202` is retained and validated exactly.
+- The unversioned `202` retains and validates the five required fields;
+  additional producer-owned metadata is ignored.
 - App-owned idempotency prevents duplicate app calls for a known key/hash, but
   producer replay protection is absent.
 - Once the producer call begins, a timeout or malformed/non-`202` response
