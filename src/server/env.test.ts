@@ -112,6 +112,8 @@ describe("server environment", () => {
   it.each([
     "https://automation.example.com/webhook/empresaqui/import",
     "https://automation.example.com/webhook-test/empresaqui/import",
+    "https://automation.example.com/webhook/prospecta/empresaqui/import/v1",
+    "https://automation.example.com/webhook-test/prospecta/empresaqui/import/v1",
     "http://192.168.0.20:30098/webhook/empresaqui/import",
   ])("accepts an official n8n webhook URL form: %s", (N8N_IMPORT_URL) => {
     expect(

@@ -21,17 +21,29 @@ vi.mock("../env", () => ({
 import {
   submitToN8nIngress,
   type N8nIngressFetch,
+  type N8nIngressSubmission,
 } from "./ingress-client";
 import type { ValidatedUploadFile } from "./upload-file";
 
 const encoder = new TextEncoder();
 const ingressUrl =
   "http://internal-n8n.invalid/webhook/empresaqui/import";
+const versionedIngressUrl =
+  "https://automation.example.com/webhook/prospecta/empresaqui/import/v1";
+const submissionId = "00000000-0000-4000-8000-000000000015";
+const idempotencyKey = "idem-synthetic-015";
 
 const validAcknowledgement = {
   accepted: true,
   message: "Arquivo recebido para processamento.",
   import_batch_id: "empresaqui_2026-07-06T12:00:00.000Z",
+  row_count: 2,
+  source: "EmpresaAqui",
+} as const;
+const versionedAcknowledgement = {
+  accepted: true,
+  message: "Lote aceito para processamento.",
+  import_batch_id: `ib_${"a".repeat(64)}`,
   row_count: 2,
   source: "EmpresaAqui",
 } as const;
@@ -87,10 +99,20 @@ function fetchReturning(
 async function submit(
   fetch: N8nIngressFetch,
   file: ValidatedUploadFile = validatedFile(),
+  overrides: Partial<N8nIngressSubmission> = {},
 ) {
-  return submitToN8nIngress(file, {
-    fetch,
-  });
+  return submitToN8nIngress(
+    {
+      file: overrides.file ?? file,
+      submissionId: overrides.submissionId ?? submissionId,
+      idempotencyKey: overrides.idempotencyKey ?? idempotencyKey,
+      contractVersion:
+        overrides.contractVersion ?? "prospecta-import-v1",
+    },
+    {
+      fetch,
+    },
+  );
 }
 
 function capturedFormData(
@@ -130,6 +152,91 @@ describe("submitToN8nIngress", () => {
       "arquivo_csv",
     ]);
   });
+
+  it("sends the exact versioned multipart contract only on the versioned path", async () => {
+    configureEnvironment({ N8N_IMPORT_URL: versionedIngressUrl });
+    const fetch = fetchReturning(response(versionedAcknowledgement));
+
+    await submit(fetch);
+
+    const formData = capturedFormData(fetch);
+    expect([...formData.keys()]).toEqual([
+      "arquivo_csv",
+      "submission_id",
+      "idempotency_key",
+      "file_sha256",
+      "contract_version",
+    ]);
+    expect(formData.get("submission_id")).toBe(submissionId);
+    expect(formData.get("idempotency_key")).toBe(idempotencyKey);
+    expect(formData.get("file_sha256")).toBe(validatedFile().sha256);
+    expect(formData.get("contract_version")).toBe(
+      "prospecta-import-v1",
+    );
+  });
+
+  it("accepts only the exact durable response on the versioned path", async () => {
+    configureEnvironment({ N8N_IMPORT_URL: versionedIngressUrl });
+
+    await expect(
+      submit(fetchReturning(response(versionedAcknowledgement))),
+    ).resolves.toEqual({
+      kind: "acknowledged",
+      acknowledgement: versionedAcknowledgement,
+    });
+  });
+
+  it.each([
+    [
+      "an extra field",
+      { ...versionedAcknowledgement, execution_id: "private" },
+    ],
+    [
+      "a temporal batch identifier",
+      {
+        ...versionedAcknowledgement,
+        import_batch_id: "empresaqui_2026-07-20T10:00:00.000Z",
+      },
+    ],
+    [
+      "zero accepted rows",
+      { ...versionedAcknowledgement, row_count: 0 },
+    ],
+    [
+      "a different success message",
+      {
+        ...versionedAcknowledgement,
+        message: "Arquivo recebido para processamento.",
+      },
+    ],
+    [
+      "a different source",
+      { ...versionedAcknowledgement, source: "Other" },
+    ],
+  ] as const)("rejects %s on the versioned path", async (_label, payload) => {
+    configureEnvironment({ N8N_IMPORT_URL: versionedIngressUrl });
+
+    await expect(
+      submit(fetchReturning(response(payload))),
+    ).resolves.toEqual({ kind: "unknown" });
+  });
+
+  it.each([
+    ["invalid submission", { submissionId: "not-a-uuid" }],
+    ["blank idempotency", { idempotencyKey: "" }],
+    ["wrong contract", { contractVersion: "prospecta-import-v2" }],
+  ] as const)(
+    "rejects %s before network work on the versioned path",
+    async (_label, overrides) => {
+      configureEnvironment({ N8N_IMPORT_URL: versionedIngressUrl });
+      const fetch = fetchReturning(response(versionedAcknowledgement));
+
+      await expect(
+        submit(fetch, validatedFile(), overrides),
+      ).resolves.toEqual({ kind: "unknown" });
+      expect(fetch).not.toHaveBeenCalled();
+    },
+  );
 
   it("preserves the exact validated bytes", async () => {
     const exactBytes = new Uint8Array([
@@ -255,17 +362,22 @@ describe("submitToN8nIngress", () => {
     ).resolves.toEqual({ kind: "unknown" });
   });
 
-  it("rejects acknowledgement with an extra field", async () => {
+  it("ignores additional producer metadata after validating the acknowledgement", async () => {
     await expect(
       submit(
         fetchReturning(
           response({
             ...validAcknowledgement,
-            acceptedAt: "2026-07-06T12:00:00.000Z",
+            database_schema_changed: true,
+            pipeline_version: "producer-owned-version",
+            report_policy: "producer-owned-policy",
           }),
         ),
       ),
-    ).resolves.toEqual({ kind: "unknown" });
+    ).resolves.toEqual({
+      kind: "acknowledged",
+      acknowledgement: validAcknowledgement,
+    });
   });
 
   it.each(["", "   "])(

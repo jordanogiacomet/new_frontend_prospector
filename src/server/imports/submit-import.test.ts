@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   submitToN8nIngress: vi.fn(),
   recordProducerAcknowledgement: vi.fn(),
   recordProducerOutcomeUnknown: vi.fn(),
+  reconcileImportAcceptance: vi.fn(),
 }));
 
 vi.mock("server-only", () => ({}));
@@ -22,6 +23,9 @@ vi.mock("../repositories/imports/import-submissions-repository", () => ({
   recordImportSubmissionIntent: mocks.recordImportSubmissionIntent,
   recordProducerAcknowledgement: mocks.recordProducerAcknowledgement,
   recordProducerOutcomeUnknown: mocks.recordProducerOutcomeUnknown,
+}));
+vi.mock("./import-acceptance-reconciliation", () => ({
+  reconcileImportAcceptance: mocks.reconcileImportAcceptance,
 }));
 
 import type { N8nIngressFetch } from "./ingress-client";
@@ -175,6 +179,10 @@ function configureCreatedAcknowledged(): void {
     kind: "recorded",
     submission: unknownSubmission(),
   });
+  mocks.reconcileImportAcceptance.mockResolvedValue({
+    kind: "confirmed",
+    changed: true,
+  });
 }
 
 function source(): string {
@@ -273,7 +281,12 @@ describe("submitImport", () => {
 
     expect(mocks.submitToN8nIngress).toHaveBeenCalledTimes(1);
     expect(mocks.submitToN8nIngress).toHaveBeenCalledWith(
-      validatedFile(),
+      {
+        file: validatedFile(),
+        submissionId,
+        idempotencyKey,
+        contractVersion: "prospecta-import-v1",
+      },
       deps.ingressClient,
     );
     expect(deps.ingressClient.fetch).not.toHaveBeenCalled();
@@ -353,7 +366,7 @@ describe("submitImport", () => {
     });
   });
 
-  it("does not promote acknowledgement to durable accepted, completed, or processing states", async () => {
+  it("returns acknowledgement while attempting durable read-back", async () => {
     const result = await submitImport(input(), dependencies());
 
     expect(result).toMatchObject({
@@ -366,6 +379,25 @@ describe("submitImport", () => {
     expect(JSON.stringify(result)).not.toMatch(
       /ACCEPTED|DURABLE_ACCEPTED|COMPLETED|PROCESSING|rowCountAccepted|durableAcceptance/i,
     );
+    expect(mocks.reconcileImportAcceptance).toHaveBeenCalledWith({
+      organizationId,
+      actorSubject: actor.subject,
+      submissionId,
+    });
+  });
+
+  it("preserves the acknowledgement if durable read-back is unavailable", async () => {
+    mocks.reconcileImportAcceptance.mockRejectedValueOnce(
+      new Error("producer read unavailable"),
+    );
+
+    const result = await submitImport(input(), dependencies());
+
+    expect(result).toMatchObject({
+      kind: "submitted",
+      producerOutcome: "acknowledged",
+      submission: { status: "PRODUCER_ACKNOWLEDGED" },
+    });
   });
 
   it("preserves import_batch_id under the original producer field name", async () => {
@@ -413,6 +445,7 @@ describe("submitImport", () => {
       submissionId,
     });
     expect(mocks.recordProducerAcknowledgement).not.toHaveBeenCalled();
+    expect(mocks.reconcileImportAcceptance).not.toHaveBeenCalled();
   });
 
   it("maps ingress exceptions to unknown without exposing producer body details", async () => {

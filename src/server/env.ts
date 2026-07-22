@@ -41,6 +41,8 @@ const IMPORT_MAX_BYTES_LIMIT = 10 * 1024 * 1024;
 const N8N_IMPORT_PATHS = new Set([
   "/webhook/empresaqui/import",
   "/webhook-test/empresaqui/import",
+  "/webhook/prospecta/empresaqui/import/v1",
+  "/webhook-test/prospecta/empresaqui/import/v1",
 ]);
 const N8N_INTERNAL_HTTP_ORIGIN = "http://192.168.0.20:30098";
 const N8N_INTERNAL_HTTP_PATH = "/webhook/empresaqui/import";

@@ -11,6 +11,7 @@ import {
 import {
   submitToN8nIngress,
   type N8nIngressClientDependencies,
+  type N8nIngressSubmission,
   type N8nIngressResult,
 } from "./ingress-client";
 import {
@@ -18,6 +19,7 @@ import {
   type UploadFileInput,
   type ValidatedUploadFile,
 } from "./upload-file";
+import { reconcileImportAcceptance } from "./import-acceptance-reconciliation";
 
 type SubmitImportActor = Pick<
   AuthorizedActor,
@@ -47,6 +49,7 @@ export interface SubmitImportOperations {
   readonly submitToN8nIngress: typeof submitToN8nIngress;
   readonly recordProducerAcknowledgement: typeof recordProducerAcknowledgement;
   readonly recordProducerOutcomeUnknown: typeof recordProducerOutcomeUnknown;
+  readonly reconcileImportAcceptance: typeof reconcileImportAcceptance;
 }
 
 export interface SubmitImportDependencies {
@@ -90,6 +93,7 @@ const defaultOperations: SubmitImportOperations = {
   submitToN8nIngress,
   recordProducerAcknowledgement,
   recordProducerOutcomeUnknown,
+  reconcileImportAcceptance,
 };
 
 export async function submitImport(
@@ -147,7 +151,12 @@ async function submitNewImport(
 ): Promise<Extract<SubmitImportResult, { kind: "submitted" }>> {
   const ingressResult = await submitToIngressSafely(
     operations,
-    file,
+    {
+      file,
+      submissionId: submission.submissionId,
+      idempotencyKey: input.idempotencyKey,
+      contractVersion: submission.appContractVersion,
+    },
     ingressClient,
   );
 
@@ -161,6 +170,12 @@ async function submitNewImport(
       });
 
     if (acknowledgementResult.kind === "recorded") {
+      await reconcileAcceptanceSafely(
+        operations,
+        input,
+        submission.submissionId,
+      );
+
       return {
         kind: "submitted",
         producerOutcome: "acknowledged",
@@ -191,13 +206,32 @@ async function submitNewImport(
   };
 }
 
+async function reconcileAcceptanceSafely(
+  operations: SubmitImportOperations,
+  input: SubmitImportInput,
+  submissionId: string,
+): Promise<void> {
+  try {
+    await operations.reconcileImportAcceptance({
+      organizationId: input.organizationId,
+      actorSubject: input.actor.subject,
+      submissionId,
+    });
+  } catch {
+    // The durable app acknowledgement remains the honest fallback.
+  }
+}
+
 async function submitToIngressSafely(
   operations: SubmitImportOperations,
-  file: ValidatedUploadFile,
+  submission: N8nIngressSubmission,
   ingressClient: N8nIngressClientDependencies,
 ): Promise<N8nIngressResult> {
   try {
-    return await operations.submitToN8nIngress(file, ingressClient);
+    return await operations.submitToN8nIngress(
+      submission,
+      ingressClient,
+    );
   } catch {
     return { kind: "unknown" };
   }
