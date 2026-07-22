@@ -17,6 +17,9 @@ const nodePortUrl = "http://192.168.0.20:30100";
 const gatewayUsername = "prospecta";
 const sourceSecretNamespace = "prospecta-demo";
 const sourceSecretName = "prospecta-demo-secrets";
+const appMigrationFiles = [
+  "db/app/006_import_acceptance_reconciliation_forward.sql",
+];
 const deploymentLockFile = join(
   tmpdir(),
   "prospecta-demo3-k8s-deploy.lock",
@@ -624,6 +627,44 @@ function applyStdin(value) {
   }
 }
 
+function applyExistingAppMigrations(hasExistingPostgres) {
+  if (!hasExistingPostgres) {
+    return;
+  }
+
+  for (const migrationFile of appMigrationFiles) {
+    const result = spawnSync(
+      "kubectl",
+      [
+        "-n",
+        namespace,
+        "exec",
+        "statefulset/prospecta-demo3-postgres",
+        "--request-timeout=20s",
+        "--",
+        "psql",
+        "-X",
+        "--single-transaction",
+        "--set=ON_ERROR_STOP=1",
+        "-U",
+        "prospecta_demo3_owner",
+        "-d",
+        "prospecta_demo3",
+      ],
+      {
+        input: readFileSync(migrationFile, "utf8"),
+        encoding: "utf8",
+        stdio: ["pipe", "inherit", "inherit"],
+        timeout: 60_000,
+      },
+    );
+
+    if (result.status !== 0) {
+      fail(`could not apply app-owned migration ${migrationFile}`);
+    }
+  }
+}
+
 function smokeRequest(url, gatewayMaterial, authenticated) {
   const args = [
     "--silent",
@@ -726,6 +767,7 @@ async function deploy(configuration) {
 
   try {
     const manifest = renderManifest(configuration);
+    applyExistingAppMigrations(observedImages.postgres !== null);
     applyStdin(manifest);
     applyStdin(
       secretManifest(
