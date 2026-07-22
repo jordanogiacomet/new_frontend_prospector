@@ -22,6 +22,9 @@ const auditRedactionSql = readSql(
 const auditRequestContextSql = readSql(
   "005_commercial_audit_request_context_forward.sql",
 );
+const importAcceptanceReconciliationSql = readSql(
+  "006_import_acceptance_reconciliation_forward.sql",
+);
 const disposableTargets = [
   {
     hostname: "localhost",
@@ -51,8 +54,12 @@ const pool = new Pool({
 });
 
 type ImportSubmissionRepository = typeof import("../../src/server/repositories/imports/import-submissions-repository");
+type ImportAcceptanceReconciliationRepository = typeof import("../../src/server/repositories/imports/import-acceptance-reconciliation-repository");
 
 let importSubmissionRepository: ImportSubmissionRepository | null = null;
+let importAcceptanceReconciliationRepository:
+  | ImportAcceptanceReconciliationRepository
+  | null = null;
 
 function readSql(filename: string): string {
   return readFileSync(resolve(process.cwd(), "db/app", filename), "utf8");
@@ -140,6 +147,7 @@ async function resetDisposableDatabase(): Promise<void> {
   await execute(forwardSql);
   await execute(auditRedactionSql);
   await execute(auditRequestContextSql);
+  await execute(importAcceptanceReconciliationSql);
   await execute(grantsSql);
   await createProducerLikeObjects();
 }
@@ -273,6 +281,17 @@ async function loadImportSubmissionRepository(): Promise<ImportSubmissionReposit
   }
 
   return importSubmissionRepository;
+}
+
+async function loadImportAcceptanceReconciliationRepository(): Promise<ImportAcceptanceReconciliationRepository> {
+  if (importAcceptanceReconciliationRepository === null) {
+    configureRepositoryEnvironment();
+    importAcceptanceReconciliationRepository = await import(
+      "../../src/server/repositories/imports/import-acceptance-reconciliation-repository"
+    );
+  }
+
+  return importAcceptanceReconciliationRepository;
 }
 
 async function withRolePool<Result>(
@@ -745,7 +764,7 @@ describe("Prospecta app-owned schema migration", () => {
     ).resolves.toBeUndefined();
   });
 
-  it("keeps producer import batch identifiers unique only inside an organization", async () => {
+  it("allows distinct submissions to correlate to the same canonical producer batch", async () => {
     await insertImportSubmission({
       submissionId: syntheticUuid(6),
       idempotencyKey: "batch-key-a",
@@ -764,7 +783,7 @@ describe("Prospecta app-owned schema migration", () => {
         producerImportBatchId: "import-batch-synthetic-002",
         acknowledgedRowCount: 2,
       }),
-    ).rejects.toMatchObject({ code: "23505" });
+    ).resolves.toBeUndefined();
 
     await expect(
       insertImportSubmission({
@@ -860,7 +879,7 @@ describe("Prospecta app-owned schema migration", () => {
         "import_submission_events_org_submission_occurred_idx",
         "import_submissions_org_created_at_idx",
         "import_submissions_org_idempotency_key_uk",
-        "import_submissions_org_producer_batch_uk",
+        "import_submissions_org_producer_batch_idx",
         "lead_activities_org_workspace_occurred_idx",
         "lead_notes_org_workspace_created_idx",
         "lead_workspaces_org_cnpj_active_uk",
@@ -1439,6 +1458,131 @@ describe("Prospecta import submission repository integration", () => {
           import_batch_id: "empresaqui_2026-07-07T12:00:00.000Z",
           row_count: 3,
           status: "PRODUCER_ACKNOWLEDGED",
+        },
+      },
+    ]);
+  });
+
+  it("promotes a matching durable acceptance and appends one idempotent reconciliation event", async () => {
+    const submissions = await loadImportSubmissionRepository();
+    const reconciliation =
+      await loadImportAcceptanceReconciliationRepository();
+    const canonicalBatchId = `ib_${syntheticHash("9")}`;
+    const created = await submissions.recordImportSubmissionIntent({
+      organizationId: "org-synthetic-a",
+      actorSubject: "oidc|synthetic-manager",
+      idempotencyKey: "repo-reconciliation-idem",
+      file: {
+        filename: "empresaqui-reconciliation.csv",
+        sha256: syntheticHash("8"),
+        sizeBytes: 512,
+        mediaType: "text/csv",
+      },
+    });
+    const submissionId =
+      created.kind === "created" ? created.submission.submissionId : "";
+    const durableAcceptedAt = new Date();
+
+    await submissions.recordProducerAcknowledgement({
+      organizationId: "org-synthetic-a",
+      actorSubject: "oidc|synthetic-manager",
+      submissionId,
+      acknowledgement: {
+        accepted: true,
+        message: "Lote aceito para processamento.",
+        import_batch_id: canonicalBatchId,
+        row_count: 2,
+        source: "EmpresaAqui",
+      },
+    });
+
+    const candidate =
+      await reconciliation.getImportAcceptanceCandidate({
+        organizationId: "org-synthetic-a",
+        submissionId,
+      });
+
+    expect(candidate).toMatchObject({
+      kind: "found",
+      candidate: {
+        organizationId: "org-synthetic-a",
+        submissionId,
+        fileSha256: syntheticHash("8"),
+        workflowAcknowledgement: {
+          import_batch_id: canonicalBatchId,
+          row_count: 2,
+        },
+        durableAcceptance: null,
+      },
+    });
+
+    const promotionInput = {
+      organizationId: "org-synthetic-a",
+      actorSubject: "oidc|synthetic-manager",
+      submissionId,
+      fileSha256: syntheticHash("8"),
+      appContractVersion: "prospecta-import-v1",
+      acceptance: {
+        import_batch_id: canonicalBatchId,
+        acceptedRowCount: 2,
+        acceptedAt: durableAcceptedAt,
+      },
+    } as const;
+
+    await expect(
+      reconciliation.promoteDurableImportAcceptance(promotionInput),
+    ).resolves.toEqual({ kind: "confirmed", changed: true });
+    await expect(
+      reconciliation.promoteDurableImportAcceptance(promotionInput),
+    ).resolves.toEqual({ kind: "confirmed", changed: false });
+
+    const rows = await queryRows<{
+      status: string;
+      status_fact_source: string;
+      durable_accepted_at: Date;
+      durable_accepted_row_count: number;
+    }>(
+      `
+        SELECT
+          status,
+          status_fact_source,
+          durable_accepted_at,
+          durable_accepted_row_count
+        FROM prospecting_app.import_submissions
+        WHERE organization_id = $1 AND submission_id = $2
+      `,
+      ["org-synthetic-a", submissionId],
+    );
+    const events = await queryRows<{
+      event_type: string;
+      metadata: Record<string, unknown>;
+    }>(
+      `
+        SELECT event_type, metadata
+        FROM prospecting_app.import_submission_events
+        WHERE organization_id = $1 AND submission_id = $2
+          AND event_type = 'RECONCILIATION_OBSERVED'
+      `,
+      ["org-synthetic-a", submissionId],
+    );
+
+    expect(rows).toEqual([
+      {
+        status: "DURABLE_ACCEPTED",
+        status_fact_source: "durable_acceptance",
+        durable_accepted_at: durableAcceptedAt,
+        durable_accepted_row_count: 2,
+      },
+    ]);
+    expect(events).toEqual([
+      {
+        event_type: "RECONCILIATION_OBSERVED",
+        metadata: {
+          source: "producer_import_acceptances_v1",
+          status: "DURABLE_ACCEPTED",
+          import_batch_id: canonicalBatchId,
+          row_count: 2,
+          observed_at: durableAcceptedAt.toISOString(),
         },
       },
     ]);
