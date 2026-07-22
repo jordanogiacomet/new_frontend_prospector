@@ -50,9 +50,11 @@ representa apenas o fim do loop atual. Nenhum callback grava a aceitação
 atômica, `lead_input_rows`, terminal estruturado ou fechamento explícito
 usados pelo leitor do Prospecta.
 
-O aplicativo também não possui rota autorizada para esses callbacks. Criá-la
-transferiria fatos produtores para o app-owned, excederia o allowlist de
-metadados e não resolveria atomicidade nem replay.
+Na revisão inicial, o aplicativo não possuía rota para callbacks. A decisão
+posterior T15 criou uma exceção estreita somente para `BATCH_CLOSED`: o evento
+é autenticado, correlacionado e guardado no app-owned como relato operacional
+do fim do loop. Ele não é fato X4, não resolve atomicidade produtora e não
+preenche aceite ou contagens.
 
 ### O processamento atual não é um worker reutilizável
 
@@ -116,7 +118,7 @@ para evitar materialização legada sem fato X4 confirmado.
 | Alterar o workflow atual | Proibido pela fronteira permanente do produtor |
 | Copiar os 98 nós para o ingress | Clona o workflow, duplica regras e cria drift de semântica |
 | Chamar o Webhook atual depois da aceitação | Reenvia bytes e pode duplicar custo/efeito |
-| Usar callbacks no app | Não é atômico, não é fonte X4 e atravessa ownership |
+| Usar callbacks como aceite/terminal X4 | Não é atômico nem fonte produtora aprovada |
 | Tratar `company_validation_runs` como terminal | É observação legada retida, não prova terminal estruturado |
 | Remover/bypassar o gate v1 | Permitiria fechamento sem um terminal por linha |
 
@@ -145,3 +147,22 @@ para evitar materialização legada sem fato X4 confirmado.
   confiável para `NO_UPDATE`.
 - **OPEN-05:** inalterado; nenhum DDL foi aplicado fora de PostgreSQL local
   descartável.
+
+## Adendo T15: encerramento simples sem alterar o workflow
+
+O callback `BATCH_CLOSED` já existente foi aproveitado sem editar o export. O
+app agora possui `POST /api/imports/events`, validado por segredo dedicado
+antes de ler JSON, e aceita somente o envelope estrito observado. A correlação
+usa a organização configurada e uma submissão app-owned já reconhecida. Replay
+idêntico retorna sucesso; divergência de horário ou contagem falha fechado.
+
+O evento `WORKFLOW_CLOSED_REPORTED` é append-only e contém somente lote,
+horário, contagem esperada e rótulos allowlisted. Lista e detalhe mostram
+“Processamento encerrado”, mas `BatchStatus`, aceite durável, terminais, leads,
+bloqueios e falhas não são promovidos nem preenchidos.
+
+O empacotamento local da Demo 3 inclui a migração app-owned `007`, o segredo no
+Secret imutável da aplicação e uma exceção de gateway somente para a rota
+exata; essa configuração não foi aplicada ao cluster. O n8n também não recebeu
+URL ou segredo. O export permaneceu ignorado, ativo com 98 nós e com o mesmo
+SHA-256 registrado no topo deste documento.

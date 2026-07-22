@@ -133,4 +133,13 @@ never change producer contents.
 
 Port `30099` cannot be used because it belongs to the existing SearXNG Service.
 
+T15 packaging note:
+- fresh/existing Demo 3 PostgreSQL packaging includes app-owned migration `007`
+- app Secret rendering requires `N8N_IMPORT_EVENT_SECRET` (32+ bytes, distinct
+  from `AUTH_SECRET`)
+- nginx exempts only exact `/api/imports/events` from browser Basic Auth; the
+  app machine-secret check remains mandatory
+- this package change was validated statically but not deployed; do not mutate
+  Demo 3 or n8n configuration without separate operational authorization
+
 Updated: 2026-07-22

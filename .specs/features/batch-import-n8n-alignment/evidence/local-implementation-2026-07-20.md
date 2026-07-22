@@ -150,3 +150,65 @@ exclusiva e foram removidos. Nenhum outro arquivo foi removido.
 - O endpoint configurado continua sendo o ingress legado aprovado. O artefato
   v1 permanece local, inativo e sem identidade remota.
 - T13 permanece sem UAT v1 fim a fim e o cutover v1 de T14 permanece bloqueado.
+
+## Extensão T15 — encerramento informado pelo workflow atual
+
+Em 22/07/2026 o escopo ativo foi simplificado para preservar o workflow atual
+de 98 nós e informar ao gestor quando ele emitir o `BATCH_CLOSED` já existente.
+O export ignorado foi conferido novamente com 98 nós, `active: true` e
+SHA-256 `26a2c00f30a58de01eae60802d470c6ba4d16d0e6e09e8340453c38aea142c23`,
+sem qualquer edição, importação, ativação, execução ou administração.
+
+### Implementação local
+
+- migração app-owned `007_legacy_workflow_close_report_forward.sql` permite um
+  único evento append-only `WORKFLOW_CLOSED_REPORTED` por submissão;
+- `POST /api/imports/events` exige segredo dedicado antes de ler corpo ou banco
+  e aceita somente o envelope estrito `BATCH_CLOSED` observado;
+- correlação usa a organização configurada, lote já reconhecido e a mesma
+  contagem do acknowledgement; replay igual é idempotente e divergência falha
+  fechado;
+- leitura app-owned expõe somente horário e contagem esperada do relato;
+- lista e detalhe mostram “Processamento encerrado” no refresh de cinco
+  segundos, sem promover `BatchStatus` nem preencher contagens de resultado;
+- empacotamento da Demo 3 inclui migração `007`, segredo no Secret da aplicação
+  e exceção do gateway apenas para a rota exata, ainda protegida pela API.
+
+### Gates finais de T15
+
+O `pnpm` continuou indisponível; os scripts equivalentes foram executados via
+`npm`, sem instalação ou atualização de dependências.
+
+| Gate | Resultado |
+| --- | --- |
+| `npm run lint` | passou sem warnings |
+| `npm run typecheck` | passou |
+| `npm test` | 76 arquivos / 1.774 testes passaram |
+| build com overrides seguros apenas no processo | passou; 24 rotas, incluindo `/api/imports/events` |
+| `npm run test:integration` | 8 arquivos / 88 testes passaram em dois bancos sintéticos no mesmo PostgreSQL descartável |
+| `npm run test:contract` | 3 arquivos / 18 testes locais passaram; 2 suites / 57 casos HTTP remotos ficaram skipped |
+| `git diff --check` | passou |
+
+O container `prospecta-close-gate-20260722`, restrito a
+`127.0.0.1:55432`, foi removido depois dos testes. As duas primeiras tentativas
+do runner integral foram recusadas pelos guards porque faltava a URL produtora
+ou o nome do banco produtor era incorreto; a execução com os dois alvos
+allowlisted passou 88/88.
+
+### Commits de T15
+
+- `8a837cf` `feat(imports): persist legacy workflow close reports`
+- `faf3534` `feat(imports): receive legacy workflow close callback`
+- `d54de1e` `feat(imports): show workflow processing closure`
+- `a96affd` `chore(demo3): package import close receiver`
+- `d710a7a` `test(imports): register callback API surface`
+
+### Limite operacional
+
+Nenhum cluster, deployment, Secret real ou ambiente n8n foi alterado. Para o
+fluxo funcionar na Demo 3, um operador ainda precisa fornecer o mesmo segredo
+aleatório à aplicação e ao n8n e configurar no n8n a URL exata
+`http://192.168.0.20:30100/api/imports/events`. Essa ação reinicia workloads e
+permanece fora desta execução. Como o callback atual possui retries finitos e
+`continueOnFail`, ausência do evento nunca é inferida como falha; a tela
+permanece em “Envio registrado”.

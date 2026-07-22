@@ -1,9 +1,9 @@
 # State
 
 **Last Updated:** 2026-07-22
-**Current Work:** Demo 3 distinguishes an available producer source from an
-empty correlation result; the separate n8n v1/producer-worker promotion remains
-gated by OPEN-01–OPEN-05
+**Current Work:** Legacy `BATCH_CLOSED` receiver and “Processamento encerrado”
+presentation are complete locally; runtime hookup is not deployed, while the
+separate n8n v1/producer-worker path remains deferred behind OPEN-01–OPEN-05
 
 ---
 
@@ -143,6 +143,24 @@ offer a synthetic progress estimate.
 the approved Demo 3 target. The diagnosed batch remains truthfully `SUBMITTED`;
 no data, status or count was invented.
 
+### AD-011: Current workflow close is an app-owned operational report (2026-07-22)
+
+**Decision:** Preserve the active 98-node workflow byte-for-byte and receive
+only its existing `BATCH_CLOSED` callback through a dedicated authenticated app
+route. Persist one minimal append-only app-owned event and present it as
+“Processamento encerrado”, without changing contractual `BatchStatus` or
+result counts.
+**Reason:** The owner needs the current upload flow to state when its loop has
+finished, without waiting for the separate v1/X4 architecture or modifying
+producer scoring and recommendations.
+**Trade-off:** Delivery remains best-effort because the existing callback uses
+finite retry plus `continueOnFail`; the UI cannot infer failure from a missing
+event. Plain HTTP exposes the callback secret on the approved LAN profile.
+**Impact:** Local code, migration, gateway packaging and tests are complete.
+Runtime configuration is intentionally not applied: the app and n8n still need
+the same operator-provided secret and the exact callback URL. The export remains
+active with 98 nodes and its previously recorded SHA-256.
+
 ---
 
 ## Active Blockers
@@ -160,10 +178,12 @@ no data, status or count was invented.
 - **OPEN-05:** Name the disposable external target, database owner, credentials,
   rollback owner, and approval before applying producer DDL anywhere else.
 
-The updated Demo 3 application release itself has no active blocker; these five
-blockers apply to the separate n8n v1 batch-alignment promotion path. Demo 3
-continues to use the approved legacy ingress URL and must not be represented as
-v1 end-to-end completion.
+These five blockers apply only to the deferred n8n v1 batch-alignment path, not
+to the simplified T15 presentation. T15 still has an operational hookup gate:
+no Demo 3 or n8n environment was changed, so an authorized operator must set
+the shared callback secret and exact callback URL before the local UI can
+receive real close reports. Demo 3 continues to use the approved legacy import
+URL and must not be represented as v1 end-to-end completion.
 
 ---
 
@@ -229,3 +249,7 @@ never consumed.
       reconciliation index migrated and verified.
 - [x] Release `demo3-preprod-20260722-empty-observations-001` with distinct
       source-available/no-correlated-facts presentation.
+- [x] Implement and locally validate the legacy `BATCH_CLOSED` receiver without
+      modifying the 98-node workflow or contractual result semantics.
+- [ ] Configure and release the T15 receiver only after explicit operational
+      authorization for the Demo 3 and n8n environment/secret changes.

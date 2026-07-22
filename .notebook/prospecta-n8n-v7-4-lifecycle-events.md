@@ -3,7 +3,7 @@
 
 Reviewed artifacts:
 - previous attachment retained as historical evidence
-- local-only ignored export: `.local/n8n-review/worflow-atual.json`
+- local-only ignored export: `.local/n8n-review/workflow-atual.json`
 - sanitized evidence:
   `.specs/features/batch-import-n8n-alignment/evidence/current-workflow-static-review-2026-07-22.md`
 
@@ -22,13 +22,12 @@ Findings:
   wait, not after an atomic durable producer acceptance.
 - Callback failures retry briefly and then continue, so callback delivery is
   not a durable producer fact source or recoverable outbox.
-- The app has no lifecycle-event POST route, environment contract, repository,
-  or read path. Batch pages read app-owned durable acceptance plus the approved
-  producer observation view only.
-- Demo 3 gateway authentication applies to every app path; the callback sends
-  only a custom secret header and cannot use the current NodePort route as
-  configured.
-- Callback payloads exceed the existing app import-event metadata allowlist.
+- T15 added a dedicated `POST /api/imports/events` path for only
+  `BATCH_CLOSED`, authenticated before body/DB work. It stores a minimal
+  app-owned `WORKFLOW_CLOSED_REPORTED` event and never treats it as X4.
+- Demo 3 packaging reserves only the exact callback path outside browser Basic
+  Auth; the app still requires the independent machine secret. This packaging
+  has not been deployed or configured in n8n.
 - The extractor still names `arquivo_csv0` while the app transmits
   `arquivo_csv`; this is contract drift that needs a synthetic disposable
   execution check.
@@ -48,6 +47,8 @@ Findings:
 
 Direction:
 - Keep the current workflow immutable.
+- Use its existing `BATCH_CLOSED` only to display “Processamento encerrado”;
+  keep acceptance and result counts nullable.
 - Continue the inactive artifact under
   `integrations/n8n/prospecting-import-v1/`.
 - Make atomic producer acceptance precede `202`, expose acceptance and X4

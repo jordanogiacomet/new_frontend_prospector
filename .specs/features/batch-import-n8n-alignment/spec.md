@@ -1,6 +1,6 @@
 # Alinhamento de Importação em Lotes com n8n — Especificação
 
-**Status:** Aprovada para implementação local; integração externa bloqueada
+**Status:** Encerramento legado implementado localmente; conexão externa não aplicada
 **Data:** 20/07/2026
 **Contexto:** `.specs/features/batch-import-n8n-alignment/context.md`
 
@@ -25,6 +25,14 @@ Há cinco desalinhamentos objetivos:
 Além disso, a lista de lotes consulta observações produtoras individualmente
 por submissão. Isso cria até 100 leituras produtoras por página e amplia o
 impacto de uma fonte lenta ou indisponível.
+
+## Escopo ativo simplificado em 22/07/2026
+
+O owner priorizou o fluxo atual de 98 nós: enviar o CSV uma única vez e saber
+quando esse workflow informou que terminou. A entrega ativa é ALIGN-19. A
+evolução separada v1, seus fatos X4 e OPEN-01–OPEN-05 permanecem preservados
+como trabalho futuro, mas não são pré-requisito para exibir o relato legado de
+encerramento. O workflow atual continua imutável.
 
 ## Objetivos
 
@@ -248,7 +256,7 @@ refresh sem nenhuma escrita produtora.
 | ALIGN-16 | Contrato sintético comprova identidade, correlação, timing e X4 | P1 | 13 casos estáticos passam; 57 casos HTTP permanecem skipped sem evidência remota |
 | ALIGN-17 | HTTP sem auth apenas no alvo LAN exato; produção bloqueada | P1 | Política existente; preservar |
 | ALIGN-18 | Rollout/rollback imutável, sem apagar auditoria ou produtor | P1 | Draft |
-| ALIGN-19 | Relato legado de encerramento autenticado, append-only e separado de `COMPLETED` | P1 | Em implementação local; configuração do callback n8n pendente |
+| ALIGN-19 | Relato legado de encerramento autenticado, append-only e separado de `COMPLETED` | P1 | Implementado e validado localmente; configuração externa não aplicada |
 
 ## Critérios de sucesso
 

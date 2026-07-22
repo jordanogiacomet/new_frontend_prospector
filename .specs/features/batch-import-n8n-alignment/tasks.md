@@ -454,14 +454,23 @@ legado já presente no export revisado.
 
 **Done when:**
 
-- [ ] Segredo é validado antes de corpo e banco.
-- [ ] Somente `BATCH_CLOSED` estrito e correlacionado é aceito.
-- [ ] Replay idêntico é idempotente e conflito falha fechado.
-- [ ] Lista/detalhe mostram encerramento e horário sem mudar `BatchStatus`.
-- [ ] PostgreSQL produtor e workflow de 98 nós permanecem inalterados.
+- [x] Segredo é validado antes de corpo e banco.
+- [x] Somente `BATCH_CLOSED` estrito e correlacionado é aceito.
+- [x] Replay idêntico é idempotente e conflito falha fechado.
+- [x] Lista/detalhe mostram encerramento e horário sem mudar `BatchStatus`.
+- [x] PostgreSQL produtor e workflow de 98 nós permanecem inalterados.
 
 **Tests:** route/unit + PostgreSQL integration + componente
 **Gate:** full local; configuração externa do callback requer aprovação
+
+**Status:** Completed locally on 22/07/2026. The app authenticates the callback
+before body/DB work, accepts only the strict correlated `BATCH_CLOSED`, stores
+one idempotent append-only app event, and renders “Processamento encerrado”
+without changing contractual status or result counts. Full local gates passed
+with 1,774 unit tests, 88 PostgreSQL integration tests and 18 local/static
+contracts; 57 remote HTTP cases stayed skipped. The 98-node export retained
+the same SHA-256. No workflow, cluster, deployment, secret or external
+configuration was changed.
 
 ## Granularidade
 

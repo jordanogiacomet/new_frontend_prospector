@@ -3,6 +3,7 @@
 
 Last updated: 2026-07-22
 
+- [prospecta-legacy-workflow-close-callback](prospecta-legacy-workflow-close-callback.md) — `BATCH_CLOSED` legado vira relato app-owned, nunca `COMPLETED` contratual | flow | n8n, prospecta, imports
 - [prospecta-n8n-v7-4-lifecycle-events](prospecta-n8n-v7-4-lifecycle-events.md) — Export ativo não oferece worker reutilizável nem fatos X4 | gotcha | n8n, prospecta, imports
 - [prospecta-n8n-contract](prospecta-n8n-contract.md) — Ingress v1 local, cadeia canônica e gates remotos retidos | flow | n8n, prospecta, imports
 - [prospecta-batch-read-service](prospecta-batch-read-service.md) — Lotes usam uma leitura produtora para até 100 IDs | flow | prospecta, imports
