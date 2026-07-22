@@ -8,7 +8,10 @@ import {
   type GetImportSubmissionDetailResult,
   type ImportSubmissionReadModel,
 } from "../repositories/imports/import-submissions-repository";
-import { readProducerBatchObservations } from "../repositories/imports/producer-batch-observations-repository";
+import {
+  readProducerBatchObservations,
+  readProducerBatchObservationsByBatchIds,
+} from "../repositories/imports/producer-batch-observations-repository";
 import type {
   BatchAcceptanceFact,
   BatchAcknowledgementFact,
@@ -59,6 +62,8 @@ export interface BatchReadServiceOperations {
   readonly listImportSubmissions: typeof listImportSubmissions;
   readonly getImportSubmissionDetail: typeof getImportSubmissionDetail;
   readonly readProducerBatchObservations: typeof readProducerBatchObservations;
+  readonly readProducerBatchObservationsByBatchIds:
+    typeof readProducerBatchObservationsByBatchIds;
   readonly mapBatchStatus: typeof mapBatchStatus;
 }
 
@@ -80,6 +85,7 @@ const defaultOperations: BatchReadServiceOperations = {
   listImportSubmissions,
   getImportSubmissionDetail,
   readProducerBatchObservations,
+  readProducerBatchObservationsByBatchIds,
   mapBatchStatus,
 };
 
@@ -96,11 +102,19 @@ export async function listImportBatches(
     page: input.page,
     pageSize: input.pageSize,
   });
-  const batches = await Promise.all(
-    result.submissions.map((submission) =>
-      composeBatchSummary(
+  const producerObservationsByBatchId =
+    await readPageProducerObservations(
+      result.submissions,
+      operations,
+      batchObservationEnabled,
+    );
+  const batches = result.submissions.map((submission) =>
+    composeBatchSummary(
+      submission,
+      operations,
+      observationsForSubmission(
         submission,
-        operations,
+        producerObservationsByBatchId,
         batchObservationEnabled,
       ),
     ),
@@ -136,7 +150,11 @@ export async function getImportBatchDetail(
     batch: await composeBatchSummary(
       result.submission,
       operations,
-      batchObservationEnabled,
+      await readCorrelatedProducerObservations(
+        result.submission,
+        operations,
+        batchObservationEnabled,
+      ),
     ),
   };
 }
@@ -159,17 +177,11 @@ function resolveBatchObservationEnabled(
   );
 }
 
-async function composeBatchSummary(
+function composeBatchSummary(
   submission: ImportSubmissionReadModel,
   operations: BatchReadServiceOperations,
-  batchObservationEnabled: boolean,
-): Promise<BatchSummary> {
-  const producerObservations = await readCorrelatedProducerObservations(
-    submission,
-    operations,
-    batchObservationEnabled,
-  );
-
+  producerObservations: BatchProducerObservationFacts | null,
+): BatchSummary {
   return operations.mapBatchStatus({
     submission: mapSubmissionFact(submission),
     acknowledgement: mapAcknowledgementFact(submission),
@@ -177,6 +189,56 @@ async function composeBatchSummary(
     producerObservations,
     freshness: null,
   });
+}
+
+async function readPageProducerObservations(
+  submissions: readonly ImportSubmissionReadModel[],
+  operations: BatchReadServiceOperations,
+  batchObservationEnabled: boolean,
+): Promise<ReadonlyMap<string, BatchProducerObservationFacts>> {
+  if (!batchObservationEnabled) {
+    return new Map();
+  }
+
+  const importBatchIds = [
+    ...new Set(
+      submissions
+        .map(correlatedImportBatchId)
+        .filter((value): value is string => value !== null),
+    ),
+  ];
+
+  if (importBatchIds.length === 0) {
+    return new Map();
+  }
+
+  return operations.readProducerBatchObservationsByBatchIds({
+    import_batch_ids: importBatchIds,
+  });
+}
+
+function observationsForSubmission(
+  submission: ImportSubmissionReadModel,
+  observationsByBatchId: ReadonlyMap<
+    string,
+    BatchProducerObservationFacts
+  >,
+  batchObservationEnabled: boolean,
+): BatchProducerObservationFacts | null {
+  if (!batchObservationEnabled) {
+    return unavailableProducerObservations();
+  }
+
+  const importBatchId = correlatedImportBatchId(submission);
+
+  if (importBatchId === null) {
+    return null;
+  }
+
+  return (
+    observationsByBatchId.get(importBatchId) ??
+    unavailableProducerObservations()
+  );
 }
 
 async function readCorrelatedProducerObservations(

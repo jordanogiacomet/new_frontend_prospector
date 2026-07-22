@@ -24,9 +24,14 @@ const CLOSE_FACT_SOURCE = "producer_x4_batch_close_v1";
 const LEGACY_FACT_SOURCE = "producer_retained_legacy_observations_v1";
 const OBSERVED_AT_FACT_SOURCE = "producer_x4_observation_clock_v1";
 const MAX_IMPORT_BATCH_ID_LENGTH = 128;
+const MAX_BATCH_READ_SIZE = 100;
 
 export interface ReadProducerBatchObservationsInput {
   readonly import_batch_id: string;
+}
+
+export interface ReadProducerBatchObservationsByBatchIdsInput {
+  readonly import_batch_ids: readonly string[];
 }
 
 export class ProducerBatchObservationRepositoryInputError extends Error {
@@ -62,37 +67,79 @@ interface MutableObservations {
 export async function readProducerBatchObservations(
   input: ReadProducerBatchObservationsInput,
 ): Promise<BatchProducerObservationFacts> {
-  validateInput(input);
+  validateImportBatchId(input.import_batch_id);
+  const observations = await readProducerBatchObservationsByBatchIds({
+    import_batch_ids: [input.import_batch_id],
+  });
+
+  return (
+    observations.get(input.import_batch_id) ??
+    unavailableObservations()
+  );
+}
+
+export async function readProducerBatchObservationsByBatchIds(
+  input: ReadProducerBatchObservationsByBatchIdsInput,
+): Promise<ReadonlyMap<string, BatchProducerObservationFacts>> {
+  const importBatchIds = validateBatchInput(input);
+
+  if (importBatchIds.length === 0) {
+    return new Map();
+  }
 
   try {
     const rows = await queryProducerDatabase<ProducerBatchObservationRow>(
-      buildSelectObservationsStatement(input.import_batch_id),
+      buildSelectObservationsByBatchIdsStatement(importBatchIds),
     );
 
-    return mapObservationRows(rows);
+    return mapObservationRowsByBatchId(importBatchIds, rows);
   } catch (error) {
     if (error instanceof DatabaseUnavailableError) {
-      return unavailableObservations();
+      return new Map(
+        importBatchIds.map((importBatchId) => [
+          importBatchId,
+          unavailableObservations(),
+        ]),
+      );
     }
 
     throw error;
   }
 }
 
-function validateInput(input: ReadProducerBatchObservationsInput): void {
+function validateBatchInput(
+  input: ReadProducerBatchObservationsByBatchIdsInput,
+): readonly string[] {
   if (
     typeof input !== "object" ||
     input === null ||
-    typeof input.import_batch_id !== "string" ||
-    input.import_batch_id.trim() !== input.import_batch_id ||
-    input.import_batch_id.length < 1 ||
-    input.import_batch_id.length > MAX_IMPORT_BATCH_ID_LENGTH
+    !Array.isArray(input.import_batch_ids) ||
+    input.import_batch_ids.length > MAX_BATCH_READ_SIZE
+  ) {
+    throw new ProducerBatchObservationRepositoryInputError();
+  }
+
+  for (const importBatchId of input.import_batch_ids) {
+    validateImportBatchId(importBatchId);
+  }
+
+  return [...new Set(input.import_batch_ids)];
+}
+
+function validateImportBatchId(importBatchId: unknown): asserts importBatchId is string {
+  if (
+    typeof importBatchId !== "string" ||
+    importBatchId.trim() !== importBatchId ||
+    importBatchId.length < 1 ||
+    importBatchId.length > MAX_IMPORT_BATCH_ID_LENGTH
   ) {
     throw new ProducerBatchObservationRepositoryInputError();
   }
 }
 
-function buildSelectObservationsStatement(importBatchId: string): SqlStatement {
+function buildSelectObservationsByBatchIdsStatement(
+  importBatchIds: readonly string[],
+): SqlStatement {
   return {
     text: `
       SELECT
@@ -104,15 +151,40 @@ function buildSelectObservationsStatement(importBatchId: string): SqlStatement {
         observed_at,
         closed_at
       FROM public.prospecta_import_batch_observations_v1
-      WHERE import_batch_id = $1
+      WHERE import_batch_id = ANY($1::text[])
       ORDER BY
+        import_batch_id ASC,
         observed_at ASC,
         fact_type ASC,
         source_row ASC NULLS LAST,
         lead_run_id ASC NULLS LAST,
         producer_result ASC NULLS LAST`,
-    values: [importBatchId],
+    values: [importBatchIds],
   };
+}
+
+function mapObservationRowsByBatchId(
+  importBatchIds: readonly string[],
+  rows: readonly ProducerBatchObservationRow[],
+): ReadonlyMap<string, BatchProducerObservationFacts> {
+  const requested = new Set(importBatchIds);
+  const rowsByBatchId = new Map<
+    string,
+    ProducerBatchObservationRow[]
+  >(importBatchIds.map((importBatchId) => [importBatchId, []]));
+
+  for (const row of rows) {
+    if (requested.has(row.import_batch_id)) {
+      rowsByBatchId.get(row.import_batch_id)?.push(row);
+    }
+  }
+
+  return new Map(
+    importBatchIds.map((importBatchId) => [
+      importBatchId,
+      mapObservationRows(rowsByBatchId.get(importBatchId) ?? []),
+    ]),
+  );
 }
 
 function mapObservationRows(

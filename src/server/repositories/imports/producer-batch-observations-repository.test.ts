@@ -30,6 +30,7 @@ import type { SqlStatement } from "../../db/producer-client";
 import {
   ProducerBatchObservationRepositoryInputError,
   readProducerBatchObservations,
+  readProducerBatchObservationsByBatchIds,
 } from "./producer-batch-observations-repository";
 
 const importBatchId = "empresaqui_2026-07-07T12:00:00.000Z";
@@ -364,10 +365,97 @@ describe("readProducerBatchObservations", () => {
     await readProducerBatchObservations({ import_batch_id: importBatchId });
 
     expect(statement()).toEqual({
-      text: expect.stringMatching(/WHERE import_batch_id = \$1/i),
-      values: [importBatchId],
+      text: expect.stringMatching(
+        /WHERE import_batch_id = ANY\(\$1::text\[\]\)/i,
+      ),
+      values: [[importBatchId]],
     });
     expect(statement().text).not.toContain(importBatchId);
+  });
+});
+
+describe("readProducerBatchObservationsByBatchIds", () => {
+  it("groups up to 100 batches through one constant query", async () => {
+    const importBatchIds = Array.from(
+      { length: 100 },
+      (_, index) => `batch-synthetic-${String(index).padStart(3, "0")}`,
+    );
+    mocks.query.mockResolvedValueOnce([
+      observationRow({
+        import_batch_id: importBatchIds[0],
+        source_row: 2,
+      }),
+      observationRow({
+        import_batch_id: importBatchIds[99],
+        source_row: 3,
+      }),
+    ]);
+
+    const result = await readProducerBatchObservationsByBatchIds({
+      import_batch_ids: importBatchIds,
+    });
+
+    expect(mocks.query).toHaveBeenCalledTimes(1);
+    expect(statement().values).toEqual([importBatchIds]);
+    expect(statement().text).toMatch(
+      /WHERE import_batch_id = ANY\(\$1::text\[\]\)/i,
+    );
+    expect(result.size).toBe(100);
+    expect(result.get(importBatchIds[0]!)?.acceptedRows).toHaveLength(1);
+    expect(result.get(importBatchIds[50]!)?.acceptedRows).toEqual([]);
+    expect(result.get(importBatchIds[99]!)?.acceptedRows).toHaveLength(1);
+  });
+
+  it("deduplicates identifiers before the producer query", async () => {
+    mocks.query.mockResolvedValueOnce([]);
+
+    const result = await readProducerBatchObservationsByBatchIds({
+      import_batch_ids: [importBatchId, importBatchId],
+    });
+
+    expect(statement().values).toEqual([[importBatchId]]);
+    expect(result.size).toBe(1);
+  });
+
+  it("returns one unavailable fact set per batch when the source fails", async () => {
+    const secondBatchId = "batch-synthetic-second";
+    mocks.query.mockRejectedValueOnce(new DatabaseUnavailableError());
+
+    const result = await readProducerBatchObservationsByBatchIds({
+      import_batch_ids: [importBatchId, secondBatchId],
+    });
+
+    expect(result.get(importBatchId)).toMatchObject({
+      availability: "UNAVAILABLE",
+      unavailableBasis: "PRODUCER_SOURCE_UNAVAILABLE",
+    });
+    expect(result.get(secondBatchId)).toMatchObject({
+      availability: "UNAVAILABLE",
+      unavailableBasis: "PRODUCER_SOURCE_UNAVAILABLE",
+    });
+  });
+
+  it("returns an empty map without a producer query for an empty page", async () => {
+    await expect(
+      readProducerBatchObservationsByBatchIds({
+        import_batch_ids: [],
+      }),
+    ).resolves.toEqual(new Map());
+    expect(mocks.query).not.toHaveBeenCalled();
+  });
+
+  it("rejects more than 100 batch identifiers before producer work", async () => {
+    await expect(
+      readProducerBatchObservationsByBatchIds({
+        import_batch_ids: Array.from(
+          { length: 101 },
+          (_, index) => `batch-${index}`,
+        ),
+      }),
+    ).rejects.toBeInstanceOf(
+      ProducerBatchObservationRepositoryInputError,
+    );
+    expect(mocks.query).not.toHaveBeenCalled();
   });
 });
 

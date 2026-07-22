@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   listImportSubmissions: vi.fn(),
   getImportSubmissionDetail: vi.fn(),
   readProducerBatchObservations: vi.fn(),
+  readProducerBatchObservationsByBatchIds: vi.fn(),
   getServerEnv: vi.fn(),
 }));
 
@@ -20,6 +21,8 @@ vi.mock(
   "../repositories/imports/producer-batch-observations-repository",
   () => ({
     readProducerBatchObservations: mocks.readProducerBatchObservations,
+    readProducerBatchObservationsByBatchIds:
+      mocks.readProducerBatchObservationsByBatchIds,
   }),
 );
 
@@ -184,6 +187,13 @@ function unavailableObservations(): BatchProducerObservationFacts {
   });
 }
 
+function observationsByBatchId(
+  producerFacts: BatchProducerObservationFacts,
+  batchId = importBatchId,
+): ReadonlyMap<string, BatchProducerObservationFacts> {
+  return new Map([[batchId, producerFacts]]);
+}
+
 function listResult(
   overrides: Partial<ListImportSubmissionsResult> = {},
 ): ListImportSubmissionsResult {
@@ -227,6 +237,9 @@ beforeEach(() => {
     submission: submission(),
   });
   mocks.readProducerBatchObservations.mockResolvedValue(observations());
+  mocks.readProducerBatchObservationsByBatchIds.mockResolvedValue(
+    observationsByBatchId(observations()),
+  );
 });
 
 describe("listImportBatches", () => {
@@ -246,7 +259,9 @@ describe("listImportBatches", () => {
       ).rejects.toBeInstanceOf(BatchReadServiceInputError);
 
       expect(mocks.listImportSubmissions).not.toHaveBeenCalled();
-      expect(mocks.readProducerBatchObservations).not.toHaveBeenCalled();
+      expect(
+        mocks.readProducerBatchObservationsByBatchIds,
+      ).not.toHaveBeenCalled();
     },
   );
 
@@ -268,7 +283,9 @@ describe("listImportBatches", () => {
       page: undefined,
       pageSize: undefined,
     });
-    expect(mocks.readProducerBatchObservations).not.toHaveBeenCalled();
+    expect(
+      mocks.readProducerBatchObservationsByBatchIds,
+    ).not.toHaveBeenCalled();
   });
 
   it("preserves repository pagination and batch order", async () => {
@@ -320,30 +337,36 @@ describe("listImportBatches", () => {
       observationStatus: "AVAILABLE",
       observationBasis: null,
     });
-    expect(mocks.readProducerBatchObservations).not.toHaveBeenCalled();
+    expect(
+      mocks.readProducerBatchObservationsByBatchIds,
+    ).not.toHaveBeenCalled();
   });
 
   it("keeps workflow acknowledgement separate from durable acceptance", async () => {
     mocks.listImportSubmissions.mockResolvedValueOnce(
       listResult({ submissions: [acknowledgedSubmission()] }),
     );
-    mocks.readProducerBatchObservations.mockResolvedValueOnce(
-      observations({
-        acceptedRows: acceptedRows([1, 2, 3]),
-        terminalOutcomes: [
-          terminal(1, "MATERIALIZED"),
-          terminal(2, "BLOCKED"),
-          terminal(3, "FAILED"),
-        ],
-        close: close(),
-        lastObservedAt: lastObservedAtFact(),
-      }),
+    mocks.readProducerBatchObservationsByBatchIds.mockResolvedValueOnce(
+      observationsByBatchId(
+        observations({
+          acceptedRows: acceptedRows([1, 2, 3]),
+          terminalOutcomes: [
+            terminal(1, "MATERIALIZED"),
+            terminal(2, "BLOCKED"),
+            terminal(3, "FAILED"),
+          ],
+          close: close(),
+          lastObservedAt: lastObservedAtFact(),
+        }),
+      ),
     );
 
     const result = await listImportBatches({ organizationId });
 
-    expect(mocks.readProducerBatchObservations).toHaveBeenCalledWith({
-      import_batch_id: importBatchId,
+    expect(
+      mocks.readProducerBatchObservationsByBatchIds,
+    ).toHaveBeenCalledWith({
+      import_batch_ids: [importBatchId],
     });
     expect(result.batches[0]).toMatchObject({
       import_batch_id: importBatchId,
@@ -359,11 +382,13 @@ describe("listImportBatches", () => {
     mocks.listImportSubmissions.mockResolvedValueOnce(
       listResult({ submissions: [acceptedSubmission()] }),
     );
-    mocks.readProducerBatchObservations.mockResolvedValueOnce(
-      observations({
-        acceptedRows: acceptedRows([1, 2]),
-        lastObservedAt: lastObservedAtFact(),
-      }),
+    mocks.readProducerBatchObservationsByBatchIds.mockResolvedValueOnce(
+      observationsByBatchId(
+        observations({
+          acceptedRows: acceptedRows([1, 2]),
+          lastObservedAt: lastObservedAtFact(),
+        }),
+      ),
     );
 
     const result = await listImportBatches({ organizationId });
@@ -382,8 +407,8 @@ describe("listImportBatches", () => {
     mocks.listImportSubmissions.mockResolvedValueOnce(
       listResult({ submissions: [acceptedSubmission()] }),
     );
-    mocks.readProducerBatchObservations.mockResolvedValueOnce(
-      unavailableObservations(),
+    mocks.readProducerBatchObservationsByBatchIds.mockResolvedValueOnce(
+      observationsByBatchId(unavailableObservations()),
     );
 
     const result = await listImportBatches({ organizationId });
@@ -411,7 +436,9 @@ describe("listImportBatches", () => {
       { batchObservationEnabled: false },
     );
 
-    expect(mocks.readProducerBatchObservations).not.toHaveBeenCalled();
+    expect(
+      mocks.readProducerBatchObservationsByBatchIds,
+    ).not.toHaveBeenCalled();
     expect(result.batches[0]).toMatchObject({
       status: "ACCEPTED",
       rowCountAccepted: 3,
@@ -439,12 +466,17 @@ describe("listImportBatches", () => {
         ],
       }),
     );
-    mocks.readProducerBatchObservations.mockResolvedValueOnce(
-      observations({
-        acceptedRows: acceptedRows([1]),
-        terminalOutcomes: [terminal(1, "MATERIALIZED"), terminal(2, "FAILED")],
-        lastObservedAt: lastObservedAtFact(),
-      }),
+    mocks.readProducerBatchObservationsByBatchIds.mockResolvedValueOnce(
+      observationsByBatchId(
+        observations({
+          acceptedRows: acceptedRows([1]),
+          terminalOutcomes: [
+            terminal(1, "MATERIALIZED"),
+            terminal(2, "FAILED"),
+          ],
+          lastObservedAt: lastObservedAtFact(),
+        }),
+      ),
     );
 
     const result = await listImportBatches({ organizationId });
@@ -471,15 +503,17 @@ describe("listImportBatches", () => {
         ],
       }),
     );
-    mocks.readProducerBatchObservations.mockResolvedValueOnce(
-      observations({
-        acceptedRows: acceptedRows([1, 2]),
-        terminalOutcomes: [
-          terminal(1, "MATERIALIZED"),
-          terminal(2, "BLOCKED"),
-        ],
-        lastObservedAt: lastObservedAtFact(),
-      }),
+    mocks.readProducerBatchObservationsByBatchIds.mockResolvedValueOnce(
+      observationsByBatchId(
+        observations({
+          acceptedRows: acceptedRows([1, 2]),
+          terminalOutcomes: [
+            terminal(1, "MATERIALIZED"),
+            terminal(2, "BLOCKED"),
+          ],
+          lastObservedAt: lastObservedAtFact(),
+        }),
+      ),
     );
 
     const result = await listImportBatches({ organizationId });
@@ -495,17 +529,19 @@ describe("listImportBatches", () => {
     mocks.listImportSubmissions.mockResolvedValueOnce(
       listResult({ submissions: [acceptedSubmission()] }),
     );
-    mocks.readProducerBatchObservations.mockResolvedValueOnce(
-      observations({
-        acceptedRows: acceptedRows([1, 2, 3]),
-        terminalOutcomes: [
-          terminal(1, "MATERIALIZED"),
-          terminal(2, "BLOCKED"),
-          terminal(3, "FAILED"),
-        ],
-        close: close(),
-        lastObservedAt: lastObservedAtFact(),
-      }),
+    mocks.readProducerBatchObservationsByBatchIds.mockResolvedValueOnce(
+      observationsByBatchId(
+        observations({
+          acceptedRows: acceptedRows([1, 2, 3]),
+          terminalOutcomes: [
+            terminal(1, "MATERIALIZED"),
+            terminal(2, "BLOCKED"),
+            terminal(3, "FAILED"),
+          ],
+          close: close(),
+          lastObservedAt: lastObservedAtFact(),
+        }),
+      ),
     );
 
     const result = await listImportBatches({ organizationId });
@@ -524,16 +560,18 @@ describe("listImportBatches", () => {
     mocks.listImportSubmissions.mockResolvedValueOnce(
       listResult({ submissions: [acceptedSubmission()] }),
     );
-    mocks.readProducerBatchObservations.mockResolvedValueOnce(
-      observations({
-        acceptedRows: acceptedRows([1, 2, 3]),
-        terminalOutcomes: [
-          terminal(1, "MATERIALIZED"),
-          terminal(2, "BLOCKED"),
-        ],
-        close: close(),
-        lastObservedAt: lastObservedAtFact(),
-      }),
+    mocks.readProducerBatchObservationsByBatchIds.mockResolvedValueOnce(
+      observationsByBatchId(
+        observations({
+          acceptedRows: acceptedRows([1, 2, 3]),
+          terminalOutcomes: [
+            terminal(1, "MATERIALIZED"),
+            terminal(2, "BLOCKED"),
+          ],
+          close: close(),
+          lastObservedAt: lastObservedAtFact(),
+        }),
+      ),
     );
 
     const result = await listImportBatches({ organizationId });
@@ -549,18 +587,20 @@ describe("listImportBatches", () => {
     mocks.listImportSubmissions.mockResolvedValueOnce(
       listResult({ submissions: [acceptedSubmission()] }),
     );
-    mocks.readProducerBatchObservations.mockResolvedValueOnce(
-      observations({
-        retainedLegacyObservations: [
-          {
-            factSource: "producer_retained_legacy_observations_v1",
-            sourceRow: 7,
-            leadRunId: "legacy-run-7",
-            observedAt,
-          },
-        ],
-        lastObservedAt: lastObservedAtFact(),
-      }),
+    mocks.readProducerBatchObservationsByBatchIds.mockResolvedValueOnce(
+      observationsByBatchId(
+        observations({
+          retainedLegacyObservations: [
+            {
+              factSource: "producer_retained_legacy_observations_v1",
+              sourceRow: 7,
+              leadRunId: "legacy-run-7",
+              observedAt,
+            },
+          ],
+          lastObservedAt: lastObservedAtFact(),
+        }),
+      ),
     );
 
     const result = await listImportBatches({ organizationId });
@@ -600,7 +640,9 @@ describe("listImportBatches", () => {
     mocks.listImportSubmissions.mockResolvedValueOnce(
       listResult({ submissions: [acceptedSubmission()] }),
     );
-    mocks.readProducerBatchObservations.mockResolvedValueOnce(producerFacts);
+    mocks.readProducerBatchObservationsByBatchIds.mockResolvedValueOnce(
+      observationsByBatchId(producerFacts),
+    );
 
     const result = await listImportBatches(
       { organizationId },
@@ -628,6 +670,46 @@ describe("listImportBatches", () => {
       producerObservations: producerFacts,
       freshness: null,
     });
+  });
+
+  it("reads 100 correlated batches through one producer query", async () => {
+    const submissions = Array.from({ length: 100 }, (_, index) => {
+      const batchId = `batch-synthetic-${String(index).padStart(3, "0")}`;
+
+      return acceptedSubmission({
+        submissionId: `00000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
+        workflowAcknowledgement: {
+          import_batch_id: batchId,
+          row_count: 3,
+          acknowledgedAt,
+        },
+      });
+    });
+    const batchIds = submissions.map(
+      (item) => item.workflowAcknowledgement!.import_batch_id,
+    );
+    mocks.listImportSubmissions.mockResolvedValueOnce(
+      listResult({ submissions, pageSize: 100, total: 100 }),
+    );
+    mocks.readProducerBatchObservationsByBatchIds.mockResolvedValueOnce(
+      new Map(batchIds.map((batchId) => [batchId, observations()])),
+    );
+
+    const result = await listImportBatches({
+      organizationId,
+      pageSize: 100,
+    });
+
+    expect(result.batches).toHaveLength(100);
+    expect(
+      mocks.readProducerBatchObservationsByBatchIds,
+    ).toHaveBeenCalledTimes(1);
+    expect(
+      mocks.readProducerBatchObservationsByBatchIds,
+    ).toHaveBeenCalledWith({
+      import_batch_ids: batchIds,
+    });
+    expect(mocks.readProducerBatchObservations).not.toHaveBeenCalled();
   });
 });
 
