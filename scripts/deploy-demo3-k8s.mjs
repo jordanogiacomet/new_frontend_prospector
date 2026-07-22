@@ -19,6 +19,7 @@ const sourceSecretNamespace = "prospecta-demo";
 const sourceSecretName = "prospecta-demo-secrets";
 const appMigrationFiles = [
   "db/app/006_import_acceptance_reconciliation_forward.sql",
+  "db/app/007_legacy_workflow_close_report_forward.sql",
 ];
 const deploymentLockFile = join(
   tmpdir(),
@@ -158,11 +159,20 @@ function loadConfiguration() {
     appDatabasePassword: required("DEMO3_APP_DATABASE_PASSWORD"),
     authSecret: required("AUTH_SECRET"),
     oidcClientSecret: required("AUTH_OIDC_CLIENT_SECRET"),
+    n8nImportEventSecret: required("N8N_IMPORT_EVENT_SECRET"),
   };
 
   assertReleaseId(configuration.releaseId);
   if (Buffer.byteLength(configuration.authSecret, "utf8") < 32) {
     fail("AUTH_SECRET must contain at least 32 bytes");
+  }
+  if (
+    Buffer.byteLength(configuration.n8nImportEventSecret, "utf8") < 32
+  ) {
+    fail("N8N_IMPORT_EVENT_SECRET must contain at least 32 bytes");
+  }
+  if (configuration.n8nImportEventSecret === configuration.authSecret) {
+    fail("N8N_IMPORT_EVENT_SECRET must be distinct from AUTH_SECRET");
   }
   if (Buffer.byteLength(configuration.postgresOwnerPassword, "utf8") < 32) {
     fail("DEMO3_POSTGRES_OWNER_PASSWORD must contain at least 32 bytes");
@@ -588,6 +598,8 @@ function secretManifest(
           AUTH_SECRET: configuration.authSecret,
           AUTH_OIDC_CLIENT_SECRET: configuration.oidcClientSecret,
           AUTH_ALLOWED_ORG_ID: preproductionSource.organizationId,
+          N8N_IMPORT_EVENT_SECRET:
+            configuration.n8nImportEventSecret,
           SENSITIVE_URL_HOSTS:
             preproductionSource.sensitiveUrlHosts,
         },
@@ -696,6 +708,10 @@ function verifyExistingAppMigrations() {
         || count(*) FILTER (
           WHERE indexname = 'import_submissions_org_producer_batch_idx'
         )::text
+        || '|'
+        || count(*) FILTER (
+          WHERE indexname = 'import_submission_events_one_workflow_close_uk'
+        )::text
       FROM pg_indexes
       WHERE schemaname = 'prospecting_app'`,
     ],
@@ -705,7 +721,10 @@ function verifyExistingAppMigrations() {
     },
   );
 
-  if (verification.status !== 0 || verification.stdout.trim() !== "0|1") {
+  if (
+    verification.status !== 0 ||
+    verification.stdout.trim() !== "0|1|1"
+  ) {
     fail("app-owned migration verification failed");
   }
 }
