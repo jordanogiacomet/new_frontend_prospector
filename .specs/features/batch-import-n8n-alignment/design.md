@@ -196,6 +196,26 @@ OPEN-02 precisa fornecer uma interface versionada que:
 - seja idempotente por linha;
 - não dependa de alteração ou clonagem do workflow produtivo atual.
 
+O gate local implementado aceita exatamente:
+
+```ts
+type ProducerWorkerTerminalV1 = {
+  worker_contract_version: "prospecta-producer-worker-v1";
+  import_batch_id: `ib_${string}`;
+  source_row: number;
+  input_row_id: string;
+  lead_run_id: string;
+  idempotency_key: string;
+  terminal_class: "MATERIALIZED" | "BLOCKED" | "FAILED";
+};
+```
+
+Deve haver um envelope para cada linha aceita, sem `source_row` duplicado e
+com o mesmo `import_batch_id`. O gate não possui bypass: com o artefato ainda
+ligado diretamente após a resposta, o shape é incompatível e o lote permanece
+aberto. OPEN-02 passa somente quando um worker real, versionado e aprovado for
+conectado e produzir o conjunto completo.
+
 Sem essa interface, o artefato pode validar aceitação em ambiente isolado, mas
 não pode ser promovido como importação fim a fim.
 

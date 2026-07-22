@@ -76,9 +76,30 @@ and API success, real producer availability, and zero-restart readiness. The
 owner accepts that Basic Auth credentials and response data are plaintext on
 this exact local target; never reuse this profile for internet or production.
 
+Release `demo3-preprod-20260720-import-ack-001`:
+- target preflight passed before mutation
+- immutable images rolled out and authenticated smoke passed
+- one synthetic app-mediated import returned `202`, persisted a workflow
+  acknowledgement, and exposed a correlated `import_batch_id` in detail
+- the correlated producer source contained only
+  `RETAINED_LEGACY_OBSERVATION`; status therefore remains `SUBMITTED` until the
+  producer emits approved acceptance, terminal, and close facts
+
+Release `demo3-preprod-20260720-import-status-001`:
+- target preflight passed before mutation
+- immutable images rolled out with one ready app pod, one ready PostgreSQL pod,
+  and zero container restarts
+- authenticated synthetic app submission returned `202`, persisted its
+  workflow acknowledgement and correlated `import_batch_id`, and exposed a
+  producer observation in detail
+- list/detail clients refresh their private import APIs every five seconds
+  while visible
+- no durable acceptance, terminal count, or explicit close was observed during
+  the UAT window, so the truthful batch state remained `SUBMITTED`
+
 Rollback: Deployment revision rollback; preserve Demo 3 PVC and audit history;
 never change producer contents.
 
 Port `30099` cannot be used because it belongs to the existing SearXNG Service.
 
-Updated: 2026-07-17
+Updated: 2026-07-20

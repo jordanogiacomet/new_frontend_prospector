@@ -107,15 +107,20 @@ inactive, has no remote identity/credential, and is not published.
 
 **Done when:**
 
-- [ ] Uma transação cria/confirma lote, todas as linhas e ledger.
-- [ ] O ID retornado é canônico e a contagem corresponde às linhas duráveis.
-- [ ] Replay igual retorna o original; conflito de submissão/hash aborta.
-- [ ] Não existe `CASCADE`, CSV bruto, SQL dinâmico ou grant ao papel app
+- [x] Uma transação cria/confirma lote, todas as linhas e ledger.
+- [x] O ID retornado é canônico e a contagem corresponde às linhas duráveis.
+- [x] Replay igual retorna o original; conflito de submissão/hash aborta.
+- [x] Não existe `CASCADE`, CSV bruto, SQL dinâmico ou grant ao papel app
       write.
-- [ ] Rollback remove somente objetos novos após preflight seguro.
+- [x] Rollback remove somente objetos novos após preflight seguro.
 
 **Tests:** PostgreSQL integration
 **Gate:** revisão do dono do produtor antes de qualquer execução
+
+**Status:** Completed locally on 20/07/2026 and consolidated on 22/07/2026.
+Only `003_import_acceptance.sql` and `004_import_acceptance_rollback.sql` remain
+as the canonical acceptance pair. The migration was applied only to disposable
+synthetic PostgreSQL; OPEN-05 still blocks any external application.
 
 ### T04: Expor aceitação somente leitura e provar isolamento
 
@@ -130,15 +135,19 @@ role isolation/concorrência/atomicidade.
 
 **Done when:**
 
-- [ ] A view expõe somente os cinco campos descritos no design.
-- [ ] O papel app consegue `SELECT` e falha em toda mutação.
-- [ ] Falha na linha N reverte lote, linhas e ledger.
-- [ ] Duas chamadas concorrentes iguais convergem; chamadas conflitantes
+- [x] A view expõe somente os cinco campos descritos no design.
+- [x] O papel app consegue `SELECT` e falha em toda mutação.
+- [x] Falha na linha N reverte lote, linhas e ledger.
+- [x] Duas chamadas concorrentes iguais convergem; chamadas conflitantes
       falham fechado.
-- [ ] `EXPLAIN` e orçamento de consulta são registrados sem dados reais.
+- [x] `EXPLAIN` e orçamento de consulta são registrados sem dados reais.
 
 **Tests:** PostgreSQL integration + role isolation
 **Gate:** `pnpm test:integration`
+
+**Status:** Completed locally on 20/07/2026 with a five-column read view,
+mutation denial, concurrency/atomicity coverage, and a synthetic
+`EXPLAIN (ANALYZE, BUFFERS)` budget below cost 100.
 
 ### T05: Estender o cliente app para o contrato versionado
 
@@ -155,15 +164,18 @@ o novo shape/ID canônico, sem auth no perfil LAN.
 
 **Done when:**
 
-- [ ] O form contém arquivo e quatro metadados; os bytes são idênticos.
-- [ ] Nenhum cabeçalho HMAC/auth é emitido no perfil interno.
-- [ ] `202` malformado, ID temporal, campo extra e erro viram outcome
+- [x] O form contém arquivo e quatro metadados; os bytes são idênticos.
+- [x] Nenhum cabeçalho HMAC/auth é emitido no perfil interno.
+- [x] `202` malformado, ID temporal, campo extra e erro viram outcome
       desconhecido.
-- [ ] Há exatamente uma chamada e nenhuma tentativa automática.
-- [ ] Testes confirmam que o hash vem dos bytes transmitidos.
+- [x] Há exatamente uma chamada e nenhuma tentativa automática.
+- [x] Testes confirmam que o hash vem dos bytes transmitidos.
 
 **Tests:** unit
 **Gate:** `pnpm test src/server/imports/ingress-client.test.ts src/server/imports/submit-import.test.ts`
+
+**Status:** Completed locally on 20/07/2026. Legacy parsing remains compatible
+with its five-field subset; the v1 path is exact and fail-closed.
 
 ### T06: Persistir e reconciliar aceitação no app
 
@@ -181,15 +193,20 @@ co-localizados.
 
 **Done when:**
 
-- [ ] Organização é verificada antes da consulta produtora.
-- [ ] Hash, ID, timestamp e contagem são validados.
-- [ ] Atualização/evento são atômicos, idempotentes e não rebaixam status.
-- [ ] Sucesso do ingress tenta read-back; falha da view preserva
+- [x] Organização é verificada antes da consulta produtora.
+- [x] Hash, ID, timestamp e contagem são validados.
+- [x] Atualização/evento são atômicos, idempotentes e não rebaixam status.
+- [x] Sucesso do ingress tenta read-back; falha da view preserva
       acknowledgement sem promoção.
-- [ ] Timeout não chama o n8n e permanece desconhecido até trigger aprovado.
+- [x] Timeout não chama o n8n e permanece desconhecido até trigger aprovado.
 
 **Tests:** unit + PostgreSQL integration
 **Gate:** `pnpm test` e `pnpm test:integration`
+
+**Status:** Completed locally on 20/07/2026 and reverified on 22/07/2026.
+Synchronous post-202 reconciliation validates that producer acceptance is not
+before submission or after acknowledgement; late scheduling remains behind
+OPEN-03.
 
 ### T07: Montar o ingresso n8n até a aceitação
 
@@ -207,14 +224,18 @@ e aliases produtores aprovados.
 
 **Done when:**
 
-- [ ] Arquivo inválido falha antes de qualquer Postgres node de escrita.
-- [ ] Todas as linhas aceitas mantêm `source_row`.
-- [ ] Uma única chamada SQL recebe o lote agregado.
-- [ ] SQL usa parâmetros; export não contém credenciais ou dados pinados.
-- [ ] Fixtures são exclusivamente sintéticas.
+- [x] Arquivo inválido falha antes de qualquer Postgres node de escrita.
+- [x] Todas as linhas aceitas mantêm `source_row`.
+- [x] Uma única chamada SQL recebe o lote agregado.
+- [x] SQL usa parâmetros; export não contém credenciais ou dados pinados.
+- [x] Fixtures são exclusivamente sintéticas.
 
 **Tests:** contract estático + teste manual em n8n descartável
 **Gate:** nenhum publish/activation nesta tarefa
+
+**Status:** Completed for the local inactive artifact on 20/07/2026 and
+consolidated on 22/07/2026. The v1 path accepts only the exact `arquivo_csv`
+binary field. Manual n8n execution remains blocked by OPEN-01/OPEN-05.
 
 ### T08: Colocar o `202` depois do commit
 
@@ -229,14 +250,17 @@ manter as linhas disponíveis para o processamento posterior.
 
 **Done when:**
 
-- [ ] O grafo não possui caminho de `202` que contorne a aceitação.
-- [ ] A resposta contém exatamente os cinco campos.
-- [ ] Uma falha/rollback produtor nunca gera `accepted: true`.
+- [x] O grafo não possui caminho de `202` que contorne a aceitação.
+- [x] A resposta contém exatamente os cinco campos.
+- [x] Uma falha/rollback produtor nunca gera `accepted: true`.
 - [ ] Evidência sintética prova `accepted_at <= response_received_at`.
-- [ ] A resposta não contém linhas ou payload interno.
+- [x] A resposta não contém linhas ou payload interno.
 
 **Tests:** static contract + remote contract
 **Gate:** alvo não produtivo identificado e workflow ID/version verificados
+
+**Status:** Structurally complete locally on 20/07/2026. The timing proof is
+implemented in the remote harness but remains unexecuted behind OPEN-01.
 
 ### T09: Integrar o worker terminal
 
@@ -261,6 +285,11 @@ e persistir um resultado terminal estruturado.
 **Tests:** n8n contract + PostgreSQL integration
 **Gate:** bloqueado até OPEN-02 ser aprovado
 
+**Status:** The exact `prospecta-producer-worker-v1` completion contract and a
+fail-closed passable gate were implemented locally on 20/07/2026. The items
+remain unchecked because no real worker/subworkflow identity or remote
+execution has been approved.
+
 ### T10: Persistir fechamento explícito do lote
 
 **What:** Adicionar função produtora de fechamento e conectar o caminho `done`
@@ -275,14 +304,17 @@ e artefato n8n versionado.
 
 **Done when:**
 
-- [ ] O close persiste timestamp, razão allowlisted e versão do contrato.
-- [ ] Chamadas iguais são idempotentes; metadados conflitantes falham fechado.
-- [ ] O close não cria terminal nem altera score, decisão ou estado comercial.
-- [ ] Fechamento com linha faltante permanece observável como `INCOMPLETE`.
-- [ ] Crash antes do close mantém o lote aberto.
+- [x] O close persiste timestamp, razão allowlisted e versão do contrato.
+- [x] Chamadas iguais são idempotentes; metadados conflitantes falham fechado.
+- [x] O close não cria terminal nem altera score, decisão ou estado comercial.
+- [x] Fechamento com linha faltante permanece observável como `INCOMPLETE`.
+- [x] Crash antes do close mantém o lote aberto.
 
 **Tests:** PostgreSQL integration + n8n contract
 **Gate:** revisão do dono do produtor; nenhuma aplicação produtiva
+
+**Status:** Completed locally on 20/07/2026. The close entry point and
+fail-closed worker gate exist; actual orchestration remains behind OPEN-02.
 
 ### T11: Corrigir integridade e leitura em lote
 
@@ -298,14 +330,17 @@ N+1 por consultas produtoras em lote.
 
 **Done when:**
 
-- [ ] Dois `lead_run_id` distintos na mesma linha produzem
+- [x] Dois `lead_run_id` distintos na mesma linha produzem
       `INCONSISTENT`.
-- [ ] A página faz quantidade constante de consultas produtoras.
-- [ ] Falha parcial preserva estado independente e zera nenhuma métrica.
-- [ ] Testes cobrem 100 lotes, duplicidade, conflito e fonte indisponível.
+- [x] A página faz quantidade constante de consultas produtoras.
+- [x] Falha parcial preserva estado independente e zera nenhuma métrica.
+- [x] Testes cobrem 100 lotes, duplicidade, conflito e fonte indisponível.
 
 **Tests:** unit + PostgreSQL integration
 **Gate:** `pnpm test` e plano de consulta aprovado
+
+**Status:** Completed locally on 20/07/2026. One parameterized producer read
+serves up to 100 distinct batch IDs and repeated canonical IDs reuse facts.
 
 ### T12: Reescrever o contrato remoto para o endpoint versionado
 
@@ -321,15 +356,21 @@ em `tests/contract/`.
 
 **Done when:**
 
-- [ ] Casos atuais permanecem documentados como baseline, não como alvo.
-- [ ] Novo contrato testa validação, hash, replay, timeout, correlação,
+- [x] Casos atuais permanecem documentados como baseline, não como alvo.
+- [x] Novo contrato testa validação, hash, replay, timeout, correlação,
       aceitação, X4, close e conflitos.
 - [ ] ID/version remotos são obtidos por inspeção autorizada.
-- [ ] O teste nunca imprime corpo, CSV, SQL ou dados produtores.
+- [x] O teste nunca imprime corpo, CSV, SQL ou dados produtores.
 - [ ] Exato 10 MiB possui resultado estável ou o limite aprovado é reduzido.
 
 **Tests:** contract
 **Gate:** `pnpm test:contract`
+
+**Status:** Harness completed locally on 20/07/2026. The local contract gate
+passes 13 static cases and skips both remote suites without targets. Running
+with `N8N_VERSIONED_CONTRACT_REQUIRED=true` fails closed unless URL HTTPS,
+read-only producer evidence, and hash-bound workflow inspection are supplied.
+OPEN-01/OPEN-02/OPEN-05 still block remote completion and the 10 MiB proof.
 
 ### T13: Executar UAT sintético fim a fim
 
@@ -354,6 +395,11 @@ de comandos, contagens e limitações.
 **Tests:** full gate
 **Gate:** `pnpm lint && pnpm typecheck && pnpm test && pnpm build`, depois
 `pnpm test:integration` e `pnpm test:contract`
+
+**Status:** Local automated gates completed on 22/07/2026: 74 unit files / 1,744
+tests, 8 PostgreSQL integration files / 87 tests, and 13 static contract tests.
+The 57 HTTP cases remain skipped without authorized targets, so end-to-end UAT
+criteria stay unchecked and T14 cannot start.
 
 ### T14: Preparar cutover e rollback do alvo autorizado
 

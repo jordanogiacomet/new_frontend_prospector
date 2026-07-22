@@ -2,9 +2,11 @@
 > Official import ingress runtime evidence and blocking contract gate
 
 Entry: `tests/contract/n8n-import-webhook.contract.test.ts`
+Versioned entry: `tests/contract/n8n-import-webhook-v1.contract.test.ts`
 Contract: `.specs/features/prospecting-console/contracts/n8n-import-webhook.md`
 Evidence: `.specs/features/prospecting-console/evidence/current-workflow-map.md`
 Export: `private-workflows/EmpresaAqui_Webhook_Import_v1.json`
+Versioned artifact: `integrations/n8n/prospecting-import-v1/workflow.json`
 
 Flow: POST multipart `arquivo_csv` → extraction → normalization → parallel
 response/persistence branches
@@ -55,31 +57,49 @@ Gotchas:
   and retained-history readers; all other runtimes preserve the strict
   predicate. This does not broaden cost, sensitive-content, batch-fact, or
   producer-write access.
+- Runtime response drift observed on 2026-07-20: the authorized endpoint still
+  returns `202` with the five required acknowledgement fields, but also returns
+  `database_schema_changed`, `pipeline_version`, and `report_policy`, and its
+  business message changed. `src/server/imports/ingress-client.ts` now
+  validates and copies only the required five fields while ignoring all
+  additional metadata, so none of those additions reach app persistence or
+  the browser.
 
-Gate: T018/T019 pending; T011 implemented by explicit owner override
-- T012–T017 remain blocked
-- App `N8N_IMPORT_URL` accepts HTTP/HTTPS only on official ingress paths
+Versioned local state (2026-07-20):
 
-Planning findings (2026-07-20):
+- The current endpoint remains a legacy acknowledgement baseline; its parser
+  consumes the required five fields and ignores extra producer metadata.
+- The separate inactive artifact now lives under
+  `integrations/n8n/prospecting-import-v1/` and returns canonical
+  `ib_<64 hex>` only after one producer acceptance transaction.
+- Producer acceptance uses
+  `prospecta_accept_empresaqui_batch_v1(jsonb)`, a five-column read view, and
+  a read-only app reconciliation path. Timeouts are never re-uploaded.
+- Canonical producer migration chain:
+  `db/producer/003_import_acceptance.sql` then
+  `db/producer/004_import_acceptance_rollback.sql`; alternate `_v1` drafts were
+  removed after semantic comparison and are not referenced by tests.
+- The v1 artifact accepts only binary `arquivo_csv`; the legacy
+  `arquivo_csv0` alias is deliberately rejected.
+- App reconciliation requires `submitted_at <= accepted_at <=
+  producer_acknowledged_at` before promotion.
+- OPEN-02 is passable only through the exact
+  `prospecta-producer-worker-v1` seven-field envelope. The real worker is not
+  connected; the direct response-to-gate shape fails closed and leaves the
+  batch open.
+- Explicit close uses
+  `prospecta_close_empresaqui_batch_v1(jsonb)` and does not create terminals.
+- The list service reads up to 100 canonical batches with one parameterized
+  producer query.
+- Legacy and v1 HTTP suites are separate. The v1 gate requires HTTPS, a
+  hash-bound inspection file, and a producer SELECT-only connection. Setting
+  `N8N_VERSIONED_CONTRACT_REQUIRED=true` turns missing remote evidence into a
+  hard failure; local runs otherwise execute the static artifact contract and
+  report remote suites skipped.
+- OPEN-01, OPEN-02, OPEN-03, OPEN-04, and OPEN-05 remain external gates. No
+  workflow publication, target migration, cluster change, or real data use was
+  performed.
+- Full implementation evidence:
+  `.specs/features/batch-import-n8n-alignment/evidence/local-implementation-2026-07-20.md`.
 
-- The worktree does not currently contain
-  `private-workflows/EmpresaAqui_Webhook_Import_v1.json` or
-  `integrations/n8n/prospecting-import-v1/`. The mapped behavior remains
-  documentation/evidence, not a locally reviewable workflow source.
-- Current n8n acknowledgement IDs use `empresaqui_<ISO>`, while the structured
-  producer schema requires `lead_import_batches.import_batch_id` to match
-  `ib_<64 hex>`.
-- The app schema already has `durable_accepted_at`,
-  `durable_accepted_row_count`, `DURABLE_ACCEPTED`, and
-  `RECONCILIATION_OBSERVED`, but no repository/service currently persists that
-  promotion.
-- The producer's structured claim function can canonicalize replayed files and
-  rows, but current mapped n8n writes only legacy qualification tables.
-- A safe alignment therefore needs a separate versioned ingress, one atomic
-  producer acceptance function/ledger/view, response after commit, and a
-  producer-owned worker interface. Without that worker interface, acceptance
-  can be tested in isolation but import cannot be promoted end to end.
-- Full planning lives in
-  `.specs/features/batch-import-n8n-alignment/{context,spec,design,tasks}.md`.
-
-Updated: 2026-07-20
+Updated: 2026-07-22

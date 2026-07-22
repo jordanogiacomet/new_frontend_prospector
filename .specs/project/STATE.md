@@ -1,8 +1,8 @@
 # State
 
-**Last Updated:** 2026-07-20
-**Current Work:** Batch import/n8n alignment — local execution started at T01;
-external targets remain gated
+**Last Updated:** 2026-07-22
+**Current Work:** Batch import/n8n alignment — local implementation consolidated;
+T13 remote UAT and T14 rollout remain gated
 
 ---
 
@@ -78,20 +78,37 @@ local network. This profile is unsuitable for internet or production access.
 **Impact:** The shared actor, real read-only producer access, isolated app-owned
 writes, immutable release, preflight, and anonymous `401` remain unchanged.
 
+### AD-007: Canonical producer acceptance migration chain (2026-07-22)
+
+**Decision:** Keep only `003_import_acceptance.sql` followed by
+`004_import_acceptance_rollback.sql`; the alternate `_v1` drafts were removed
+after full semantic comparison.
+**Reason:** The canonical pair is the only sequence referenced by integration
+tests and is stricter about manifest shape, source-row identity, exact durable
+row membership, public grants, and non-idempotent DDL.
+**Trade-off:** The draft's `uuid` column type and `IF NOT EXISTS`/`OR REPLACE`
+forms were not retained because they added no required rule and weakened a
+reviewable operator-owned migration.
+**Impact:** `db/producer/` now has one unambiguous acceptance/rollback chain;
+OPEN-05 still blocks application outside disposable local PostgreSQL.
+
 ---
 
 ## Active Blockers
 
-- Batch alignment needs an identified non-production URL/path for the separate
-  versioned n8n ingress.
-- End-to-end processing needs an approved producer-owned worker/subworkflow
-  interface; the productive workflow cannot be edited or cloned.
-- Producer acceptance ledger/function/view need a disposable target, database
-  owner, credentials, rollback owner, and explicit approval before execution.
-- Late acceptance reconciliation and the environment-specific `NO_UPDATE`
-  window need operational owners.
+- **OPEN-01:** Identify and authorize a separate non-production HTTPS v1 URL,
+  workflow ID/version, and inspection source before any remote contract run.
+- **OPEN-02:** Identify and approve the real producer worker/subworkflow that
+  emits the exact `prospecta-producer-worker-v1` terminal envelope.
+- **OPEN-03:** Approve an idempotent runner for late reconciliation; until then,
+  timeouts remain `ACCEPTANCE_UNKNOWN` and are never re-uploaded.
+- **OPEN-04:** Name the operational owner and evidence-based freshness window
+  before enabling `NO_UPDATE`.
+- **OPEN-05:** Name the disposable external target, database owner, credentials,
+  rollback owner, and approval before applying producer DDL anywhere else.
 
-The completed Demo 3 local pre-production release itself has no active blocker.
+The completed Demo 3 local pre-production release itself has no active blocker;
+these five blockers apply to the separate batch-alignment promotion path.
 
 ---
 

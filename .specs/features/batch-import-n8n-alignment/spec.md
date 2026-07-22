@@ -203,22 +203,22 @@ descartável e provar quantidade de queries, paginação e comportamento parcial
 
 | ID | Requisito | Prioridade | Status |
 | --- | --- | --- | --- |
-| ALIGN-01 | Ingress separado e artefato versionado; zero mudança no workflow produtivo | P1 | Scaffold local inativo implementado; fluxo completo/remoto pendente |
+| ALIGN-01 | Ingress separado e artefato versionado; zero mudança no workflow produtivo | P1 | Artefato local inativo implementado; identidade remota pendente |
 | ALIGN-02 | Intent app-owned antes de uma única chamada com bytes exatos | P1 | Já implementado; preservar |
-| ALIGN-03 | Metadados versionados de correlação e verificação SHA-256 no ingress | P1 | Draft |
-| ALIGN-04 | Erros 4xx seguros antes de escrita para entrada inválida | P1 | Draft |
-| ALIGN-05 | `import_batch_id` canônico compatível com schema estruturado | P1 | Draft |
-| ALIGN-06 | Aceitação atômica de lote, linhas e correlação da submissão | P1 | Draft |
-| ALIGN-07 | `202` somente após commit; `row_count` igual a linhas duráveis | P1 | Draft |
-| ALIGN-08 | Ledger/view produtor de aceitação consultável por submissão | P1 | Draft |
-| ALIGN-09 | Promoção app-owned transacional para `DURABLE_ACCEPTED` | P1 | Draft |
-| ALIGN-10 | Timeout honesto e reconciliação sem chamada/retry do n8n | P1 | Draft |
-| ALIGN-11 | Processamento preserva identidade e produz terminal estruturado | P1 | Bloqueado por OPEN-02 |
-| ALIGN-12 | Fechamento produtor explícito separado de execução n8n | P1 | Draft |
-| ALIGN-13 | Conclusão/incompletude conforme contrato, com conflitos fail-closed | P1 | Parcial; reforço pendente |
-| ALIGN-14 | Observações/aceitações produtoras consultadas em lote | P2 | Draft |
-| ALIGN-15 | Sem CSV, payload bruto, segredo ou erro produtor em logs/respostas | P1 | Gate estático do artefato implementado; cobertura fim a fim pendente |
-| ALIGN-16 | Contrato sintético comprova identidade, correlação, timing e X4 | P1 | 7 testes estáticos implementados; evidências remotas pendentes |
+| ALIGN-03 | Metadados versionados de correlação e verificação SHA-256 no ingress | P1 | Implementado localmente; execução n8n remota pendente |
+| ALIGN-04 | Erros 4xx seguros antes de escrita para entrada inválida | P1 | Harness remoto implementado; comportamento remoto pendente |
+| ALIGN-05 | `import_batch_id` canônico compatível com schema estruturado | P1 | Cadeia canônica consolidada e validada em PostgreSQL descartável |
+| ALIGN-06 | Aceitação atômica de lote, linhas e correlação da submissão | P1 | Implementado, sem drafts duplicados, e validado em PostgreSQL descartável |
+| ALIGN-07 | `202` somente após commit; `row_count` igual a linhas duráveis | P1 | Dependência estrutural implementada; timing remoto pendente |
+| ALIGN-08 | Ledger/view produtor de aceitação consultável por submissão | P1 | Implementado e isolado por papel read-only local |
+| ALIGN-09 | Promoção app-owned transacional para `DURABLE_ACCEPTED` | P1 | Implementado e validado localmente |
+| ALIGN-10 | Timeout honesto e reconciliação sem chamada/retry do n8n | P1 | Reconciliação síncrona implementada; runner tardio bloqueado por OPEN-03 |
+| ALIGN-11 | Processamento preserva identidade e produz terminal estruturado | P1 | Gate exato passável implementado; worker real bloqueado por OPEN-02 |
+| ALIGN-12 | Fechamento produtor explícito separado de execução n8n | P1 | Função e ordem estrutural implementadas localmente |
+| ALIGN-13 | Conclusão/incompletude conforme contrato, com conflitos fail-closed | P1 | Integridade local implementada; fim a fim bloqueado por OPEN-02 |
+| ALIGN-14 | Observações/aceitações produtoras consultadas em lote | P2 | Implementado para até 100 IDs distintos |
+| ALIGN-15 | Sem CSV, payload bruto, segredo ou erro produtor em logs/respostas | P1 | Gates estáticos/unitários implementados; cobertura remota pendente |
+| ALIGN-16 | Contrato sintético comprova identidade, correlação, timing e X4 | P1 | 13 casos estáticos passam; 57 casos HTTP permanecem skipped sem evidência remota |
 | ALIGN-17 | HTTP sem auth apenas no alvo LAN exato; produção bloqueada | P1 | Política existente; preservar |
 | ALIGN-18 | Rollout/rollback imutável, sem apagar auditoria ou produtor | P1 | Draft |
 
