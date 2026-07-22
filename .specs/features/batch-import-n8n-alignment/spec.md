@@ -41,6 +41,9 @@ impacto de uma fonte lenta ou indisponível.
 - [ ] Reduzir leitura de observações a uma consulta em lote por página.
 - [ ] Validar tudo com dados sintéticos e evidência explícita do alvo
       não produtivo.
+- [ ] Receber o `BATCH_CLOSED` já emitido pelo workflow legado como relato
+      app-owned de encerramento do loop, sem promovê-lo a fechamento produtor
+      nem inventar contagens.
 
 ## Fora de escopo
 
@@ -180,6 +183,30 @@ mesmo com uma página cheia.
 **Teste independente:** Medir uma página sintética de 100 lotes em PostgreSQL
 descartável e provar quantidade de queries, paginação e comportamento parcial.
 
+### P1: Encerramento simples informado pelo workflow legado
+
+**História:** Como gestor, quero saber quando o workflow atual informou o fim
+do processamento para não precisar acompanhar a execução manualmente.
+
+**Critérios de aceitação:**
+
+1. QUANDO o callback `BATCH_CLOSED` chegar, ENTÃO o app DEVE autenticar o
+   segredo antes de ler o corpo ou acessar PostgreSQL.
+2. QUANDO o lote não pertencer à organização configurada ou não corresponder
+   a uma submissão reconhecida, ENTÃO o callback DEVE falhar fechado.
+3. QUANDO o callback for válido, ENTÃO o app DEVE registrar um evento
+   append-only com somente lote, horário e quantidade esperada allowlisted.
+4. QUANDO o mesmo callback for reenviado, ENTÃO o replay idêntico DEVE ser
+   aceito sem novo evento e o replay conflitante DEVE ser rejeitado.
+5. QUANDO o evento existir, ENTÃO lista e detalhe DEVEM mostrar
+   “Processamento encerrado” e o horário informado.
+6. O relato legado NÃO DEVE alterar `BatchStatus`, produzir `COMPLETED`,
+   preencher aceite/terminais ou substituir a fonte produtora X4.
+
+**Teste independente:** Entregar um `BATCH_CLOSED` sintético autenticado,
+confirmar um único evento app-owned e observar a apresentação mudar no próximo
+refresh sem nenhuma escrita produtora.
+
 ## Casos de borda
 
 - arquivo vazio, somente cabeçalho, UTF-8 inválido, aspas irrecuperáveis,
@@ -221,6 +248,7 @@ descartável e provar quantidade de queries, paginação e comportamento parcial
 | ALIGN-16 | Contrato sintético comprova identidade, correlação, timing e X4 | P1 | 13 casos estáticos passam; 57 casos HTTP permanecem skipped sem evidência remota |
 | ALIGN-17 | HTTP sem auth apenas no alvo LAN exato; produção bloqueada | P1 | Política existente; preservar |
 | ALIGN-18 | Rollout/rollback imutável, sem apagar auditoria ou produtor | P1 | Draft |
+| ALIGN-19 | Relato legado de encerramento autenticado, append-only e separado de `COMPLETED` | P1 | Em implementação local; configuração do callback n8n pendente |
 
 ## Critérios de sucesso
 

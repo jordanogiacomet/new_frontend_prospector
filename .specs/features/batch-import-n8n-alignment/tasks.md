@@ -12,6 +12,7 @@ T02 → T05
 T04 + T05 → T06 → T11
 T04 → T07 → T08 → T09 → T10
 T06 + T10 + T11 → T12 → T13 → T14
+T05 → T15
 ```
 
 - T03/T04: primitivas produtoras e teste de integração.
@@ -436,6 +437,32 @@ legacy approved `N8N_IMPORT_URL`, and did not import, activate or call the v1
 workflow. The v1 cutover checklist above remains blocked by T13 and
 OPEN-01–OPEN-05.
 
+### T15: Receber encerramento informado pelo workflow legado
+
+**What:** Receber o `BATCH_CLOSED` que o workflow atual já emite, persistir um
+evento app-owned mínimo e exibir “Processamento encerrado” sem promover o lote
+a `COMPLETED`.
+
+**Where:** migração app-owned sequencial, rota de callback autenticada,
+repositório de importações, leitura de lotes e páginas de lista/detalhe.
+
+**Depends on:** T05
+**Reuses:** correlação `import_batch_id`, tabela append-only
+`import_submission_events`, polling privado a cada cinco segundos e callback
+legado já presente no export revisado.
+**Requirement:** ALIGN-02, ALIGN-15, ALIGN-19
+
+**Done when:**
+
+- [ ] Segredo é validado antes de corpo e banco.
+- [ ] Somente `BATCH_CLOSED` estrito e correlacionado é aceito.
+- [ ] Replay idêntico é idempotente e conflito falha fechado.
+- [ ] Lista/detalhe mostram encerramento e horário sem mudar `BatchStatus`.
+- [ ] PostgreSQL produtor e workflow de 98 nós permanecem inalterados.
+
+**Tests:** route/unit + PostgreSQL integration + componente
+**Gate:** full local; configuração externa do callback requer aprovação
+
 ## Granularidade
 
 | Task | Unidade entregável | Status |
@@ -454,6 +481,7 @@ OPEN-01–OPEN-05.
 | T12 | Contrato remoto | Granular |
 | T13 | UAT sintético | Granular |
 | T14 | Cutover/rollback | Granular e separado da implementação |
+| T15 | Relato legado de encerramento | Granular e separado do contrato X4 |
 
 ## Diagram-definition cross-check
 
@@ -473,6 +501,7 @@ OPEN-01–OPEN-05.
 | T12 | T06, T10, T11 | Todos convergem em T12 | Match |
 | T13 | T12 | T12 → T13 | Match |
 | T14 | T13 | T13 → T14 | Match |
+| T15 | T05 | T05 → T15 | Match |
 
 ## Validação de testes co-localizados
 
@@ -486,6 +515,7 @@ OPEN-01–OPEN-05.
 | T11 | Repo/mapper | teste ao lado + integration | Vitest unit/PostgreSQL |
 | T12 | Integração remota | `tests/contract` | Vitest contract |
 | T13 | Sistema | evidência sanitizada | full gate/UAT |
+| T15 | Callback/app/UI | teste ao lado + integration | Vitest/PostgreSQL |
 
 ## Ferramentas na execução futura
 

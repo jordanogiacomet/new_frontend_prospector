@@ -25,6 +25,9 @@ const auditRequestContextSql = readSql(
 const importAcceptanceReconciliationSql = readSql(
   "006_import_acceptance_reconciliation_forward.sql",
 );
+const legacyWorkflowCloseReportSql = readSql(
+  "007_legacy_workflow_close_report_forward.sql",
+);
 const disposableTargets = [
   {
     hostname: "localhost",
@@ -55,11 +58,13 @@ const pool = new Pool({
 
 type ImportSubmissionRepository = typeof import("../../src/server/repositories/imports/import-submissions-repository");
 type ImportAcceptanceReconciliationRepository = typeof import("../../src/server/repositories/imports/import-acceptance-reconciliation-repository");
+type LegacyWorkflowCloseRepository = typeof import("../../src/server/repositories/imports/legacy-workflow-close-repository");
 
 let importSubmissionRepository: ImportSubmissionRepository | null = null;
 let importAcceptanceReconciliationRepository:
   | ImportAcceptanceReconciliationRepository
   | null = null;
+let legacyWorkflowCloseRepository: LegacyWorkflowCloseRepository | null = null;
 
 function readSql(filename: string): string {
   return readFileSync(resolve(process.cwd(), "db/app", filename), "utf8");
@@ -148,6 +153,7 @@ async function resetDisposableDatabase(): Promise<void> {
   await execute(auditRedactionSql);
   await execute(auditRequestContextSql);
   await execute(importAcceptanceReconciliationSql);
+  await execute(legacyWorkflowCloseReportSql);
   await execute(grantsSql);
   await createProducerLikeObjects();
 }
@@ -292,6 +298,17 @@ async function loadImportAcceptanceReconciliationRepository(): Promise<ImportAcc
   }
 
   return importAcceptanceReconciliationRepository;
+}
+
+async function loadLegacyWorkflowCloseRepository(): Promise<LegacyWorkflowCloseRepository> {
+  if (legacyWorkflowCloseRepository === null) {
+    configureRepositoryEnvironment();
+    legacyWorkflowCloseRepository = await import(
+      "../../src/server/repositories/imports/legacy-workflow-close-repository"
+    );
+  }
+
+  return legacyWorkflowCloseRepository;
 }
 
 async function withRolePool<Result>(
@@ -1458,6 +1475,103 @@ describe("Prospecta import submission repository integration", () => {
           import_batch_id: "empresaqui_2026-07-07T12:00:00.000Z",
           row_count: 3,
           status: "PRODUCER_ACKNOWLEDGED",
+        },
+      },
+    ]);
+  });
+
+  it("records one idempotent legacy workflow close report without promoting status", async () => {
+    const submissions = await loadImportSubmissionRepository();
+    const closeReports = await loadLegacyWorkflowCloseRepository();
+    const importBatchId = "empresaqui_2026-07-22T13:50:05.504Z";
+    const occurredAt = new Date("2026-07-22T14:20:05.504Z");
+    const created = await submissions.recordImportSubmissionIntent({
+      organizationId: "org-synthetic-a",
+      actorSubject: "oidc|synthetic-manager",
+      idempotencyKey: "repo-workflow-close-idem",
+      file: {
+        filename: "empresaqui-workflow-close.csv",
+        sha256: syntheticHash("7"),
+        sizeBytes: 512,
+        mediaType: "text/csv",
+      },
+    });
+    const submissionId =
+      created.kind === "created" ? created.submission.submissionId : "";
+
+    await submissions.recordProducerAcknowledgement({
+      organizationId: "org-synthetic-a",
+      actorSubject: "oidc|synthetic-manager",
+      submissionId,
+      acknowledgement: {
+        accepted: true,
+        message: "Arquivo recebido para processamento.",
+        import_batch_id: importBatchId,
+        row_count: 2,
+        source: "EmpresaAqui",
+      },
+    });
+
+    const first = await closeReports.recordLegacyWorkflowClose({
+      organizationId: "org-synthetic-a",
+      importBatchId,
+      occurredAt,
+      rowCountExpected: 2,
+    });
+    const replay = await closeReports.recordLegacyWorkflowClose({
+      organizationId: "org-synthetic-a",
+      importBatchId,
+      occurredAt,
+      rowCountExpected: 2,
+    });
+    const conflict = await closeReports.recordLegacyWorkflowClose({
+      organizationId: "org-synthetic-a",
+      importBatchId,
+      occurredAt: new Date("2026-07-22T14:21:05.504Z"),
+      rowCountExpected: 2,
+    });
+
+    expect(first).toEqual({ kind: "recorded", submissionCount: 1 });
+    expect(replay).toEqual({ kind: "replayed", submissionCount: 1 });
+    expect(conflict).toMatchObject({
+      kind: "conflict",
+      error: { code: "IMPORT_WORKFLOW_CLOSE_CONFLICT" },
+    });
+
+    const rows = await queryRows<{
+      status: string;
+      event_type: string;
+      occurred_at: Date;
+      metadata: Record<string, unknown>;
+    }>(
+      `
+        SELECT
+          submissions.status,
+          events.event_type,
+          events.occurred_at,
+          events.metadata
+        FROM prospecting_app.import_submissions AS submissions
+        JOIN prospecting_app.import_submission_events AS events
+          ON events.organization_id = submissions.organization_id
+         AND events.submission_id = submissions.submission_id
+        WHERE submissions.organization_id = $1
+          AND submissions.submission_id = $2
+          AND events.event_type = 'WORKFLOW_CLOSED_REPORTED'
+      `,
+      ["org-synthetic-a", submissionId],
+    );
+
+    expect(rows).toEqual([
+      {
+        status: "PRODUCER_ACKNOWLEDGED",
+        event_type: "WORKFLOW_CLOSED_REPORTED",
+        occurred_at: occurredAt,
+        metadata: {
+          source: "legacy_n8n_callback",
+          import_batch_id: importBatchId,
+          row_count: 2,
+          status: "WORKFLOW_CLOSED_REPORTED",
+          observed_at: occurredAt.toISOString(),
         },
       },
     ]);
