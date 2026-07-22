@@ -299,9 +299,6 @@ async function activityRows(targetWorkspaceId = workspaceId): Promise<
     readonly workspace_id: string;
     readonly observed_lead_run_id: string;
     readonly actor_subject: string;
-    readonly actor_issuer: string;
-    readonly request_correlation_id: string;
-    readonly authorization_basis: string;
     readonly activity_type: string;
     readonly activity_outcome: string | null;
     readonly summary: string | null;
@@ -315,9 +312,6 @@ async function activityRows(targetWorkspaceId = workspaceId): Promise<
         workspace_id::text AS workspace_id,
         observed_lead_run_id,
         actor_subject,
-        actor_issuer,
-        request_correlation_id::text AS request_correlation_id,
-        authorization_basis,
         activity_type,
         activity_outcome,
         summary
@@ -336,6 +330,9 @@ async function auditRows(targetWorkspaceId = workspaceId): Promise<
     readonly target_id: string;
     readonly observed_lead_run_id: string | null;
     readonly actor_subject: string;
+    readonly actor_issuer: string;
+    readonly request_correlation_id: string;
+    readonly authorization_basis: string;
     readonly metadata: Record<string, unknown>;
     readonly previous_metadata: Record<string, unknown>;
     readonly new_metadata: Record<string, unknown>;
@@ -349,6 +346,9 @@ async function auditRows(targetWorkspaceId = workspaceId): Promise<
         target_id::text AS target_id,
         observed_lead_run_id,
         actor_subject,
+        actor_issuer,
+        request_correlation_id::text AS request_correlation_id,
+        authorization_basis,
         metadata,
         previous_metadata,
         new_metadata
@@ -430,9 +430,6 @@ describe("activity repository integration", () => {
         workspace_id: workspaceId,
         observed_lead_run_id: leadRunId,
         actor_subject: actorSubject,
-        actor_issuer: actorIssuer,
-        request_correlation_id: requestCorrelationId,
-        authorization_basis: "verified_oidc",
         activity_type: "CALL",
         activity_outcome: "Positive outcome",
         summary: "Synthetic activity summary",
@@ -460,6 +457,9 @@ describe("activity repository integration", () => {
         target_id: createdActivityId,
         observed_lead_run_id: leadRunId,
         actor_subject: actorSubject,
+        actor_issuer: actorIssuer,
+        request_correlation_id: requestCorrelationId,
+        authorization_basis: "verified_oidc",
         previous_metadata: {},
         new_metadata: {},
         metadata: {
