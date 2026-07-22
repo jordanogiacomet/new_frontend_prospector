@@ -110,9 +110,10 @@ Release `demo3-preprod-20260722-batch-alignment-001`:
 - immutable app, PostgreSQL, edge, and proxy images rolled out successfully
 - app-owned migration `006` replaced the legacy unique producer-batch index;
   independent verification returned legacy `0`, canonical `1`
-- authenticated `/leads`, `/imports`, `/imports/batches`, `/work-queue`,
-  `/costs` and their principal GET APIs passed without response bodies being
-  recorded; anonymous imports returned `401`
+- authenticated list/detail pages and GET APIs for leads, lead history,
+  imports, workspaces, activities, notes, audit, work queue and costs passed
+  without response bodies or identifiers being recorded; anonymous imports
+  returned `401`
 - no CSV was submitted, no n8n endpoint was called, and the configured ingress
   remained the approved legacy target rather than the inactive v1 artifact
 

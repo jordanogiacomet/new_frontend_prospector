@@ -21,9 +21,10 @@
 - The persistent app-owned database received migration `006` transactionally.
   Independent verification reported legacy unique index `0` and canonical
   non-unique index `1`.
-- Authenticated route/API smoke passed for leads, imports, batch list, work
-  queue and costs; anonymous imports returned `401`; no response bodies or real
-  values were recorded.
+- Authenticated route/API smoke passed for leads, lead detail/history, imports,
+  batch detail, work queue, workspace detail/activities/notes/audit and costs;
+  anonymous imports returned `401`; no response bodies or real values were
+  recorded.
 - `.env.demo3.local` permissions were restricted from `0644` to `0600` without
   changing its values or versioning the file.
 - The current 98-node n8n workflow was only inspected statically from the
@@ -59,7 +60,7 @@
 - `npm run test:contract`: 2 local files / 16 tests passed; 2 remote suites /
   57 HTTP cases skipped.
 - Demo 3 preflight, immutable rollout, migration postcondition and authenticated
-  route/API smoke passed.
+  list/detail route/API smoke passed.
 
 ## Limitations
 

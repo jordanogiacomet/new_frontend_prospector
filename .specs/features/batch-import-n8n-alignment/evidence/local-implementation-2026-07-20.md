@@ -47,8 +47,8 @@ equivalentes do `package.json` via `npm` e os binários já instalados em
 | Preflight | contexto, API HTTPS, kube-system UID, namespace não produtivo, fonte read-only, endpoint produtor e tags verificados antes da mutação |
 | Imagens | app, PostgreSQL, request edge e proxy com a mesma tag imutável |
 | Schema app-owned | índice único legado `0`; índice canônico não único `1` |
-| Páginas | `/leads`, `/imports`, `/imports/batches`, `/work-queue` e `/costs` retornaram `200`; `/login` retornou o redirect esperado `307` |
-| APIs GET | leads, imports, work queue e costs retornaram `200` |
+| Páginas | listas e detalhes de leads, imports e workspaces, além de work queue e costs, retornaram `200`; `/login` retornou o redirect esperado `307` |
+| APIs GET | leads, histórico/detalhe de lead, imports/detalhe de lote, work queue, workspace/atividades/notas/auditoria e costs retornaram `200` |
 | Gateway | `/api/imports` anônimo retornou `401` |
 | Logs | zero linhas sanitizadas com `uncaught`, `unhandled`, `fatal` ou `error` na janela verificada |
 | n8n | nenhuma chamada, administração, publicação ou ativação |
