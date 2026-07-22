@@ -639,6 +639,7 @@ function applyExistingAppMigrations(hasExistingPostgres) {
         "-n",
         namespace,
         "exec",
+        "--stdin",
         "statefulset/prospecta-demo3-postgres",
         "--request-timeout=20s",
         "--",
@@ -662,6 +663,50 @@ function applyExistingAppMigrations(hasExistingPostgres) {
     if (result.status !== 0) {
       fail(`could not apply app-owned migration ${migrationFile}`);
     }
+  }
+
+  verifyExistingAppMigrations();
+}
+
+function verifyExistingAppMigrations() {
+  const verification = spawnSync(
+    "kubectl",
+    [
+      "-n",
+      namespace,
+      "exec",
+      "statefulset/prospecta-demo3-postgres",
+      "--request-timeout=20s",
+      "--",
+      "psql",
+      "-X",
+      "--tuples-only",
+      "--no-align",
+      "--set=ON_ERROR_STOP=1",
+      "-U",
+      "prospecta_demo3_owner",
+      "-d",
+      "prospecta_demo3",
+      "--command",
+      `SELECT
+        count(*) FILTER (
+          WHERE indexname = 'import_submissions_org_producer_batch_uk'
+        )::text
+        || '|'
+        || count(*) FILTER (
+          WHERE indexname = 'import_submissions_org_producer_batch_idx'
+        )::text
+      FROM pg_indexes
+      WHERE schemaname = 'prospecting_app'`,
+    ],
+    {
+      encoding: "utf8",
+      timeout: 30_000,
+    },
+  );
+
+  if (verification.status !== 0 || verification.stdout.trim() !== "0|1") {
+    fail("app-owned migration verification failed");
   }
 }
 

@@ -32,6 +32,13 @@ describe("Demo 3 app-owned migration packaging", () => {
     expect(migrationDeclaration).toBeGreaterThanOrEqual(0);
     expect(migrationCall).toBeGreaterThan(migrationDeclaration);
     expect(manifestApply).toBeGreaterThan(migrationCall);
+    expect(deployScript).toMatch(
+      /"exec",\s*"--stdin",\s*"statefulset\/prospecta-demo3-postgres"/,
+    );
+    expect(deployScript).toContain("verifyExistingAppMigrations();");
+    expect(deployScript).toContain(
+      "import_submissions_org_producer_batch_idx",
+    );
   });
 
   it("keeps the app migration scoped away from producer relations", () => {
