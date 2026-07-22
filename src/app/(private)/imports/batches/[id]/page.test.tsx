@@ -214,6 +214,12 @@ describe("batch detail page", () => {
     expect(document.body).toHaveTextContent("Leads: 2");
     expect(document.body).toHaveTextContent("Bloqueadas: 1");
     expect(document.body).toHaveTextContent("Falhas: 0");
+    expect(
+      screen.getByRole("heading", {
+        name: "Fonte de observação disponível",
+      }),
+    ).toBeInTheDocument();
+    expect(document.body).toHaveTextContent("Observações disponíveis");
     expect(screen.getAllByText("08/07/2026").length).toBeGreaterThanOrEqual(3);
     expect(screen.getByRole("link", { name: /voltar/i })).toHaveAttribute(
       "href",
@@ -253,6 +259,38 @@ describe("batch detail page", () => {
     expect(counts).toHaveTextContent(`Falhas: ${UNAVAILABLE_LABEL}`);
     expect(counts).not.toHaveTextContent("Linhas aceitas: 0");
     expect(counts).not.toHaveTextContent("Terminais: 0");
+  });
+
+  it("distinguishes an available source with no correlated producer facts", async () => {
+    fetchMock.mockResolvedValue(
+      apiResponse(
+        detailEnvelope(
+          batchSummary({
+            observationStatus: "AVAILABLE",
+            lastObservedAt: null,
+          }),
+        ),
+      ),
+    );
+
+    render(<BatchDetailPage />);
+
+    expect(
+      await screen.findByRole("heading", {
+        name: "Fonte consultada sem fatos do lote",
+      }),
+    ).toBeInTheDocument();
+    expect(document.body).toHaveTextContent("Nenhum fato correlacionado");
+    expect(document.body).toHaveTextContent(
+      "não retornou fatos aprovados para este lote",
+    );
+    expect(document.body).toHaveTextContent(
+      "Base das observaçõesnenhum fato correlacionado",
+    );
+    expect(document.body).not.toHaveTextContent("Observações disponíveis");
+    expect(document.body).not.toHaveTextContent(
+      "As observações aprovadas estão disponíveis",
+    );
   });
 
   it("preserves explicit zero metrics when the API returns confirmed zero", async () => {

@@ -351,6 +351,8 @@ function BatchDetailError() {
 }
 
 function BatchDetail({ batch }: { readonly batch: BatchSummary }) {
+  const hasCorrelatedProducerFacts = batch.lastObservedAt !== null;
+
   return (
     <div className="grid gap-8 xl:grid-cols-[minmax(0,1.1fr)_minmax(24rem,0.9fr)]">
       <section
@@ -448,26 +450,41 @@ function BatchDetail({ batch }: { readonly batch: BatchSummary }) {
               id="proveniencia-observacoes"
               className="mt-3 font-serif text-3xl tracking-normal"
             >
-              {observationHeading(batch.observationStatus)}
+              {observationHeading(
+                batch.observationStatus,
+                hasCorrelatedProducerFacts,
+              )}
             </h2>
           </div>
-          <ObservationBadge status={batch.observationStatus} />
+          <ObservationBadge
+            status={batch.observationStatus}
+            hasCorrelatedProducerFacts={hasCorrelatedProducerFacts}
+          />
         </div>
 
         <p className="mt-5 max-w-3xl text-sm leading-6 text-[oklch(43%_0.03_252)]">
-          {observationNarrative(batch.observationStatus)}
+          {observationNarrative(
+            batch.observationStatus,
+            hasCorrelatedProducerFacts,
+          )}
         </p>
 
         <dl className="mt-7 grid gap-4 sm:grid-cols-2">
           <FactItem
             label="Situação das observações"
-            value={observationStatusLabel(batch.observationStatus)}
+            value={observationStatusLabel(
+              batch.observationStatus,
+              hasCorrelatedProducerFacts,
+            )}
           />
           <FactItem
             label="Base das observações"
             value={
               batch.observationBasis === null
-                ? "Sem restrição registrada"
+                ? batch.observationStatus === "AVAILABLE" &&
+                  !hasCorrelatedProducerFacts
+                  ? "nenhum fato correlacionado"
+                  : "Sem restrição registrada"
                 : observationBasisLabel(batch.observationBasis)
             }
           />
@@ -533,16 +550,19 @@ function StatusBadge({ status }: { readonly status: BatchStatus }) {
 
 function ObservationBadge({
   status,
+  hasCorrelatedProducerFacts,
 }: {
   readonly status: BatchObservationStatus;
+  readonly hasCorrelatedProducerFacts: boolean;
 }) {
   return (
     <span
       className={`inline-flex min-h-7 items-center border px-2.5 py-1 text-xs font-bold leading-4 ${observationBadgeClass(
         status,
+        hasCorrelatedProducerFacts,
       )}`}
     >
-      {observationStatusLabel(status)}
+      {observationStatusLabel(status, hasCorrelatedProducerFacts)}
     </span>
   );
 }
@@ -561,8 +581,9 @@ function statusBadgeClass(status: BatchStatus): string {
 
 function observationBadgeClass(
   status: BatchObservationStatus,
+  hasCorrelatedProducerFacts: boolean,
 ): string {
-  if (status === "AVAILABLE") {
+  if (status === "AVAILABLE" && hasCorrelatedProducerFacts) {
     return "border-[oklch(72%_0.075_174)] bg-[oklch(94%_0.035_174)] text-[oklch(32%_0.09_174)]";
   }
 
@@ -626,10 +647,13 @@ function statusNarrative(status: BatchStatus): string {
 
 function observationHeading(
   observationStatus: BatchObservationStatus,
+  hasCorrelatedProducerFacts: boolean,
 ): string {
   switch (observationStatus) {
     case "AVAILABLE":
-      return "Fonte de observação disponível";
+      return hasCorrelatedProducerFacts
+        ? "Fonte de observação disponível"
+        : "Fonte consultada sem fatos do lote";
     case "UNAVAILABLE":
       return "Fonte de observação indisponível";
     case "INCONSISTENT":
@@ -639,10 +663,13 @@ function observationHeading(
 
 function observationStatusLabel(
   observationStatus: BatchObservationStatus,
+  hasCorrelatedProducerFacts: boolean,
 ): string {
   switch (observationStatus) {
     case "AVAILABLE":
-      return "Observações disponíveis";
+      return hasCorrelatedProducerFacts
+        ? "Observações disponíveis"
+        : "Nenhum fato correlacionado";
     case "UNAVAILABLE":
       return "Observações indisponíveis";
     case "INCONSISTENT":
@@ -665,10 +692,13 @@ function observationBasisLabel(
 
 function observationNarrative(
   observationStatus: BatchObservationStatus,
+  hasCorrelatedProducerFacts: boolean,
 ): string {
   switch (observationStatus) {
     case "AVAILABLE":
-      return "As observações aprovadas estão disponíveis para sustentar o estado e as contagens exibidas.";
+      return hasCorrelatedProducerFacts
+        ? "As observações aprovadas estão disponíveis para sustentar o estado e as contagens exibidas."
+        : "A fonte foi consultada com sucesso, mas não retornou fatos aprovados para este lote. Aceite e contagens permanecem indisponíveis.";
     case "UNAVAILABLE":
       return "A fonte de observação não está disponível agora. As contagens derivadas permanecem indisponíveis.";
     case "INCONSISTENT":
