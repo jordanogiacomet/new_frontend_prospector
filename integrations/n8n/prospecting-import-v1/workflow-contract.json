@@ -26,5 +26,28 @@
     "minimumAcceptedRows": 1
   },
   "acceptanceNodeName": "Accept Batch Atomically",
-  "responseNodeName": "Respond Durable Acceptance"
+  "responseNodeName": "Respond Durable Acceptance",
+  "workerCompletion": {
+    "contractVersion": "prospecta-producer-worker-v1",
+    "exactFields": [
+      "worker_contract_version",
+      "import_batch_id",
+      "source_row",
+      "input_row_id",
+      "lead_run_id",
+      "idempotency_key",
+      "terminal_class"
+    ],
+    "terminalClasses": [
+      "MATERIALIZED",
+      "BLOCKED",
+      "FAILED"
+    ],
+    "gateNodeName": "Validate Worker Completion Contract v1"
+  },
+  "close": {
+    "contractVersion": "prospecta-import-v1",
+    "reason": "WORKER_ORCHESTRATION_FINISHED",
+    "nodeName": "Close Batch Explicitly"
+  }
 }

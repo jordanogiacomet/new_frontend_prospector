@@ -14,6 +14,8 @@ const README_PATH = resolve(ARTIFACT_DIRECTORY, "README.md");
 const WEBHOOK_NODE = "Webhook Prospecta Import v1";
 const ACCEPTANCE_NODE = "Accept Batch Atomically";
 const RESPONSE_NODE = "Respond Durable Acceptance";
+const WORKER_GATE_NODE = "Validate Worker Completion Contract v1";
+const CLOSE_NODE = "Close Batch Explicitly";
 
 type WorkflowConnection = {
   readonly node: string;
@@ -60,6 +62,17 @@ type WorkflowContract = {
   };
   readonly acceptanceNodeName: string;
   readonly responseNodeName: string;
+  readonly workerCompletion: {
+    readonly contractVersion: string;
+    readonly exactFields: readonly string[];
+    readonly terminalClasses: readonly string[];
+    readonly gateNodeName: string;
+  };
+  readonly close: {
+    readonly contractVersion: string;
+    readonly reason: string;
+    readonly nodeName: string;
+  };
 };
 
 function readJson<T>(path: string): T {
@@ -99,6 +112,16 @@ function pathsBetween(
 
   visit(start, []);
   return paths;
+}
+
+function requireNode(
+  workflow: WorkflowExport,
+  name: string,
+): WorkflowNode {
+  const node = workflow.nodes.find((candidate) => candidate.name === name);
+
+  expect(node, `missing workflow node: ${name}`).toBeDefined();
+  return node as WorkflowNode;
 }
 
 describe("versioned Prospecta n8n workflow artifact", () => {
@@ -179,6 +202,169 @@ describe("versioned Prospecta n8n workflow artifact", () => {
     ).toBe(true);
   });
 
+  it("validates exact bytes, transport metadata, size, UTF-8, and SHA-256 before extraction", () => {
+    const workflow = readJson<WorkflowExport>(WORKFLOW_PATH);
+    const validation = requireNode(
+      workflow,
+      "Validate Transport and Hash",
+    );
+    const code = String(validation.parameters.jsCode ?? "");
+
+    expect(validation.type).toBe("n8n-nodes-base.code");
+    expect(code).toContain("getBinaryDataBuffer");
+    expect(code).toContain("10485760");
+    expect(code).toContain("TextDecoder('utf-8', { fatal: true })");
+    expect(code).toContain("subtle.digest('SHA-256', bytes)");
+    expect(code).toContain("IMPORT_FILE_HASH_MISMATCH");
+    expect(code).not.toContain("arquivo_csv0");
+    for (const field of [
+      "submission_id",
+      "idempotency_key",
+      "file_sha256",
+      "contract_version",
+    ]) {
+      expect(code).toContain(field);
+    }
+  });
+
+  it("extracts semicolon UTF-8 CSV with headers before producer normalization", () => {
+    const workflow = readJson<WorkflowExport>(WORKFLOW_PATH);
+    const extract = requireNode(workflow, "Extract EmpresaAqui CSV");
+    const normalization = requireNode(
+      workflow,
+      "Normalize EmpresaAqui Rows",
+    );
+    const code = String(normalization.parameters.jsCode ?? "");
+
+    expect(extract).toMatchObject({
+      type: "n8n-nodes-base.extractFromFile",
+      parameters: {
+        options: {
+          delimiter: ";",
+          encoding: "utf8",
+          relaxQuotes: true,
+          headerRow: true,
+        },
+      },
+    });
+    expect(code).toContain("source_row: index + 2");
+    expect(code).toContain("hasField(first, aliases.cnpj)");
+    expect(code).toContain("hasField(first, aliases.razao)");
+    expect(code).toContain("raw_row_sha256");
+    expect(code).toContain("normalized_row_sha256");
+    expect(code).toContain("cnpj_normalizado");
+    expect(code).toContain("IMPORT_REQUIRED_HEADERS_MISSING");
+  });
+
+  it("aggregates the entire batch into one parameterized acceptance call", () => {
+    const workflow = readJson<WorkflowExport>(WORKFLOW_PATH);
+    const aggregate = requireNode(
+      workflow,
+      "Aggregate Acceptance Payload",
+    );
+    const acceptance = requireNode(workflow, ACCEPTANCE_NODE);
+    const aggregateCode = String(aggregate.parameters.jsCode ?? "");
+    const options = acceptance.parameters.options as
+      | Record<string, unknown>
+      | undefined;
+
+    expect(aggregateCode).toContain("acceptance_payload");
+    expect(aggregateCode).toContain("raw_rows_sha256");
+    expect(aggregateCode).toContain("header_sha256");
+    expect(aggregateCode).toContain("row_count: rows.length");
+    expect(acceptance.parameters.query).toBe(
+      "SELECT public.prospecta_accept_empresaqui_batch_v1($1::jsonb) AS acceptance;",
+    );
+    expect(options?.queryReplacement).toBe(
+      "={{ [JSON.stringify($json.acceptance_payload)] }}",
+    );
+    expect(String(acceptance.parameters.query)).not.toContain("{{");
+  });
+
+  it("emits exactly five success fields and only after committed acceptance", () => {
+    const workflow = readJson<WorkflowExport>(WORKFLOW_PATH);
+    const prepare = requireNode(
+      workflow,
+      "Prepare Durable Acceptance Response",
+    );
+    const respond = requireNode(workflow, RESPONSE_NODE);
+    const code = String(prepare.parameters.jsCode ?? "");
+
+    expect(code).toContain("acceptance.accepted_at");
+    expect(code).toContain("message: 'Lote aceito para processamento.'");
+    expect(code).not.toMatch(/replayed\s*:/);
+    expect(code).not.toMatch(/accepted_at\s*:/);
+    expect(respond).toMatchObject({
+      type: "n8n-nodes-base.respondToWebhook",
+      parameters: {
+        respondWith: "json",
+        responseBody: "={{ $json }}",
+        options: { responseCode: 202 },
+      },
+    });
+  });
+
+  it("makes OPEN-02 passable only with one exact approved terminal per accepted row", () => {
+    const workflow = readJson<WorkflowExport>(WORKFLOW_PATH);
+    const contract = readJson<WorkflowContract>(CONTRACT_PATH);
+    const gate = requireNode(workflow, WORKER_GATE_NODE);
+    const code = String(gate.parameters.jsCode ?? "");
+
+    expect(contract.workerCompletion).toEqual({
+      contractVersion: "prospecta-producer-worker-v1",
+      exactFields: [
+        "worker_contract_version",
+        "import_batch_id",
+        "source_row",
+        "input_row_id",
+        "lead_run_id",
+        "idempotency_key",
+        "terminal_class",
+      ],
+      terminalClasses: ["MATERIALIZED", "BLOCKED", "FAILED"],
+      gateNodeName: WORKER_GATE_NODE,
+    });
+    expect(code.trimStart()).not.toMatch(/^throw /);
+    expect(code).toContain(
+      "results.length !== acceptance.row_count",
+    );
+    expect(code).toContain("sourceRows.has(result.source_row)");
+    for (const terminalClass of contract.workerCompletion.terminalClasses) {
+      expect(code).toContain(terminalClass);
+    }
+  });
+
+  it("keeps explicit close after the worker terminal gate and parameterizes its metadata", () => {
+    const workflow = readJson<WorkflowExport>(WORKFLOW_PATH);
+    const contract = readJson<WorkflowContract>(CONTRACT_PATH);
+    const close = requireNode(workflow, CLOSE_NODE);
+    const paths = pathsBetween(workflow, RESPONSE_NODE, CLOSE_NODE);
+    const options = close.parameters.options as
+      | Record<string, unknown>
+      | undefined;
+
+    expect(contract.close).toEqual({
+      contractVersion: "prospecta-import-v1",
+      reason: "WORKER_ORCHESTRATION_FINISHED",
+      nodeName: CLOSE_NODE,
+    });
+    expect(paths.length).toBeGreaterThan(0);
+    expect(
+      paths.every((path) => {
+        const gateIndex = path.indexOf(WORKER_GATE_NODE);
+        const closeIndex = path.indexOf(CLOSE_NODE);
+        return gateIndex >= 0 && gateIndex < closeIndex;
+      }),
+    ).toBe(true);
+    expect(close.parameters.query).toBe(
+      "SELECT public.prospecta_close_empresaqui_batch_v1($1::jsonb) AS batch_close;",
+    );
+    expect(String(options?.queryReplacement)).toContain(
+      "WORKER_ORCHESTRATION_FINISHED",
+    );
+    expect(String(close.parameters.query)).not.toContain("{{");
+  });
+
   it("contains no remote identity, credentials, URLs, or pinned data", () => {
     const workflow = readJson<WorkflowExport>(WORKFLOW_PATH);
     const serialized = JSON.stringify(workflow);
@@ -190,6 +376,7 @@ describe("versioned Prospecta n8n workflow artifact", () => {
     expect(serialized).not.toMatch(/"credentials"\s*:/i);
     expect(serialized).not.toMatch(/password|secret|api[_-]?key|bearer/i);
     expect(workflow.pinData ?? {}).toEqual({});
+    expect(workflow.settings.saveDataSuccessExecution).toBe("none");
   });
 
   it("documents inactive import and rollback without workflow publication", () => {

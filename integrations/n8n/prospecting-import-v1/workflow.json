@@ -7,7 +7,9 @@
         "httpMethod": "POST",
         "path": "prospecta/empresaqui/import/v1",
         "responseMode": "responseNode",
-        "options": {}
+        "options": {
+          "binaryPropertyName": "arquivo_csv"
+        }
       },
       "id": "a20fe59a-4b5e-4afd-9cc4-946a2aa8d890",
       "name": "Webhook Prospecta Import v1",
@@ -20,10 +22,10 @@
     },
     {
       "parameters": {
-        "jsCode": "return $input.all();"
+        "jsCode": "const input = $input.first();\nconst body = input.json && typeof input.json.body === 'object' && input.json.body !== null ? input.json.body : input.json;\nconst requiredText = (name, maximum) => {\n  const value = body[name];\n  if (typeof value !== 'string' || value.trim() !== value || value.length < 1 || value.length > maximum) throw new Error(`IMPORT_INVALID_${name.toUpperCase()}`);\n  return value;\n};\nconst submissionId = requiredText('submission_id', 64);\nconst idempotencyKey = requiredText('idempotency_key', 128);\nconst fileSha256 = requiredText('file_sha256', 64);\nconst contractVersion = requiredText('contract_version', 64);\nif (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(submissionId)) throw new Error('IMPORT_INVALID_SUBMISSION_ID');\nif (!/^[0-9a-f]{64}$/.test(fileSha256)) throw new Error('IMPORT_INVALID_FILE_HASH');\nif (contractVersion !== 'prospecta-import-v1') throw new Error('IMPORT_UNSUPPORTED_CONTRACT');\nconst binary = input.binary || {};\nconst binaryPropertyName = binary.arquivo_csv ? 'arquivo_csv' : null;\nif (binaryPropertyName === null) throw new Error('IMPORT_FILE_REQUIRED');\nconst file = binary[binaryPropertyName];\nconst bytes = await this.helpers.getBinaryDataBuffer(0, binaryPropertyName);\nif (bytes.byteLength < 1 || bytes.byteLength > 10485760) throw new Error('IMPORT_FILE_SIZE_INVALID');\nif (!/\\.csv$/i.test(String(file.fileName || ''))) throw new Error('IMPORT_FILE_TYPE_INVALID');\nif (!['text/csv', 'application/csv', 'application/vnd.ms-excel'].includes(String(file.mimeType || '').toLowerCase())) throw new Error('IMPORT_FILE_TYPE_INVALID');\nlet decoded;\ntry { decoded = new TextDecoder('utf-8', { fatal: true }).decode(bytes); } catch { throw new Error('IMPORT_FILE_ENCODING_INVALID'); }\nif (!decoded.replace(/^\\uFEFF/, '').trim()) throw new Error('IMPORT_FILE_EMPTY');\nconst digest = await globalThis.crypto.subtle.digest('SHA-256', bytes);\nconst computedSha256 = [...new Uint8Array(digest)].map((value) => value.toString(16).padStart(2, '0')).join('');\nif (computedSha256 !== fileSha256) throw new Error('IMPORT_FILE_HASH_MISMATCH');\nreturn [{\n  json: {\n    submission_id: submissionId,\n    idempotency_key: idempotencyKey,\n    file_sha256: fileSha256,\n    contract_version: contractVersion,\n    binary_property_name: binaryPropertyName,\n    original_filename: String(file.fileName || ''),\n    file_size_bytes: bytes.byteLength,\n    file_mime_type: String(file.mimeType || '')\n  },\n  binary: input.binary\n}];"
       },
       "id": "399e1ba5-a1b6-4731-883d-bade6c3ee709",
-      "name": "Validate Import Contract",
+      "name": "Validate Transport and Hash",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
@@ -33,10 +35,56 @@
     },
     {
       "parameters": {
+        "binaryPropertyName": "={{ $('Validate Transport and Hash').first().json.binary_property_name }}",
+        "options": {
+          "delimiter": ";",
+          "encoding": "utf8",
+          "relaxQuotes": true,
+          "headerRow": true
+        }
+      },
+      "id": "734f7d8c-d1e8-48d0-9383-090cd1c05e02",
+      "name": "Extract EmpresaAqui CSV",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        480,
+        0
+      ],
+      "alwaysOutputData": false
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nif (items.length < 1) throw new Error('IMPORT_ROWS_REQUIRED');\nconst canonical = (value) => String(value ?? '').replace(/^\\uFEFF/, '').replace(/\\u00A0/g, ' ').normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');\nconst cleanObject = (value) => Object.fromEntries(Object.entries(value || {}).map(([key, field]) => [String(key).replace(/^\\uFEFF/, '').replace(/\\u00A0/g, ' ').trim(), field]));\nconst aliases = {\n  cnpj: ['cnpj', 'documento', 'tax_id'],\n  razao: ['razao', 'razao_social', 'razao social', 'nome_empresarial', 'company_name'],\n  fantasia: ['fantasia', 'nome_fantasia', 'nome fantasia', 'trade_name'],\n  cidade: ['cidade', 'municipio', 'city'],\n  uf: ['uf', 'estado', 'state'],\n  site: ['site', 'website', 'site_url', 'homepage'],\n  email: ['e_mail', 'e-mail', 'email', 'mail'],\n  telefone: ['telefone_1', 'telefone', 'phone', 'fone', 'celular']\n};\nconst hasField = (row, names) => {\n  const wanted = new Set(names.map(canonical));\n  return Object.keys(row).some((key) => wanted.has(canonical(key)));\n};\nconst field = (row, names) => {\n  const wanted = new Set(names.map(canonical));\n  const match = Object.entries(row).find(([key]) => wanted.has(canonical(key)));\n  return match ? String(match[1] ?? '').trim() : '';\n};\nconst first = cleanObject(items[0].json.row ?? items[0].json);\nif (!hasField(first, aliases.cnpj) || !hasField(first, aliases.razao)) throw new Error('IMPORT_REQUIRED_HEADERS_MISSING');\nconst stable = (value) => value === null || value === undefined ? 'null' : (Array.isArray(value) ? `[${value.map(stable).join(',')}]` : (typeof value === 'object' ? `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stable(value[key])}`).join(',')}}` : JSON.stringify(value)));\nconst sha256 = async (value) => {\n  const digest = await globalThis.crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));\n  return [...new Uint8Array(digest)].map((part) => part.toString(16).padStart(2, '0')).join('');\n};\nconst output = [];\nfor (let index = 0; index < items.length; index += 1) {\n  const rawRow = cleanObject(items[index].json.row ?? items[index].json);\n  const cnpj = field(rawRow, aliases.cnpj).replace(/\\D/g, '');\n  const normalizedPayload = {\n    company: {\n      cnpj: cnpj || null,\n      razaoSocial: field(rawRow, aliases.razao) || null,\n      nomeFantasia: field(rawRow, aliases.fantasia) || null,\n      cidade: field(rawRow, aliases.cidade) || null,\n      uf: field(rawRow, aliases.uf).toUpperCase() || null,\n      site: field(rawRow, aliases.site) || null\n    },\n    contact: {\n      email: field(rawRow, aliases.email) || null,\n      telefone: field(rawRow, aliases.telefone) || null\n    }\n  };\n  output.push({ json: {\n    source_row: index + 2,\n    cnpj_normalizado: cnpj || null,\n    raw_row: rawRow,\n    normalized_payload: normalizedPayload,\n    raw_row_sha256: await sha256(stable(rawRow)),\n    normalized_row_sha256: await sha256(stable(normalizedPayload))\n  }});\n}\nreturn output;"
+      },
+      "id": "51db0e83-b4f1-4f2b-8d10-64946da903aa",
+      "name": "Normalize EmpresaAqui Rows",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const transport = $('Validate Transport and Hash').first().json;\nconst rows = $input.all().map((item) => item.json);\nif (rows.length < 1 || new Set(rows.map((row) => row.source_row)).size !== rows.length) throw new Error('IMPORT_ROW_SET_INVALID');\nconst stable = (value) => value === null || value === undefined ? 'null' : (Array.isArray(value) ? `[${value.map(stable).join(',')}]` : (typeof value === 'object' ? `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stable(value[key])}`).join(',')}}` : JSON.stringify(value)));\nconst sha256 = async (value) => {\n  const digest = await globalThis.crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));\n  return [...new Uint8Array(digest)].map((part) => part.toString(16).padStart(2, '0')).join('');\n};\nconst headerNames = Object.keys(rows[0].raw_row).sort();\nreturn [{ json: { acceptance_payload: {\n  submission_id: transport.submission_id,\n  idempotency_key: transport.idempotency_key,\n  file_sha256: transport.file_sha256,\n  contract_version: transport.contract_version,\n  workflow_version: 'prospecta-import-v1-n8n-artifact-1',\n  ruleset_version: 'empresaqui-normalization-v1',\n  prompt_model_version: 'producer-worker-interface-v1',\n  execution_mode: 'STANDARD',\n  raw_rows_sha256: await sha256(stable(rows.map((row) => row.raw_row))),\n  header_sha256: await sha256(stable(headerNames)),\n  import_manifest: {\n    original_filename: transport.original_filename,\n    file_size_bytes: transport.file_size_bytes,\n    file_mime_type: transport.file_mime_type,\n    delimiter: ';',\n    encoding: 'utf8',\n    row_count: rows.length\n  },\n  rows\n}}}];"
+      },
+      "id": "7cb8f2fc-865c-49e9-aa4b-41b4017c659f",
+      "name": "Aggregate Acceptance Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        960,
+        0
+      ]
+    },
+    {
+      "parameters": {
         "operation": "executeQuery",
         "query": "SELECT public.prospecta_accept_empresaqui_batch_v1($1::jsonb) AS acceptance;",
         "options": {
-          "queryReplacement": "={{ [$json.acceptance_payload] }}"
+          "queryReplacement": "={{ [JSON.stringify($json.acceptance_payload)] }}"
         }
       },
       "id": "6de7f88a-0b35-4bef-804c-5cc7cb1bd02f",
@@ -44,20 +92,20 @@
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
       "position": [
-        480,
+        1200,
         0
       ]
     },
     {
       "parameters": {
-        "jsCode": "return $input.all();"
+        "jsCode": "let acceptance = $input.first().json.acceptance;\nif (typeof acceptance === 'string') {\n  try { acceptance = JSON.parse(acceptance); } catch { throw new Error('IMPORT_ACCEPTANCE_INVALID'); }\n}\nif (!acceptance || acceptance.accepted !== true || !/^ib_[0-9a-f]{64}$/.test(String(acceptance.import_batch_id || '')) || !Number.isSafeInteger(Number(acceptance.row_count)) || Number(acceptance.row_count) < 1 || Number.isNaN(new Date(acceptance.accepted_at).getTime())) throw new Error('IMPORT_ACCEPTANCE_INVALID');\nreturn [{ json: {\n  accepted: true,\n  import_batch_id: acceptance.import_batch_id,\n  message: 'Lote aceito para processamento.',\n  row_count: Number(acceptance.row_count),\n  source: 'EmpresaAqui'\n}}];"
       },
       "id": "ee80b91b-03a7-48aa-9bbd-a56d2a52eb47",
       "name": "Prepare Durable Acceptance Response",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        720,
+        1440,
         0
       ]
     },
@@ -74,7 +122,37 @@
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.4,
       "position": [
-        960,
+        1680,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const acceptance = $('Prepare Durable Acceptance Response').first().json;\nconst results = $input.all().map((item) => item.json);\nconst exactFields = ['worker_contract_version', 'import_batch_id', 'source_row', 'input_row_id', 'lead_run_id', 'idempotency_key', 'terminal_class'].sort();\nif (results.length !== acceptance.row_count || results.length < 1) throw new Error('WORKER_TERMINAL_SET_INCOMPLETE');\nconst sourceRows = new Set();\nfor (const result of results) {\n  const fields = Object.keys(result).sort();\n  if (fields.length !== exactFields.length || fields.some((field, index) => field !== exactFields[index])) throw new Error('WORKER_CONTRACT_FIELDS_INVALID');\n  if (result.worker_contract_version !== 'prospecta-producer-worker-v1' || result.import_batch_id !== acceptance.import_batch_id) throw new Error('WORKER_CONTRACT_IDENTITY_MISMATCH');\n  if (!Number.isSafeInteger(result.source_row) || result.source_row < 2 || sourceRows.has(result.source_row)) throw new Error('WORKER_SOURCE_ROW_INVALID');\n  if (![result.input_row_id, result.lead_run_id, result.idempotency_key].every((value) => typeof value === 'string' && value.length > 0 && value.length <= 160)) throw new Error('WORKER_ROW_IDENTITY_INVALID');\n  if (!['MATERIALIZED', 'BLOCKED', 'FAILED'].includes(result.terminal_class)) throw new Error('WORKER_TERMINAL_CLASS_INVALID');\n  sourceRows.add(result.source_row);\n}\nreturn [{ json: {\n  worker_contract_version: 'prospecta-producer-worker-v1',\n  import_batch_id: acceptance.import_batch_id,\n  terminal_count: results.length\n}}];"
+      },
+      "id": "dd240570-d262-4499-a3fb-55ef86837e85",
+      "name": "Validate Worker Completion Contract v1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1920,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT public.prospecta_close_empresaqui_batch_v1($1::jsonb) AS batch_close;",
+        "options": {
+          "queryReplacement": "={{ [JSON.stringify({ import_batch_id: $('Prepare Durable Acceptance Response').first().json.import_batch_id, contract_version: 'prospecta-import-v1', close_reason: 'WORKER_ORCHESTRATION_FINISHED' })] }}"
+        }
+      },
+      "id": "4a13dbf5-341b-451e-a956-3ce4fc45248d",
+      "name": "Close Batch Explicitly",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2160,
         0
       ]
     }
@@ -84,14 +162,47 @@
       "main": [
         [
           {
-            "node": "Validate Import Contract",
+            "node": "Validate Transport and Hash",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Validate Import Contract": {
+    "Validate Transport and Hash": {
+      "main": [
+        [
+          {
+            "node": "Extract EmpresaAqui CSV",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract EmpresaAqui CSV": {
+      "main": [
+        [
+          {
+            "node": "Normalize EmpresaAqui Rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize EmpresaAqui Rows": {
+      "main": [
+        [
+          {
+            "node": "Aggregate Acceptance Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate Acceptance Payload": {
       "main": [
         [
           {
@@ -118,6 +229,28 @@
         [
           {
             "node": "Respond Durable Acceptance",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond Durable Acceptance": {
+      "main": [
+        [
+          {
+            "node": "Validate Worker Completion Contract v1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Worker Completion Contract v1": {
+      "main": [
+        [
+          {
+            "node": "Close Batch Explicitly",
             "type": "main",
             "index": 0
           }
