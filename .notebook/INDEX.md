@@ -3,9 +3,9 @@
 
 Last updated: 2026-07-22
 
+- [prospecta-n8n-v7-4-lifecycle-events](prospecta-n8n-v7-4-lifecycle-events.md) — Export ativo não oferece worker reutilizável nem fatos X4 | gotcha | n8n, prospecta, imports
 - [prospecta-n8n-contract](prospecta-n8n-contract.md) — Ingress v1 local, cadeia canônica e gates remotos retidos | flow | n8n, prospecta, imports
 - [prospecta-batch-read-service](prospecta-batch-read-service.md) — Lotes usam uma leitura produtora para até 100 IDs | flow | prospecta, imports
-- [prospecta-n8n-v7-4-lifecycle-events](prospecta-n8n-v7-4-lifecycle-events.md) — Callbacks v7.4 não provam aceitação durável nem alimentam a tela atual | gotcha | n8n, prospecta, imports
 - [prospecta-producer-history-grants](prospecta-producer-history-grants.md) — Histórico usa colunas concedidas ao papel read-only | gotcha | prospecta, producer, grants
 - [prospecta-k8s-demo-deploy](prospecta-k8s-demo-deploy.md) — Demo 3 preprod via HTTP NodePort e gateway autenticado | flow | prospecta, k8s, demo3
 - [prospecta-import-submission-read](prospecta-import-submission-read.md) — Leituras app-owned e intenção durável da Demo 3 | flow | prospecta, imports, demo3

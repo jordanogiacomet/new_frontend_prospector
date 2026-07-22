@@ -1,8 +1,11 @@
 # Prospecta n8n v7.4 lifecycle events
 > Callback events improve telemetry but do not satisfy durable batch acceptance
 
-Reviewed artifact:
-`/home/jordanogiacomet/.codex/attachments/6c947169-eb2d-46e3-90f8-28ebceff1401/pasted-text.txt`
+Reviewed artifacts:
+- previous attachment retained as historical evidence
+- local-only ignored export: `.local/n8n-review/worflow-atual.json`
+- sanitized evidence:
+  `.specs/features/batch-import-n8n-alignment/evidence/current-workflow-static-review-2026-07-22.md`
 
 Relevant app flow:
 - `src/server/imports/ingress-client.ts:requestAcknowledgement()`
@@ -31,6 +34,17 @@ Findings:
   execution check.
 - `BATCH_CLOSED` delivery can follow failed terminal callback delivery, so the
   callback stream can be incomplete even when the n8n loop finishes.
+- Local export fingerprint:
+  `26a2c00f30a58de01eae60802d470c6ba4d16d0e6e09e8340453c38aea142c23`.
+- Inventory: 98 active nodes; 9 credential-bearing references; no pin data;
+  no Execute Sub-workflow or Execute Sub-workflow Trigger.
+- The response has no Postgres ancestor. Seven Postgres nodes write/read the
+  legacy model and reference none of the accepted X4 tables/functions.
+- Current normalization has 35 alias groups and producer scoring/search rules;
+  ingress v1 normalization has 8 structural groups. They are not
+  interchangeable.
+- Current identities (`empresaqui_<timestamp>`, short FNV run ID and legacy
+  idempotency key) cannot satisfy the structured 64-hex constraints.
 
 Direction:
 - Keep the current workflow immutable.
@@ -39,5 +53,8 @@ Direction:
 - Make atomic producer acceptance precede `202`, expose acceptance and X4
   through approved producer read views, reconcile app-owned acceptance, and
   persist explicit producer close facts.
+- OPEN-02 requires a separately approved worker plus an idempotent terminal
+  adapter. The current workflow is a behavior baseline only; do not change,
+  clone or call it from v1.
 
-Updated: 2026-07-20
+Updated: 2026-07-22

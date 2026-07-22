@@ -17,6 +17,13 @@ explícito. O worker/subworkflow que produzirá esses envelopes ainda precisa se
 identificado e conectado entre a resposta e o gate. Enquanto isso, a ligação
 direta recebe o shape da resposta e falha fechado, deixando o lote aberto.
 
+A revisão estática do export atual confirmou que ele não pode preencher esse
+papel: é um monólito ativo sem entrada de subworkflow, usa identidades legadas
+e não persiste os terminais estruturados X4. Ele permanece somente como
+baseline de comportamento e não deve ser alterado, copiado ou chamado pelo
+ingress v1. O plano sanitizado está em
+`.specs/features/batch-import-n8n-alignment/evidence/current-workflow-static-review-2026-07-22.md`.
+
 Não publicar, ativar ou substituir o workflow atual. Não configurar uma URL
 remota sem alvo não produtivo, dono e aprovação explícitos.
 

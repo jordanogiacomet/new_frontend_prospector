@@ -1,8 +1,8 @@
 # Handoff
 
-**Date:** 2026-07-22T10:17:44-02:00
+**Date:** 2026-07-22T11:02:04-02:00
 **Feature:** Batch import/n8n alignment
-**Task:** Local implementation consolidated; remote T13/T14 remain blocked
+**Task:** Current workflow reviewed; OPEN-02 implementation boundary refined
 
 ## Completed ✓
 
@@ -18,6 +18,14 @@
   passed with process-only safe overrides and 23 routes; 8 PostgreSQL files /
   87 tests passed; 13 static contracts passed; 57 HTTP cases skipped.
 - Disposable PostgreSQL container removed. No external target was changed.
+- Sanitized static review of the ignored current workflow export completed:
+  98 active nodes, no reusable subworkflow entry, no Postgres ancestor before
+  `202`, legacy-only persistence and fallible post-response callbacks.
+- Recommended path: separate producer worker plus idempotent terminal adapter;
+  no modification, clone or invocation of the current workflow.
+- Post-review static contract gate: `npm run test:contract` passed 13 local
+  cases and kept all 57 remote HTTP cases skipped. `pnpm` was unavailable; no
+  dependency was installed or updated.
 
 ## Commits
 
@@ -31,11 +39,14 @@
 - `b78caaa` `test(commercial): assert request context on audit event`
 - Documentation, evidence, notebook, and this handoff are versioned in the
   final documentation commit of this session.
+- `docs(n8n): record current workflow integration review` (this analysis
+  commit).
 
 ## Pending / Blockers
 
 - **OPEN-01:** authorized separate HTTPS v1 URL plus remote identity evidence.
-- **OPEN-02:** approved real `prospecta-producer-worker-v1` implementation.
+- **OPEN-02:** approve a separate producer worker and terminal adapter; the
+  reviewed current workflow cannot serve as the worker.
 - **OPEN-03:** approved late-reconciliation runner; never retry uploads.
 - **OPEN-04:** operational owner and `NO_UPDATE` freshness window.
 - **OPEN-05:** external disposable target, DB owner, credentials, rollback
@@ -47,3 +58,5 @@
 - Production, rollout, cluster, n8n administration, and real data remain out of
   scope.
 - Remote HTTP suites are skipped, not approved.
+- The local export remains ignored and uncommitted; its payload and credential
+  reference values were not copied into versioned artifacts.

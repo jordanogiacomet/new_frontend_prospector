@@ -1,8 +1,8 @@
 # State
 
 **Last Updated:** 2026-07-22
-**Current Work:** Batch import/n8n alignment — local implementation consolidated;
-T13 remote UAT and T14 rollout remain gated
+**Current Work:** Batch import/n8n alignment — current workflow reviewed;
+separate producer worker design remains gated by OPEN-02
 
 ---
 
@@ -92,14 +92,32 @@ reviewable operator-owned migration.
 **Impact:** `db/producer/` now has one unambiguous acceptance/rollback chain;
 OPEN-05 still blocks application outside disposable local PostgreSQL.
 
+### AD-008: Current n8n export is a behavior baseline only (2026-07-22)
+
+**Decision:** Keep the active 98-node current workflow immutable and use its
+ignored local export only as static behavior evidence. Do not call, clone or
+adapt that workflow in place; OPEN-02 requires a separately approved producer
+worker and terminal adapter behind the versioned ingress.
+**Reason:** The export has no subworkflow entry, responds before any Postgres
+node, uses legacy identities, persists only legacy facts and sends fallible
+callbacks after the response.
+**Trade-off:** The ingress v1 remains fail-closed after durable acceptance and
+cannot complete batches until the producer worker is explicitly approved and
+implemented.
+**Impact:** The current workflow and its scoring/recommendation semantics remain
+untouched. The sanitized implementation direction is recorded in
+`.specs/features/batch-import-n8n-alignment/evidence/current-workflow-static-review-2026-07-22.md`.
+
 ---
 
 ## Active Blockers
 
 - **OPEN-01:** Identify and authorize a separate non-production HTTPS v1 URL,
   workflow ID/version, and inspection source before any remote contract run.
-- **OPEN-02:** Identify and approve the real producer worker/subworkflow that
-  emits the exact `prospecta-producer-worker-v1` terminal envelope.
+- **OPEN-02:** Approve a separate producer worker and idempotent terminal
+  adapter that preserve the current rules and emit the exact
+  `prospecta-producer-worker-v1` envelope; the reviewed current workflow has no
+  reusable subworkflow entry.
 - **OPEN-03:** Approve an idempotent runner for late reconciliation; until then,
   timeouts remain `ACCEPTANCE_UNKNOWN` and are never re-uploaded.
 - **OPEN-04:** Name the operational owner and evidence-based freshness window

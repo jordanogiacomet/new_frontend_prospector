@@ -287,8 +287,12 @@ e persistir um resultado terminal estruturado.
 
 **Status:** The exact `prospecta-producer-worker-v1` completion contract and a
 fail-closed passable gate were implemented locally on 20/07/2026. The items
-remain unchecked because no real worker/subworkflow identity or remote
-execution has been approved.
+remain unchecked. A sanitized static review on 22/07/2026 proved that the
+current 98-node workflow has no subworkflow entry, uses legacy identities and
+persists no structured terminal facts. OPEN-02 now requires approval for a
+separate producer worker and terminal adapter; the current workflow must not
+be modified, cloned or called. See
+`evidence/current-workflow-static-review-2026-07-22.md`.
 
 ### T10: Persistir fechamento explícito do lote
 

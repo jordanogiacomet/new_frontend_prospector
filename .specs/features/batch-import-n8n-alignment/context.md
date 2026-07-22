@@ -105,7 +105,7 @@ tenha sido commitada. Essa reconciliação:
 | ID | Questão | Recomendação deste draft | Bloqueio |
 | --- | --- | --- | --- |
 | OPEN-01 | URL/path do ingress separado | Identificar um novo endpoint de teste não produtivo; não reutilizar o path atual até cutover aprovado. | Impede teste remoto e ativação. |
-| OPEN-02 | Interface para continuar a qualificação | O gate local agora aceita somente o envelope exato `prospecta-producer-worker-v1`; identificar e conectar o worker/subworkflow real que o produz preservando as regras atuais. | O contrato é passável sem bypass, mas o processamento fim a fim continua bloqueado até existir o worker real. |
+| OPEN-02 | Interface para continuar a qualificação | A revisão estática do export atual confirmou que ele é um monólito sem entrada de subworkflow e com identidades legadas. Aprovar uma implementação produtora separada que preserve as regras atuais e produza o envelope exato `prospecta-producer-worker-v1`. | O fluxo atual não pode ser alterado, clonado nem chamado pelo ingress; o processamento fim a fim continua bloqueado até existir o worker separado. |
 | OPEN-03 | Disparo de reconciliação tardia | Preferir job interno idempotente; enquanto não houver runner aprovado, executar confirmação síncrona após `202` e manter timeouts como desconhecidos. | Impede recuperação automática tardia, mas não a submissão segura. |
 | OPEN-04 | Janela de `NO_UPDATE` | Definir por ambiente com dono operacional e evidência de duração real. | Impede habilitar `NO_UPDATE`. |
 | OPEN-05 | Migração produtora | Nomear alvo descartável, dono do banco, credencial, rollback e aprovação. | Impede aplicar função/view/tabela de aceitação. |
