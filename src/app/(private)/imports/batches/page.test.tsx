@@ -1,7 +1,13 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { render, screen, waitFor, within } from "@testing-library/react";
+import {
+  act,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -144,6 +150,50 @@ describe("batch list page", () => {
       credentials: "same-origin",
     });
     expect(new Headers(init.headers).get("Accept")).toBe("application/json");
+  });
+
+  it("refreshes the list automatically while the page is visible", async () => {
+    const setIntervalSpy = vi.spyOn(window, "setInterval");
+
+    render(<BatchListPage />);
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    const refreshCall = setIntervalSpy.mock.calls.find(
+      ([, delay]) => delay === 5_000,
+    );
+    const refresh = refreshCall?.[0];
+
+    expect(refreshCall).toBeDefined();
+    if (typeof refresh !== "function") {
+      throw new Error("Expected the batch refresh callback.");
+    }
+
+    fetchMock.mockResolvedValue(
+      apiResponse(
+        batchListEnvelope([
+          batchSummary({
+            status: "PROCESSING",
+            statusBasis: "PRODUCER_ACTIVITY_OBSERVED",
+            acceptedAt: "2026-07-08T13:00:00.000Z",
+            lastObservedAt: "2026-07-08T14:00:00.000Z",
+            rowCountAccepted: 2,
+            terminalCount: 1,
+            blockedCount: 0,
+            failedCount: 0,
+            leadCount: 1,
+          }),
+        ]),
+      ),
+    );
+
+    await act(async () => {
+      refresh();
+    });
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    expect(
+      await screen.findByText("Em acompanhamento"),
+    ).toBeInTheDocument();
   });
 
   it("uses only supported pagination query parameters and ignores unsupported filter text", async () => {

@@ -74,6 +74,7 @@ const observationBases: ReadonlySet<string> = new Set([
 ]);
 
 const portugueseNumberFormatter = new Intl.NumberFormat("pt-BR");
+const refreshIntervalMilliseconds = 5_000;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -152,12 +153,19 @@ export default function BatchDetailPage() {
 
   useEffect(() => {
     const abortController = new AbortController();
+    let requestInFlight = false;
 
     async function loadBatch(): Promise<void> {
       if (!isUuid(batchId)) {
         setRequestState({ requestKey, status: "not_found" });
         return;
       }
+
+      if (requestInFlight) {
+        return;
+      }
+
+      requestInFlight = true;
 
       try {
         const response = await fetch(
@@ -203,12 +211,22 @@ export default function BatchDetailPage() {
         if (!abortController.signal.aborted) {
           setRequestState({ requestKey, status: "error" });
         }
+      } finally {
+        requestInFlight = false;
       }
     }
 
     void loadBatch();
+    const refreshIntervalId = window.setInterval(() => {
+      if (document.visibilityState === "visible") {
+        void loadBatch();
+      }
+    }, refreshIntervalMilliseconds);
 
-    return () => abortController.abort();
+    return () => {
+      window.clearInterval(refreshIntervalId);
+      abortController.abort();
+    };
   }, [batchId, requestKey]);
 
   return (

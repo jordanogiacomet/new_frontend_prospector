@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { UNAVAILABLE_LABEL } from "../../../../../lib/formatters";
@@ -135,6 +135,52 @@ describe("batch detail page", () => {
     });
     expect(new Headers(init.headers).get("Accept")).toBe("application/json");
     expect(init.body).toBeUndefined();
+  });
+
+  it("refreshes the detail automatically while the page is visible", async () => {
+    const setIntervalSpy = vi.spyOn(window, "setInterval");
+
+    render(<BatchDetailPage />);
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    const refreshCall = setIntervalSpy.mock.calls.find(
+      ([, delay]) => delay === 5_000,
+    );
+    const refresh = refreshCall?.[0];
+
+    expect(refreshCall).toBeDefined();
+    if (typeof refresh !== "function") {
+      throw new Error("Expected the batch detail refresh callback.");
+    }
+
+    fetchMock.mockResolvedValue(
+      apiResponse(
+        detailEnvelope(
+          batchSummary({
+            status: "PROCESSING",
+            statusBasis: "PRODUCER_ACTIVITY_OBSERVED",
+            acceptedAt: "2026-07-08T15:01:00.000Z",
+            lastObservedAt: "2026-07-08T15:02:00.000Z",
+            rowCountAccepted: 5,
+            terminalCount: 3,
+            blockedCount: 1,
+            failedCount: 0,
+            leadCount: 2,
+          }),
+        ),
+      ),
+    );
+
+    await act(async () => {
+      refresh();
+    });
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    expect(
+      await screen.findByRole("heading", {
+        name: "Em acompanhamento",
+      }),
+    ).toBeInTheDocument();
   });
 
   it("renders returned batch facts, provenance, counts, and Brazilian dates", async () => {

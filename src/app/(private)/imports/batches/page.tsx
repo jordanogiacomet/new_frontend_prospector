@@ -50,6 +50,7 @@ const defaultPage = 1;
 const defaultPageSize = 20;
 const maximumPage = 10_000;
 const maximumPageSize = 100;
+const refreshIntervalMilliseconds = 5_000;
 
 const batchStatuses: ReadonlySet<string> = new Set([
   "SUBMITTED",
@@ -210,8 +211,15 @@ export default function BatchListPage() {
 
   useEffect(() => {
     const abortController = new AbortController();
+    let requestInFlight = false;
 
     async function loadBatches(): Promise<void> {
+      if (requestInFlight) {
+        return;
+      }
+
+      requestInFlight = true;
+
       try {
         const response = await fetch(`/api/imports?${query}`, {
           method: "GET",
@@ -250,12 +258,22 @@ export default function BatchListPage() {
         if (!abortController.signal.aborted) {
           setRequestState({ query, status: "error" });
         }
+      } finally {
+        requestInFlight = false;
       }
     }
 
     void loadBatches();
+    const refreshIntervalId = window.setInterval(() => {
+      if (document.visibilityState === "visible") {
+        void loadBatches();
+      }
+    }, refreshIntervalMilliseconds);
 
-    return () => abortController.abort();
+    return () => {
+      window.clearInterval(refreshIntervalId);
+      abortController.abort();
+    };
   }, [query]);
 
   return (
