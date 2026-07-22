@@ -1,8 +1,9 @@
 # State
 
 **Last Updated:** 2026-07-22
-**Current Work:** Batch import/n8n alignment — current workflow reviewed;
-separate producer worker design remains gated by OPEN-02
+**Current Work:** Demo 3 updated at the approved local target with the
+batch-alignment app code; the separate n8n v1/producer-worker promotion remains
+gated by OPEN-01–OPEN-05
 
 ---
 
@@ -108,6 +109,26 @@ implemented.
 untouched. The sanitized implementation direction is recorded in
 `.specs/features/batch-import-n8n-alignment/evidence/current-workflow-static-review-2026-07-22.md`.
 
+### AD-009: Demo 3 applies app-owned upgrades before app rollout (2026-07-22)
+
+**Decision:** Package the idempotent app migration
+`006_import_acceptance_reconciliation_forward.sql` in fresh PostgreSQL images
+and stream it transactionally to an existing Demo 3 PostgreSQL pod before
+replacing the application. Verify that the legacy unique producer-batch index
+is absent and the canonical non-unique index is present before continuing.
+**Reason:** The persistent Demo 3 database retained the old unique index even
+though the application code already allowed separate submissions to correlate
+to the same canonical producer batch. The first deploy attempt also proved
+that `kubectl exec` without `--stdin` can exit successfully without applying
+the supplied SQL.
+**Trade-off:** A release may make a backward-compatible app-owned index change
+before a later manifest/smoke failure; rollback restores application images
+but intentionally does not recreate the obsolete unique index.
+**Impact:** Release `demo3-preprod-20260722-batch-alignment-001` is running at
+`http://192.168.0.20:30100`; schema verification returned the canonical `0|1`
+index state and authenticated route/API smoke passed. No producer DDL or n8n
+change was made.
+
 ---
 
 ## Active Blockers
@@ -125,8 +146,10 @@ untouched. The sanitized implementation direction is recorded in
 - **OPEN-05:** Name the disposable external target, database owner, credentials,
   rollback owner, and approval before applying producer DDL anywhere else.
 
-The completed Demo 3 local pre-production release itself has no active blocker;
-these five blockers apply to the separate batch-alignment promotion path.
+The updated Demo 3 application release itself has no active blocker; these five
+blockers apply to the separate n8n v1 batch-alignment promotion path. Demo 3
+continues to use the approved legacy ingress URL and must not be represented as
+v1 end-to-end completion.
 
 ---
 
@@ -148,6 +171,16 @@ these five blockers apply to the separate batch-alignment promotion path.
 **Solution:** Also accept the exact origin derived from `Host` and optional
 `X-Forwarded-Proto` headers.
 **Prevents:** False 403 on same-origin browser uploads through NodePort/proxy.
+
+### L-003: `kubectl exec` needs stdin enabled for streamed migrations
+
+**Context:** Applying app-owned migration `006` before the Demo 3 rollout.
+**Problem:** `psql` exited successfully with no SQL when `kubectl exec` omitted
+`--stdin`, leaving the legacy unique index unchanged.
+**Solution:** Use `kubectl exec --stdin`, run `psql --single-transaction` and
+require a structural postcondition before applying the manifest.
+**Prevents:** Reporting a successful release when an app-owned migration was
+never consumed.
 
 ---
 
@@ -173,8 +206,10 @@ these five blockers apply to the separate batch-alignment promotion path.
 
 - [x] Validate `http://192.168.0.20:30097` after manifest apply.
 - [x] Release Demo 3 through the approved LAN NodePort at
-      `https://192.168.0.20:30100`.
+      `http://192.168.0.20:30100`.
 - [x] Promote Demo 3 to local pre-production with real producer SELECTs,
-      isolated app-owned writes, HTTPS gateway authentication, and full UAT.
+      isolated app-owned writes, gateway authentication, and route/API UAT.
 - [x] Release the owner-approved HTTP transport for the exact Demo 3 LAN
       target while retaining gateway authentication.
+- [x] Release `demo3-preprod-20260722-batch-alignment-001` with the app-owned
+      reconciliation index migrated and verified.

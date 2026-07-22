@@ -71,6 +71,14 @@ Preflight: exact context, HTTPS API server, kube-system UID, non-production
 namespace labels, source Secret shape, producer endpoint, release tag, and
 distinct credentials. Failed preflight mutates nothing.
 
+App migration gotcha: `kubectl exec` does not forward the parent process stdin
+unless `--stdin` is present. A `psql` child can therefore exit `0` without
+executing a streamed migration. `scripts/deploy-demo3-k8s.mjs` now streams
+app-owned migration `006` with `kubectl exec --stdin`, wraps it in
+`--single-transaction`, and refuses the manifest rollout unless the old unique
+index count is `0` and the canonical non-unique index count is `1`. Producer
+migrations are not part of this mechanism.
+
 NodePort smoke: direct HTTP only; proves anonymous `401`, authenticated page
 and API success, real producer availability, and zero-restart readiness. The
 owner accepts that Basic Auth credentials and response data are plaintext on
@@ -97,9 +105,20 @@ Release `demo3-preprod-20260720-import-status-001`:
 - no durable acceptance, terminal count, or explicit close was observed during
   the UAT window, so the truthful batch state remained `SUBMITTED`
 
+Release `demo3-preprod-20260722-batch-alignment-001`:
+- exact target preflight passed before each mutation
+- immutable app, PostgreSQL, edge, and proxy images rolled out successfully
+- app-owned migration `006` replaced the legacy unique producer-batch index;
+  independent verification returned legacy `0`, canonical `1`
+- authenticated `/leads`, `/imports`, `/imports/batches`, `/work-queue`,
+  `/costs` and their principal GET APIs passed without response bodies being
+  recorded; anonymous imports returned `401`
+- no CSV was submitted, no n8n endpoint was called, and the configured ingress
+  remained the approved legacy target rather than the inactive v1 artifact
+
 Rollback: Deployment revision rollback; preserve Demo 3 PVC and audit history;
 never change producer contents.
 
 Port `30099` cannot be used because it belongs to the existing SearXNG Service.
 
-Updated: 2026-07-20
+Updated: 2026-07-22

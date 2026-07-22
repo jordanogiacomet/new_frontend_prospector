@@ -401,9 +401,11 @@ de comandos, contagens e limitações.
 `pnpm test:integration` e `pnpm test:contract`
 
 **Status:** Local automated gates completed on 22/07/2026: 74 unit files / 1,744
-tests, 8 PostgreSQL integration files / 87 tests, and 13 static contract tests.
-The 57 HTTP cases remain skipped without authorized targets, so end-to-end UAT
-criteria stay unchecked and T14 cannot start.
+tests, 8 PostgreSQL integration files / 87 tests, and 16 static contract tests.
+The updated app was released to the separately authorized Demo 3 target and its
+authenticated pages/APIs passed body-free smoke checks. The 57 HTTP contract
+cases remain skipped without a separate authorized v1 target, so batch v1
+end-to-end UAT criteria stay unchecked.
 
 ### T14: Preparar cutover e rollback do alvo autorizado
 
@@ -426,6 +428,13 @@ somente após aprovação.
 
 **Tests:** preflight + smoke sintético
 **Gate:** aprovação operacional separada; nenhuma mutação neste draft
+
+**Status:** The application-only Demo 3 release
+`demo3-preprod-20260722-batch-alignment-001` was rolled out on 22/07/2026 after
+the exact cluster preflight. It applied only app-owned migration `006`, kept the
+legacy approved `N8N_IMPORT_URL`, and did not import, activate or call the v1
+workflow. The v1 cutover checklist above remains blocked by T13 and
+OPEN-01–OPEN-05.
 
 ## Granularidade
 

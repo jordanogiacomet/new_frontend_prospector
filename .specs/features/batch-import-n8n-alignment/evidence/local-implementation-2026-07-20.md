@@ -1,4 +1,4 @@
-# Evidência local consolidada — 22/07/2026
+# Evidência local consolidada e release Demo 3 — 22/07/2026
 
 ## Escopo executado
 
@@ -15,9 +15,11 @@
   `003_import_acceptance.sql` / `004_import_acceptance_rollback.sql` e
   `005_import_batch_close.sql` / `006_import_batch_close_rollback.sql`.
 
-Nenhum workflow foi importado, publicado ou ativado. Nenhuma migração foi
-aplicada fora dos dois bancos PostgreSQL locais descartáveis. Nenhum endpoint
-remoto, cluster ou dado real foi usado.
+Nenhum workflow foi importado, publicado ou ativado. Migrações produtoras foram
+aplicadas somente nos bancos PostgreSQL locais descartáveis. A migração
+app-owned `006_import_acceptance_reconciliation_forward.sql` foi aplicada no
+PostgreSQL isolado da Demo 3 durante a release autorizada descrita abaixo.
+Nenhum corpo ou valor real lido pelas APIs foi registrado nesta evidência.
 
 ## Gates
 
@@ -31,11 +33,32 @@ equivalentes do `package.json` via `npm` e os binários já instalados em
 | `npm run typecheck -- --pretty false` | passou |
 | `npm test` | 74 arquivos, 1.744 testes passaram |
 | `npm run test:integration` | 8 arquivos, 87 testes passaram, incluindo o orçamento `EXPLAIN` |
-| contrato estático/local | 1 arquivo, 13 testes passaram |
+| contrato estático/local | 2 arquivos, 16 testes passaram |
 | contratos HTTP remotos | 2 suites / 57 casos não executados por ausência de alvo |
 | `npm run build` simples | recusou flags Demo 2 inseguras carregadas de `.env.local`; nenhuma alteração foi feita nesse arquivo |
 | build com overrides seguros somente no processo | passou e gerou 23 rotas |
 | `git diff --check` | passou |
+
+## Release autorizada da Demo 3
+
+| Item | Evidência sanitizada |
+| --- | --- |
+| Release | `demo3-preprod-20260722-batch-alignment-001` |
+| Preflight | contexto, API HTTPS, kube-system UID, namespace não produtivo, fonte read-only, endpoint produtor e tags verificados antes da mutação |
+| Imagens | app, PostgreSQL, request edge e proxy com a mesma tag imutável |
+| Schema app-owned | índice único legado `0`; índice canônico não único `1` |
+| Páginas | `/leads`, `/imports`, `/imports/batches`, `/work-queue` e `/costs` retornaram `200`; `/login` retornou o redirect esperado `307` |
+| APIs GET | leads, imports, work queue e costs retornaram `200` |
+| Gateway | `/api/imports` anônimo retornou `401` |
+| Logs | zero linhas sanitizadas com `uncaught`, `unhandled`, `fatal` ou `error` na janela verificada |
+| n8n | nenhuma chamada, administração, publicação ou ativação |
+
+O primeiro rollout expôs que `kubectl exec` sem `--stdin` deixava o `psql`
+encerrar com sucesso sem consumir o SQL. Um teste de regressão foi criado, o
+deploy passou a usar `--stdin` e a exigir a pós-condição `0|1`, e as imagens já
+publicadas foram reaplicadas sem rebuild. A aplicação anterior continua
+compatível com o índice não único, portanto o rollback de imagem não exige
+reverter essa mudança app-owned.
 
 Na execução inicial de 20/07, o primeiro gate de integração expôs uma asserção
 antiga que procurava `actor_issuer`, `request_correlation_id` e
@@ -100,6 +123,11 @@ exclusiva e foram removidos. Nenhum outro arquivo foi removido.
 
 - Nenhum contrato HTTP remoto foi executado ou aprovado nesta consolidação.
 - Nenhum workflow foi importado, publicado, ativado ou administrado.
-- Nenhuma migração foi aplicada fora do PostgreSQL local descartável.
-- Nenhum cluster, deploy, secret, configuração externa ou dado real foi usado.
-- T13 permanece sem UAT fim a fim remoto e T14 permanece bloqueada.
+- Nenhuma migração produtora foi aplicada fora do PostgreSQL local
+  descartável; a única migração externa foi a app-owned `006` na Demo 3
+  autorizada.
+- A release atualiza apenas a aplicação Demo 3 e seu schema app-owned; ela não
+  é um cutover do ingress v1.
+- O endpoint configurado continua sendo o ingress legado aprovado. O artefato
+  v1 permanece local, inativo e sem identidade remota.
+- T13 permanece sem UAT v1 fim a fim e o cutover v1 de T14 permanece bloqueado.

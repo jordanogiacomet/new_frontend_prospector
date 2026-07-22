@@ -1,31 +1,33 @@
 # Handoff
 
-**Date:** 2026-07-22T11:02:04-02:00
+**Date:** 2026-07-22T11:39:23-02:00
 **Feature:** Batch import/n8n alignment
-**Task:** Current workflow reviewed; OPEN-02 implementation boundary refined
+**Task:** Consolidated locally and released in the authorized Demo 3 app target
 
 ## Completed ✓
 
-- Canonical producer chain: `003_import_acceptance.sql`,
-  `004_import_acceptance_rollback.sql`, `005_import_batch_close.sql`, and
-  `006_import_batch_close_rollback.sql`; duplicate `_v1` drafts removed after
-  full comparison.
-- Inactive n8n v1 artifact, exact multipart/hash contract, commit-before-202
-  structure, fail-closed worker gate, and explicit close.
+- Canonical producer chain retained as
+  `003_import_acceptance.sql` / `004_import_acceptance_rollback.sql` and
+  `005_import_batch_close.sql` / `006_import_batch_close_rollback.sql`; the
+  alternate `_v1` drafts were removed only after full semantic comparison.
+- Inactive n8n v1 artifact, exact multipart/hash contract,
+  commit-before-`202`, fail-closed worker gate and explicit close remain
+  versioned without remote identity, credentials, publication or activation.
 - Versioned ingress client, app-owned durable reconciliation, batched producer
-  reads for 100 IDs, and visible-page refresh.
-- Gates: lint and typecheck passed; 74 unit files / 1,744 tests passed; build
-  passed with process-only safe overrides and 23 routes; 8 PostgreSQL files /
-  87 tests passed; 13 static contracts passed; 57 HTTP cases skipped.
-- Disposable PostgreSQL container removed. No external target was changed.
-- Sanitized static review of the ignored current workflow export completed:
-  98 active nodes, no reusable subworkflow entry, no Postgres ancestor before
-  `202`, legacy-only persistence and fallible post-response callbacks.
-- Recommended path: separate producer worker plus idempotent terminal adapter;
-  no modification, clone or invocation of the current workflow.
-- Post-review static contract gate: `npm run test:contract` passed 13 local
-  cases and kept all 57 remote HTTP cases skipped. `pnpm` was unavailable; no
-  dependency was installed or updated.
+  reads for 100 IDs and visible-page status refresh are consolidated.
+- Demo 3 release `demo3-preprod-20260722-batch-alignment-001` passed the exact
+  cluster preflight and rolled out immutable app, PostgreSQL, edge and proxy
+  images at `http://192.168.0.20:30100`.
+- The persistent app-owned database received migration `006` transactionally.
+  Independent verification reported legacy unique index `0` and canonical
+  non-unique index `1`.
+- Authenticated route/API smoke passed for leads, imports, batch list, work
+  queue and costs; anonymous imports returned `401`; no response bodies or real
+  values were recorded.
+- `.env.demo3.local` permissions were restricted from `0644` to `0600` without
+  changing its values or versioning the file.
+- The current 98-node n8n workflow was only inspected statically from the
+  ignored local export. It was not modified, cloned, called or administered.
 
 ## Commits
 
@@ -37,26 +39,59 @@
 - `f4422d0` `perf(imports): batch producer observation reads`
 - `0cb440c` `feat(imports): refresh batch status while visible`
 - `b78caaa` `test(commercial): assert request context on audit event`
-- Documentation, evidence, notebook, and this handoff are versioned in the
-  final documentation commit of this session.
-- `docs(n8n): record current workflow integration review` (this analysis
-  commit).
+- `efc873e` `docs(imports): record local batch alignment evidence`
+- `af9fbf9` `docs(n8n): record current workflow integration review`
+- `5d4b60d` `fix(demo3): apply app reconciliation migration safely`
+- `37e8ca1` `fix(demo3): stream and verify app migrations`
+- Current documentation/evidence/notebook update:
+  `docs(demo3): record batch-alignment app release`.
+
+## Checks
+
+- `npm run lint`: passed without warnings.
+- `npm run typecheck -- --pretty false`: passed.
+- `npm test`: 74 files / 1,744 tests passed.
+- Safe process-only `npm run build`: passed, 23 routes generated. A first
+  attempt correctly rejected `AUTH_DEV_BYPASS_ENABLED` inherited from
+  `.env.local`; that file was not changed.
+- `npm run test:integration`: 8 files / 87 tests passed against synthetic
+  PostgreSQL on `127.0.0.1:55432`; disposable containers were removed.
+- `npm run test:contract`: 2 local files / 16 tests passed; 2 remote suites /
+  57 HTTP cases skipped.
+- Demo 3 preflight, immutable rollout, migration postcondition and authenticated
+  route/API smoke passed.
+
+## Limitations
+
+- This was an application/schema-app-owned Demo 3 release, not an n8n v1
+  cutover. `N8N_IMPORT_URL` remains the approved legacy target.
+- No CSV was submitted or resubmitted during this release; no remote n8n
+  contract was executed.
+- No producer DDL was applied outside disposable synthetic PostgreSQL.
+- No production migration, deployment, workflow activation, secret change,
+  producer write, retry or rollout occurred.
+- Plain HTTP plus shared Basic Auth remains an accepted limitation only for
+  this exact single-tester LAN target.
 
 ## Pending / Blockers
 
-- **OPEN-01:** authorized separate HTTPS v1 URL plus remote identity evidence.
-- **OPEN-02:** approve a separate producer worker and terminal adapter; the
-  reviewed current workflow cannot serve as the worker.
-- **OPEN-03:** approved late-reconciliation runner; never retry uploads.
-- **OPEN-04:** operational owner and `NO_UPDATE` freshness window.
-- **OPEN-05:** external disposable target, DB owner, credentials, rollback
-  owner, and approval for producer DDL.
+- **OPEN-01:** identify and authorize a separate non-production HTTPS v1 URL,
+  workflow ID/version and hash-bound inspection source before remote contracts.
+- **OPEN-02:** approve and provide a separate producer worker plus idempotent
+  terminal adapter that emits `prospecta-producer-worker-v1`; the current
+  workflow has no reusable subworkflow entry and cannot be cloned or changed.
+- **OPEN-03:** approve an idempotent late-reconciliation runner; timeout remains
+  `ACCEPTANCE_UNKNOWN` and never triggers another upload.
+- **OPEN-04:** name the operational owner and evidence-based freshness window
+  before enabling `NO_UPDATE`.
+- **OPEN-05:** identify the external disposable producer target, DB owner,
+  credentials, rollback owner and approval before any producer DDL outside the
+  local synthetic harness.
 
 ## Context
 
-- Branch: `master`
-- Production, rollout, cluster, n8n administration, and real data remain out of
-  scope.
-- Remote HTTP suites are skipped, not approved.
-- The local export remains ignored and uncommitted; its payload and credential
-  reference values were not copied into versioned artifacts.
+- Branch: `master`.
+- Demo 3 is healthy on the authorized local target with the updated app code.
+- Remote HTTP suites are skipped, never approved by absence of execution.
+- The ignored current-workflow export remains uncommitted and no credential
+  reference values were copied into versioned artifacts.
