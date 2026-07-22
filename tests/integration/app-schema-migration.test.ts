@@ -1280,6 +1280,7 @@ describe("Prospecta import submission repository integration", () => {
         },
       },
     ]);
+
   });
 
   it("enforces organization-scoped idempotency and safe conflicts", async () => {
@@ -1478,6 +1479,7 @@ describe("Prospecta import submission repository integration", () => {
         },
       },
     ]);
+
   });
 
   it("records one idempotent legacy workflow close report without promoting status", async () => {
@@ -1575,6 +1577,23 @@ describe("Prospecta import submission repository integration", () => {
         },
       },
     ]);
+
+    const detail = await submissions.getImportSubmissionDetail({
+      organizationId: "org-synthetic-a",
+      submissionId,
+    });
+
+    expect(detail).toMatchObject({
+      kind: "found",
+      submission: {
+        appStatus: "PRODUCER_ACKNOWLEDGED",
+        durableAcceptance: null,
+        workflowCloseReport: {
+          reportedClosedAt: occurredAt,
+          rowCountExpected: 2,
+        },
+      },
+    });
   });
 
   it("promotes a matching durable acceptance and appends one idempotent reconciliation event", async () => {

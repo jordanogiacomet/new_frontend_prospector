@@ -73,6 +73,14 @@ function batchSummary(
       overrides.observationBasis === undefined
         ? null
         : overrides.observationBasis,
+    workflowReportedClosedAt:
+      overrides.workflowReportedClosedAt === undefined
+        ? null
+        : overrides.workflowReportedClosedAt,
+    workflowReportedRowCount:
+      overrides.workflowReportedRowCount === undefined
+        ? null
+        : overrides.workflowReportedRowCount,
   };
 }
 
@@ -259,6 +267,32 @@ describe("batch list page", () => {
     expect(row!).toHaveTextContent("Falhas: 0");
     expect(screen.getAllByText("08/07/2026")).toHaveLength(3);
     expect(document.body).not.toHaveTextContent(submissionId);
+  });
+
+  it("shows the legacy workflow close report without inventing result counts", async () => {
+    fetchMock.mockResolvedValue(
+      apiResponse(
+        batchListEnvelope([
+          batchSummary({
+            status: "SUBMITTED",
+            workflowReportedClosedAt: "2026-07-08T14:30:00.000Z",
+            workflowReportedRowCount: 2,
+          }),
+        ]),
+      ),
+    );
+
+    render(<BatchListPage />);
+
+    const row = (await screen.findByText(importBatchId)).closest("tr");
+
+    expect(row).not.toBeNull();
+    expect(row!).toHaveTextContent("Processamento encerrado");
+    expect(row!).toHaveTextContent(
+      "Base: encerramento informado pelo workflow",
+    );
+    expect(row!).toHaveTextContent(`Linhas aceitas: ${UNAVAILABLE_LABEL}`);
+    expect(row!).toHaveTextContent(`Terminais: ${UNAVAILABLE_LABEL}`);
   });
 
   it("links each import to its app-owned detail route without displaying its identifier", async () => {

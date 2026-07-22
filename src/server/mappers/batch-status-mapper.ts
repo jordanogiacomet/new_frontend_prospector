@@ -5,7 +5,7 @@ import type {
   BatchProducerObservationFacts,
   BatchStatus,
   BatchStatusMapperInput,
-  BatchSummary,
+  BatchStatusProjection,
   BatchTerminalClass,
   BatchTerminalOutcomeFact,
   BatchTimestampInput,
@@ -99,7 +99,7 @@ function toSourceRow(value: number): number {
 
 export function mapBatchStatus(
   input: BatchStatusMapperInput,
-): BatchSummary {
+): BatchStatusProjection {
   validateInputShell(input);
 
   const submissionId = requireText(input.submission.submissionId);
@@ -264,7 +264,7 @@ function observedAtOrNull(
 }
 
 function nullProducerCounts(): Pick<
-  BatchSummary,
+  BatchStatusProjection,
   "terminalCount" | "blockedCount" | "failedCount" | "leadCount"
 > {
   return {
@@ -278,7 +278,7 @@ function nullProducerCounts(): Pick<
 function observationCondition(
   observations: BatchProducerObservationFacts | null,
   observationBasis: BatchObservationBasis | null,
-): Pick<BatchSummary, "observationStatus" | "observationBasis"> {
+): Pick<BatchStatusProjection, "observationStatus" | "observationBasis"> {
   const unavailable = unavailableObservationCondition(observations);
 
   if (unavailable !== null) {
@@ -300,7 +300,7 @@ function observationCondition(
 
 function unavailableObservationCondition(
   observations: BatchProducerObservationFacts | null,
-): Pick<BatchSummary, "observationStatus" | "observationBasis"> | null {
+): Pick<BatchStatusProjection, "observationStatus" | "observationBasis"> | null {
   if (observations === null) {
     return null;
   }
@@ -468,7 +468,7 @@ function statusWithoutProducerObservations(
 function statusBasisWithoutProducerObservations(
   acceptance: BatchAcceptanceFact,
   freshness: BatchFreshnessPolicy | null,
-): BatchSummary["statusBasis"] {
+): BatchStatusProjection["statusBasis"] {
   return statusBasisFor(
     statusWithoutProducerObservations(acceptance, freshness),
   );
@@ -564,7 +564,7 @@ function hasProducerActivity(
   );
 }
 
-function statusBasisFor(status: BatchStatus): BatchSummary["statusBasis"] {
+function statusBasisFor(status: BatchStatus): BatchStatusProjection["statusBasis"] {
   switch (status) {
     case "SUBMITTED":
       return "SUBMISSION_RECORDED";

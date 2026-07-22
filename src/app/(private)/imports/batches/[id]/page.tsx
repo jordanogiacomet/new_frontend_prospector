@@ -98,6 +98,20 @@ function isNullableNonNegativeInteger(
   return value === null || isNonNegativeInteger(value);
 }
 
+function isPositiveInteger(value: unknown): value is number {
+  return Number.isInteger(value) && Number(value) >= 1;
+}
+
+function hasValidWorkflowCloseReport(
+  closedAt: unknown,
+  rowCount: unknown,
+): boolean {
+  return (
+    (closedAt === null && rowCount === null) ||
+    (isString(closedAt) && isPositiveInteger(rowCount))
+  );
+}
+
 function isUuid(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
     value,
@@ -126,6 +140,10 @@ function isBatchSummary(value: unknown): value is BatchSummary {
     statusBases.has(value.statusBasis) &&
     isString(value.observationStatus) &&
     observationStatuses.has(value.observationStatus) &&
+    hasValidWorkflowCloseReport(
+      value.workflowReportedClosedAt,
+      value.workflowReportedRowCount,
+    ) &&
     (value.observationBasis === null ||
       (isString(value.observationBasis) &&
         observationBases.has(value.observationBasis)))
@@ -368,20 +386,20 @@ function BatchDetail({ batch }: { readonly batch: BatchSummary }) {
               id="estado-lote"
               className="mt-3 font-serif text-3xl tracking-normal"
             >
-              {statusLabel(batch.status)}
+              {displayStatusLabel(batch)}
             </h2>
           </div>
-          <StatusBadge status={batch.status} />
+          <StatusBadge batch={batch} />
         </div>
 
         <p className="mt-5 max-w-2xl text-sm leading-6 text-[oklch(43%_0.03_252)]">
-          {statusNarrative(batch.status)}
+          {statusNarrative(batch)}
         </p>
 
         <dl className="mt-7 grid gap-4 sm:grid-cols-2">
           <FactItem
             label="Base da situação"
-            value={statusBasisLabel(batch.statusBasis)}
+            value={batchSituationBasis(batch)}
           />
           <FactItem
             label="Lote de importação"
@@ -400,6 +418,20 @@ function BatchDetail({ batch }: { readonly batch: BatchSummary }) {
             label="Última observação"
             value={formatBrazilianDate(batch.lastObservedAt)}
           />
+          {batch.workflowReportedClosedAt === null ? null : (
+            <>
+              <FactItem
+                label="Encerramento informado"
+                value={formatBrazilianDate(
+                  batch.workflowReportedClosedAt,
+                )}
+              />
+              <FactItem
+                label="Linhas informadas pelo workflow"
+                value={formatCount(batch.workflowReportedRowCount)}
+              />
+            </>
+          )}
         </dl>
       </section>
 
@@ -536,14 +568,15 @@ function MetricLine({
   );
 }
 
-function StatusBadge({ status }: { readonly status: BatchStatus }) {
+function StatusBadge({ batch }: { readonly batch: BatchSummary }) {
   return (
     <span
       className={`inline-flex min-h-7 items-center border px-2.5 py-1 text-xs font-bold leading-4 ${statusBadgeClass(
-        status,
+        batch.status,
+        batch.workflowReportedClosedAt !== null,
       )}`}
     >
-      {statusLabel(status)}
+      {displayStatusLabel(batch)}
     </span>
   );
 }
@@ -567,8 +600,11 @@ function ObservationBadge({
   );
 }
 
-function statusBadgeClass(status: BatchStatus): string {
-  if (status === "COMPLETED") {
+function statusBadgeClass(
+  status: BatchStatus,
+  workflowReportedClosed: boolean,
+): string {
+  if (status === "COMPLETED" || workflowReportedClosed) {
     return "border-[oklch(72%_0.075_174)] bg-[oklch(94%_0.035_174)] text-[oklch(32%_0.09_174)]";
   }
 
@@ -577,6 +613,18 @@ function statusBadgeClass(status: BatchStatus): string {
   }
 
   return "border-[oklch(79%_0.02_252)] bg-[oklch(95%_0.01_252)] text-[oklch(43%_0.025_252)]";
+}
+
+function displayStatusLabel(batch: BatchSummary): string {
+  return batch.workflowReportedClosedAt === null
+    ? statusLabel(batch.status)
+    : "Processamento encerrado";
+}
+
+function batchSituationBasis(batch: BatchSummary): string {
+  return batch.workflowReportedClosedAt === null
+    ? statusBasisLabel(batch.statusBasis)
+    : "encerramento informado pelo workflow";
 }
 
 function observationBadgeClass(
@@ -628,8 +676,12 @@ function statusBasisLabel(statusBasis: BatchStatusBasis): string {
   }
 }
 
-function statusNarrative(status: BatchStatus): string {
-  switch (status) {
+function statusNarrative(batch: BatchSummary): string {
+  if (batch.workflowReportedClosedAt !== null) {
+    return "O workflow informou que terminou o processamento deste arquivo. As contagens por resultado permanecem indisponíveis enquanto não houver fatos aprovados.";
+  }
+
+  switch (batch.status) {
     case "SUBMITTED":
       return "O envio foi registrado no Prospecta. Aceite e conclusão permanecem sem comprovação aprovada.";
     case "ACCEPTED":

@@ -77,6 +77,10 @@ function submission(
       "durableAcceptance" in overrides
         ? (overrides.durableAcceptance ?? null)
         : null,
+    workflowCloseReport:
+      "workflowCloseReport" in overrides
+        ? (overrides.workflowCloseReport ?? null)
+        : null,
   };
 }
 
@@ -336,6 +340,8 @@ describe("listImportBatches", () => {
       statusBasis: "SUBMISSION_RECORDED",
       observationStatus: "AVAILABLE",
       observationBasis: null,
+      workflowReportedClosedAt: null,
+      workflowReportedRowCount: null,
     });
     expect(
       mocks.readProducerBatchObservationsByBatchIds,
@@ -375,6 +381,31 @@ describe("listImportBatches", () => {
       rowCountAccepted: null,
       terminalCount: null,
       statusBasis: "SUBMISSION_RECORDED",
+    });
+  });
+
+  it("surfaces a workflow close report without promoting contractual status or counts", async () => {
+    mocks.listImportSubmissions.mockResolvedValueOnce(
+      listResult({
+        submissions: [
+          acknowledgedSubmission({
+            workflowCloseReport: {
+              reportedClosedAt: closedAt,
+              rowCountExpected: 3,
+            },
+          }),
+        ],
+      }),
+    );
+
+    const result = await listImportBatches({ organizationId });
+
+    expect(result.batches[0]).toMatchObject({
+      status: "SUBMITTED",
+      rowCountAccepted: null,
+      terminalCount: null,
+      workflowReportedClosedAt: closedAt.toISOString(),
+      workflowReportedRowCount: 3,
     });
   });
 
@@ -634,6 +665,8 @@ describe("listImportBatches", () => {
       statusBasis: "PRODUCER_ACTIVITY_OBSERVED",
       observationStatus: "AVAILABLE",
       observationBasis: null,
+      workflowReportedClosedAt: null,
+      workflowReportedRowCount: null,
     };
     const mapBatchStatus = vi.fn(() => mapped);
 

@@ -340,6 +340,8 @@ const staticDemoBatches: readonly BatchSummary[] = [
     statusBasis: "PRODUCER_CLOSED_ALL_ROWS_TERMINAL",
     observationStatus: "AVAILABLE",
     observationBasis: null,
+    workflowReportedClosedAt: null,
+    workflowReportedRowCount: null,
   },
   {
     submissionId: "10000000-0000-4000-8000-000000000002",
@@ -356,6 +358,8 @@ const staticDemoBatches: readonly BatchSummary[] = [
     statusBasis: "PRODUCER_ACTIVITY_OBSERVED",
     observationStatus: "AVAILABLE",
     observationBasis: null,
+    workflowReportedClosedAt: null,
+    workflowReportedRowCount: null,
   },
 ];
 
@@ -702,5 +706,7 @@ function demoSubmissionToBatch(
     statusBasis: "SUBMISSION_RECORDED",
     observationStatus: "AVAILABLE",
     observationBasis: null,
+    workflowReportedClosedAt: null,
+    workflowReportedRowCount: null,
   };
 }

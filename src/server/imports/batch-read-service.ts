@@ -182,13 +182,20 @@ function composeBatchSummary(
   operations: BatchReadServiceOperations,
   producerObservations: BatchProducerObservationFacts | null,
 ): BatchSummary {
-  return operations.mapBatchStatus({
-    submission: mapSubmissionFact(submission),
-    acknowledgement: mapAcknowledgementFact(submission),
-    acceptance: mapAcceptanceFact(submission),
-    producerObservations,
-    freshness: null,
-  });
+  return {
+    ...operations.mapBatchStatus({
+      submission: mapSubmissionFact(submission),
+      acknowledgement: mapAcknowledgementFact(submission),
+      acceptance: mapAcceptanceFact(submission),
+      producerObservations,
+      freshness: null,
+    }),
+    workflowReportedClosedAt:
+      submission.workflowCloseReport?.reportedClosedAt.toISOString() ??
+      null,
+    workflowReportedRowCount:
+      submission.workflowCloseReport?.rowCountExpected ?? null,
+  };
 }
 
 async function readPageProducerObservations(

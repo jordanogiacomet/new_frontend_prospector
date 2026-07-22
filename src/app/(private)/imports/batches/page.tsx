@@ -110,6 +110,16 @@ function isNullableNonNegativeInteger(
   return value === null || isNonNegativeInteger(value);
 }
 
+function hasValidWorkflowCloseReport(
+  closedAt: unknown,
+  rowCount: unknown,
+): boolean {
+  return (
+    (closedAt === null && rowCount === null) ||
+    (isString(closedAt) && isPositiveInteger(rowCount))
+  );
+}
+
 function isBatchSummary(value: unknown): value is BatchSummary {
   if (!isRecord(value)) {
     return false;
@@ -132,6 +142,10 @@ function isBatchSummary(value: unknown): value is BatchSummary {
     statusBases.has(value.statusBasis) &&
     isString(value.observationStatus) &&
     observationStatuses.has(value.observationStatus) &&
+    hasValidWorkflowCloseReport(
+      value.workflowReportedClosedAt,
+      value.workflowReportedRowCount,
+    ) &&
     (value.observationBasis === null ||
       (isString(value.observationBasis) &&
         observationBases.has(value.observationBasis)))
@@ -486,7 +500,7 @@ function BatchListTable({
                     {formatBrazilianDate(batch.submittedAt)}
                   </p>
                   <p className="mt-2 max-w-56 leading-5 text-[oklch(48%_0.025_252)]">
-                    Base: {statusBasisLabel(batch.statusBasis)}
+                    Base: {batchSituationBasis(batch)}
                   </p>
                   <Link
                     href={`/imports/batches/${encodeURIComponent(batch.submissionId)}`}
@@ -500,7 +514,14 @@ function BatchListTable({
                   </Link>
                 </td>
                 <td className="px-3 py-5">
-                  <StatusBadge status={batch.status} />
+                  <StatusBadge batch={batch} />
+                  {batch.workflowReportedClosedAt === null ? null : (
+                    <p className="mt-2 text-xs font-semibold text-[oklch(48%_0.025_252)]">
+                      {formatBrazilianDate(
+                        batch.workflowReportedClosedAt,
+                      )}
+                    </p>
+                  )}
                 </td>
                 <td className="max-w-60 px-3 py-5 text-sm">
                   <span className="block break-all">
@@ -651,14 +672,15 @@ function BatchPagination({
   );
 }
 
-function StatusBadge({ status }: { readonly status: BatchStatus }) {
+function StatusBadge({ batch }: { readonly batch: BatchSummary }) {
   return (
     <span
       className={`inline-flex min-h-7 items-center border px-2.5 py-1 text-xs font-bold leading-4 ${statusBadgeClass(
-        status,
+        batch.status,
+        batch.workflowReportedClosedAt !== null,
       )}`}
     >
-      {statusLabel(status)}
+      {displayStatusLabel(batch)}
     </span>
   );
 }
@@ -679,8 +701,11 @@ function ObservationBadge({
   );
 }
 
-function statusBadgeClass(status: BatchStatus): string {
-  if (status === "COMPLETED") {
+function statusBadgeClass(
+  status: BatchStatus,
+  workflowReportedClosed: boolean,
+): string {
+  if (status === "COMPLETED" || workflowReportedClosed) {
     return "border-[oklch(72%_0.075_174)] bg-[oklch(94%_0.035_174)] text-[oklch(32%_0.09_174)]";
   }
 
@@ -689,6 +714,18 @@ function statusBadgeClass(status: BatchStatus): string {
   }
 
   return "border-[oklch(79%_0.02_252)] bg-[oklch(95%_0.01_252)] text-[oklch(43%_0.025_252)]";
+}
+
+function displayStatusLabel(batch: BatchSummary): string {
+  return batch.workflowReportedClosedAt === null
+    ? statusLabel(batch.status)
+    : "Processamento encerrado";
+}
+
+function batchSituationBasis(batch: BatchSummary): string {
+  return batch.workflowReportedClosedAt === null
+    ? statusBasisLabel(batch.statusBasis)
+    : "encerramento informado pelo workflow";
 }
 
 function observationBadgeClass(

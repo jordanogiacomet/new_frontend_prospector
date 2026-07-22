@@ -67,6 +67,14 @@ function batchSummary(
       overrides.observationBasis === undefined
         ? null
         : overrides.observationBasis,
+    workflowReportedClosedAt:
+      overrides.workflowReportedClosedAt === undefined
+        ? null
+        : overrides.workflowReportedClosedAt,
+    workflowReportedRowCount:
+      overrides.workflowReportedRowCount === undefined
+        ? null
+        : overrides.workflowReportedRowCount,
   };
 }
 
@@ -226,6 +234,43 @@ describe("batch detail page", () => {
       "/imports/batches",
     );
     expect(document.body).not.toHaveTextContent(submissionId);
+  });
+
+  it("reports workflow processing as finished without promoting contractual completion", async () => {
+    fetchMock.mockResolvedValue(
+      apiResponse(
+        detailEnvelope(
+          batchSummary({
+            status: "SUBMITTED",
+            workflowReportedClosedAt: "2026-07-08T15:30:00.000Z",
+            workflowReportedRowCount: 5,
+          }),
+        ),
+      ),
+    );
+
+    render(<BatchDetailPage />);
+
+    expect(
+      await screen.findByRole("heading", {
+        name: "Processamento encerrado",
+      }),
+    ).toBeInTheDocument();
+    expect(document.body).toHaveTextContent(
+      "O workflow informou que terminou o processamento deste arquivo.",
+    );
+    expect(document.body).toHaveTextContent(
+      "Base da situaçãoencerramento informado pelo workflow",
+    );
+    expect(document.body).toHaveTextContent(
+      "Linhas informadas pelo workflow5",
+    );
+    expect(document.body).toHaveTextContent(
+      `Linhas aceitas: ${UNAVAILABLE_LABEL}`,
+    );
+    expect(document.body).toHaveTextContent(
+      `Terminais: ${UNAVAILABLE_LABEL}`,
+    );
   });
 
   it("renders nullable metrics as unavailable and never as zero", async () => {

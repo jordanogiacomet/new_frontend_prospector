@@ -148,6 +148,8 @@ function submissionReadRow(
     acknowledged_row_count: number | null;
     durable_accepted_at: Date | null;
     durable_accepted_row_count: number | null;
+    workflow_reported_closed_at: Date | null;
+    workflow_reported_row_count: number | string | null;
     status: ImportSubmissionReadModel["appStatus"];
     status_fact_source: string;
     last_observed_at: Date | null;
@@ -170,6 +172,10 @@ function submissionReadRow(
     durable_accepted_at: overrides.durable_accepted_at ?? null,
     durable_accepted_row_count:
       overrides.durable_accepted_row_count ?? null,
+    workflow_reported_closed_at:
+      overrides.workflow_reported_closed_at ?? null,
+    workflow_reported_row_count:
+      overrides.workflow_reported_row_count ?? null,
     status: overrides.status ?? "SUBMISSION_RECORDED",
     status_fact_source: overrides.status_fact_source ?? "app_submission",
     last_observed_at: overrides.last_observed_at ?? null,
@@ -854,10 +860,40 @@ describe("listImportSubmissions", () => {
           acknowledgedAt,
         },
         durableAcceptance: null,
+        workflowCloseReport: null,
       },
     ]);
     expect(JSON.stringify(result)).not.toContain(idempotencyKey);
     expect(JSON.stringify(result)).not.toContain(fileSha256);
+  });
+
+  it("maps the app-owned workflow close report without changing submission status", async () => {
+    const workflowClosedAt = new Date("2026-07-07T12:30:00.000Z");
+    mocks.query.mockResolvedValueOnce([{ total: 1 }]).mockResolvedValueOnce([
+      submissionReadRow({
+        producer_acknowledged_at: acknowledgedAt,
+        producer_import_batch_id: importBatchId,
+        acknowledged_row_count: 3,
+        workflow_reported_closed_at: workflowClosedAt,
+        workflow_reported_row_count: "3",
+        status: "PRODUCER_ACKNOWLEDGED",
+        status_fact_source: "workflow_acknowledgement",
+      }),
+    ]);
+
+    const result = await listImportSubmissions({ organizationId });
+
+    expect(result.submissions[0]).toMatchObject({
+      appStatus: "PRODUCER_ACKNOWLEDGED",
+      durableAcceptance: null,
+      workflowCloseReport: {
+        reportedClosedAt: workflowClosedAt,
+        rowCountExpected: 3,
+      },
+    });
+    expect(readStatements()[1]?.text).toMatch(
+      /WORKFLOW_CLOSED_REPORTED/i,
+    );
   });
 
   it("keeps acknowledgement separate from durable acceptance when both facts exist", async () => {
@@ -947,6 +983,7 @@ describe("getImportSubmissionDetail", () => {
         lastObservedAt: null,
         workflowAcknowledgement: null,
         durableAcceptance: null,
+        workflowCloseReport: null,
       },
     });
     expect(readStatements()[0]?.values).toEqual([

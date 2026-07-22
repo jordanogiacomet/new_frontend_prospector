@@ -124,4 +124,11 @@ export interface BatchSummary {
   readonly statusBasis: BatchStatusBasis;
   readonly observationStatus: BatchObservationStatus;
   readonly observationBasis: BatchObservationBasis | null;
+  readonly workflowReportedClosedAt: string | null;
+  readonly workflowReportedRowCount: number | null;
 }
+
+export type BatchStatusProjection = Omit<
+  BatchSummary,
+  "workflowReportedClosedAt" | "workflowReportedRowCount"
+>;

@@ -107,6 +107,14 @@ function batchSummary(
       overrides.observationBasis === undefined
         ? null
         : overrides.observationBasis,
+    workflowReportedClosedAt:
+      overrides.workflowReportedClosedAt === undefined
+        ? null
+        : overrides.workflowReportedClosedAt,
+    workflowReportedRowCount:
+      overrides.workflowReportedRowCount === undefined
+        ? null
+        : overrides.workflowReportedRowCount,
   };
 }
 
