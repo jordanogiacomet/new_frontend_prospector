@@ -120,6 +120,19 @@ export interface LeadSummary extends LeadAuditIdentity {
   lastAnalysisAt: string;
 }
 
+export interface OutsideAnalysisCompany {
+  import_batch_id: Nullable<string>;
+  source_row: Nullable<number>;
+  cnpj: string;
+  companyName: Nullable<string>;
+  city: Nullable<string>;
+  uf: Nullable<string>;
+  sector: Nullable<string>;
+  decidedAction: Nullable<string>;
+  decisionReason: Nullable<string>;
+  decidedAt: string;
+}
+
 export interface LeadDetail extends LeadSummary {
   legalName: Nullable<string>;
   tradeName: Nullable<string>;

@@ -6,6 +6,7 @@ import {
   leadDetailQuerySchema,
   leadHistoryQuerySchema,
   leadListQuerySchema,
+  outsideAnalysisQuerySchema,
 } from "./lead-query";
 
 const syntheticCnpj = "00000000000000";
@@ -332,6 +333,62 @@ describe("leadHistoryQuerySchema", () => {
   ])("rejects unsupported history control %s", (key) => {
     expect(
       leadHistoryQuerySchema.safeParse(query({ [key]: "synthetic" })).success,
+    ).toBe(false);
+  });
+});
+
+describe("outsideAnalysisQuerySchema", () => {
+  it("applies the approved pagination defaults", () => {
+    expect(outsideAnalysisQuerySchema.parse(new URLSearchParams())).toEqual({
+      page: 1,
+      pageSize: 20,
+    });
+  });
+
+  it("accepts only approved pagination boundaries", () => {
+    expect(
+      outsideAnalysisQuerySchema.parse(
+        query({ page: "2", pageSize: "20" }),
+      ),
+    ).toEqual({ page: 2, pageSize: 20 });
+  });
+
+  it.each([
+    ["page", "0"],
+    ["page", "1.5"],
+    ["pageSize", "0"],
+    ["pageSize", "21"],
+  ])("rejects invalid pagination %s=%s", (key, value) => {
+    expect(
+      outsideAnalysisQuerySchema.safeParse(query({ [key]: value })).success,
+    ).toBe(false);
+  });
+
+  it.each(["page", "pageSize"])(
+    "rejects repeated %s parameters",
+    (key) => {
+      expect(
+        outsideAnalysisQuerySchema.safeParse(
+          query({ [key]: ["1", "2"] }),
+        ).success,
+      ).toBe(false);
+    },
+  );
+
+  it.each([
+    "cnpj",
+    "uf",
+    "priority",
+    "action",
+    "reason",
+    "sort",
+    "direction",
+    "batch",
+  ])("rejects unsupported control %s", (key) => {
+    expect(
+      outsideAnalysisQuerySchema.safeParse(
+        query({ [key]: "synthetic" }),
+      ).success,
     ).toBe(false);
   });
 });

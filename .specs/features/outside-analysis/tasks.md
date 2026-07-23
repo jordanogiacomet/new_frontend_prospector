@@ -29,10 +29,10 @@ T6 ──→ T7
 
 **Done when:**
 
-- [ ] A query aceita somente `page` e `pageSize`, com máximo 20.
-- [ ] O DTO contém apenas campos aprovados necessários à tabela.
-- [ ] O mapper preserva ação/motivo armazenados e nulidade.
-- [ ] Testes direcionados passam sem remoções.
+- [x] A query aceita somente `page` e `pageSize`, com máximo 20.
+- [x] O DTO contém apenas campos aprovados necessários à tabela.
+- [x] O mapper preserva ação/motivo armazenados e nulidade.
+- [x] Testes direcionados passam sem remoções.
 
 ### T2: Ler decisões atuais do CRM
 

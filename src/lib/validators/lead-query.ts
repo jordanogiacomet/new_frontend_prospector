@@ -114,7 +114,15 @@ export const leadHistoryQuerySchema = z.preprocess(
   z.strictObject(paginationShape),
 );
 
+export const outsideAnalysisQuerySchema = z.preprocess(
+  (input) => prepareQueryInput(input, paginationKeys),
+  z.strictObject(paginationShape),
+);
+
 export type LeadListQuery = z.infer<typeof leadListQuerySchema>;
 export type LeadDetailParams = z.infer<typeof leadDetailParamsSchema>;
 export type LeadDetailQuery = z.infer<typeof leadDetailQuerySchema>;
 export type LeadHistoryQuery = z.infer<typeof leadHistoryQuerySchema>;
+export type OutsideAnalysisQuery = z.infer<
+  typeof outsideAnalysisQuerySchema
+>;
