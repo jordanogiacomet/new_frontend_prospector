@@ -163,6 +163,20 @@ bloqueios e falhas não são promovidos nem preenchidos.
 
 O empacotamento local da Demo 3 inclui a migração app-owned `007`, o segredo no
 Secret imutável da aplicação e uma exceção de gateway somente para a rota
-exata; essa configuração não foi aplicada ao cluster. O n8n também não recebeu
-URL ou segredo. O export permaneceu ignorado, ativo com 98 nós e com o mesmo
+exata. Na data deste adendo inicial, essa configuração ainda não havia sido
+aplicada ao cluster e o n8n ainda não havia recebido URL ou segredo.
+
+## Adendo T16/runtime — início e encerramento comprovados
+
+Em 23/07/2026, a release Demo 3 aplicou as migrações `007`/`008` e o n8n
+recebeu URL/segredo por Secret. A revisão 15 ainda falhou antes do HTTP Request
+porque os Code nodes não podiam acessar `$env`. Após o preflight repetido, a
+revisão 16 declarou `N8N_BLOCK_ENV_ACCESS_IN_NODE=false`, preservando versão,
+digest e o export.
+
+Um upload sintético enviado uma única vez recebeu reconhecimento produtor,
+relatou o primeiro `ACCEPTED_ROW` em aproximadamente cinco segundos e depois
+relatou `BATCH_CLOSED` com a contagem do workflow. O status contratual
+permaneceu `SUBMITTED`, como esperado. As execuções anteriores não foram
+repetidas. O export permaneceu ignorado, ativo com 98 nós e com o mesmo
 SHA-256 registrado no topo deste documento.

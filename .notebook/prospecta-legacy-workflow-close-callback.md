@@ -37,13 +37,20 @@ Runtime (2026-07-23):
 - immutable Demo 3 release
   `demo3-preprod-20260723-lifecycle-refresh-001` is active and Ready;
 - app-owned migrations `007` and `008` are structurally verified;
-- n8n Deployment revision 15 reads the exact callback URL
+- n8n Deployment revision 16 reads the exact callback URL
   `http://192.168.0.20:30100/api/imports/events` and shared credential from a
   dedicated Kubernetes Secret;
 - n8n stayed on version 2.30.6 and its previously running image digest;
+- revision 16 explicitly sets `N8N_BLOCK_ENV_ACCESS_IN_NODE=false`; without
+  it, the workflow's Code nodes fail before the HTTP callback despite the
+  variables being present in the pod;
 - an authenticated request from the n8n pod reached the app: invalid body
   failed 400 and an exact but uncorrelated synthetic event failed 404 without
   a write;
+- after the environment-access correction, a new synthetic upload received a
+  correlated acknowledgement and reported operational start in about five
+  seconds, then reported close and its workflow row count after the n8n
+  execution succeeded; contractual status remained `SUBMITTED`;
 - one synthetic upload ended honestly as `ACCEPTANCE_UNKNOWN` and was not
   retried. There was no correlated producer batch from which to prove a real
   callback, so none was fabricated;

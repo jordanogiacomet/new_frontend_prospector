@@ -543,13 +543,17 @@ rollback do Demo 3.
 **Status:** Completed on 23/07/2026 for the exact authorized local profile.
 Preflight matched the configured fingerprint before mutation. Immutable release
 `demo3-preprod-20260723-lifecycle-refresh-001` is Ready, with app-owned
-migrations `007` and `008` verified. n8n revision 15 reads the exact URL and
+migrations `007` and `008` verified. n8n revision 16 reads the exact URL and
 shared secret from Kubernetes Secret while retaining version 2.30.6 and its
-previous image digest. An authenticated callback probe reached the application
-and failed closed for an uncorrelated synthetic batch. The workflow export
-remained unchanged. One synthetic upload was submitted exactly once and ended
-honestly as `ACCEPTANCE_UNKNOWN`; its idempotent read-back did not call n8n
-again, so no real lifecycle callback was fabricated.
+previous image digest. Revision 16 also explicitly permits `$env` access in
+Code nodes; revision 15 had failed before the HTTP emitter. An authenticated
+callback probe reached the application and failed closed for an uncorrelated
+synthetic batch. A subsequent exactly-once synthetic upload received a
+correlated producer acknowledgement and reported operational start after about
+five seconds. Its n8n execution succeeded and the app recorded the correlated
+close and reported row count while keeping contractual status `SUBMITTED`.
+The idempotent read-back was a duplicate without an external resubmission. The
+workflow export remained unchanged and pre-fix executions were not retried.
 
 ## Granularidade
 

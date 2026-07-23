@@ -227,8 +227,9 @@ os índices app-owned das migrações `007` e `008` foram verificados.
 
 No namespace local do n8n foi criado um Secret dedicado contendo a URL exata
 `http://192.168.0.20:30100/api/imports/events` e o mesmo segredo da aplicação.
-O Deployment passou para a revisão 15, manteve n8n 2.30.6 e foi fixado no mesmo
-digest de imagem já executado antes da mudança. O export ativo permaneceu com
+O Deployment passou inicialmente para a revisão 15, manteve n8n 2.30.6 e foi
+fixado no mesmo digest de imagem já executado antes da mudança. O export ativo
+permaneceu com
 98 nós e SHA-256
 `26a2c00f30a58de01eae60802d470c6ba4d16d0e6e09e8340453c38aea142c23`;
 nenhum workflow foi editado, clonado, importado, ativado ou administrado.
@@ -259,3 +260,24 @@ original sem nova chamada externa. Sem correlação produtora, nenhum callback
 de negócio foi inventado. A persistência correlacionada permanece comprovada
 pelos testes de integração, e o probe de runtime comprovou autenticação,
 parsing e falha fechada.
+
+### Correção de acesso ao ambiente do Code node
+
+Os env refs da revisão 15 estavam corretos, mas três execuções reais falharam
+no preparador de `ACCEPTED_ROW` antes do HTTP Request. Os logs sanitizados
+registraram `access to env vars denied`: em n8n 2.30.6, o sandbox do Code node
+não herdou o acesso apenas porque as variáveis existiam no processo.
+
+Depois de repetir o preflight exato e o dry-run no servidor, a revisão 16
+declarou `N8N_BLOCK_ENV_ACCESS_IN_NODE=false`. A versão, o digest fixado, os
+Secret refs e a identidade do workflow permaneceram iguais. O rollout terminou
+Ready, sem reinícios.
+
+Um novo CSV sintético do repositório foi submetido exatamente uma vez pelo
+Prospecta. A resposta foi `202` com reconhecimento produtor correlacionado e o
+primeiro `ACCEPTED_ROW` apareceu no read model na segunda observação de cinco
+segundos. A execução n8n terminou com sucesso e o read model registrou também
+o `BATCH_CLOSED` e a contagem informada pelo workflow, mantendo `SUBMITTED`
+como status contratual. A leitura idempotente retornou `duplicate` sem nova
+chamada externa. Não houve novo erro de acesso ao ambiente. As execuções
+anteriores não foram repetidas.

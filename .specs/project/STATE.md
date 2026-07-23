@@ -174,10 +174,15 @@ queries.
 **Trade-off:** Callback delivery remains fallible on the approved plain-HTTP
 LAN profile. Polling improves freshness but does not create or copy producer
 facts. A missing event is not failure.
-**Impact:** Migrations `007`/`008` are active in Demo 3. n8n revision 15 kept
-version 2.30.6 and its existing image digest while gaining only two
-Secret-backed callback environment variables. One synthetic upload returned
-`ACCEPTANCE_UNKNOWN` after its single external submission and was not retried.
+**Impact:** Migrations `007`/`008` are active in Demo 3. n8n revision 16 kept
+version 2.30.6 and its existing image digest, uses two Secret-backed callback
+environment variables and explicitly sets
+`N8N_BLOCK_ENV_ACCESS_IN_NODE=false`. Revision 15 had the variables but its
+Code nodes failed before HTTP emission. After correction, a new exactly-once
+synthetic upload reported operational start in about five seconds. Pre-fix
+executions were not retried. The execution later succeeded and reported close
+plus workflow row count while contractual status remained `SUBMITTED`; an
+idempotent read-back caused no external resubmission.
 
 ---
 

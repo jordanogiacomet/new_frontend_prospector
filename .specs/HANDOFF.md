@@ -68,25 +68,35 @@ equivalentes do `package.json` via `npm`, sem instalar dependências.
   marcador não produtivo do namespace antes de qualquer mutação.
 - Os índices app-owned das migrações `007` e `008` foram verificados.
 - A aplicação ficou Ready sem reinícios.
-- O Deployment n8n passou à revisão 15, permaneceu na versão 2.30.6 e manteve
-  o mesmo digest de imagem anteriormente executado.
+- O Deployment n8n passou à revisão 16, permaneceu na versão 2.30.6 e manteve
+  o mesmo digest de imagem anteriormente executado. A revisão 16 declara
+  `N8N_BLOCK_ENV_ACCESS_IN_NODE=false`, necessário para os Code nodes lerem as
+  duas variáveis do callback.
 - Um probe autenticado a partir do pod n8n alcançou a aplicação: corpo inválido
   recebeu 400; um `ACCEPTED_ROW` sintético, válido porém não correlacionado,
   recebeu 404 e não escreveu dados.
 - Páginas privadas e APIs de leads/importações responderam 200 no smoke.
+- Um upload sintético posterior à revisão 16 foi enviado uma única vez,
+  recebeu reconhecimento produtor correlacionado e registrou início
+  operacional no Prospecta em aproximadamente cinco segundos. A execução n8n
+  terminou com sucesso e o Prospecta registrou também o encerramento e a
+  contagem informada pelo workflow, mantendo corretamente o status contratual
+  `SUBMITTED`.
 - O caminho de rollback imutável está preservado; não foi necessário acioná-lo.
 
 ## Limitação observada
 
-Foi feito exatamente um novo upload sintético pelo Prospecta. A chamada externa
-ocorreu uma vez e o resultado durável ficou honestamente em
-`ACCEPTANCE_UNKNOWN`. A leitura posterior com a mesma chave/arquivo devolveu o
-registro original como duplicata app-owned e não chamou o n8n novamente.
+O primeiro teste sintético, anterior à correção do sandbox, permanece
+honestamente em `ACCEPTANCE_UNKNOWN` e não foi reenviado. Depois da revisão 16,
+um novo CSV sintético foi submetido exatamente uma vez, recebeu
+`PRODUCER_ACKNOWLEDGED` e gerou início e encerramento operacionais
+correlacionados. A leitura idempotente posterior retornou `duplicate` sem nova
+chamada ao produtor.
 
-Como não houve `import_batch_id` produtor correlacionado, não foi possível
-provar um callback real desse upload sem inventar dados. A persistência
-correlacionada está coberta pelos testes PostgreSQL; o probe de runtime comprova
-autenticação, parsing e falha fechada. Não houve retry automático.
+`N8N_BLOCK_ENV_ACCESS_IN_NODE=false` permite que qualquer Code node desta
+instância local leia as variáveis entregues ao pod. Isso é uma concessão
+específica do alvo interno controlado e não deve ser copiada para produção ou
+para uma instância com editores não confiáveis.
 
 ## Escopo ainda bloqueado
 

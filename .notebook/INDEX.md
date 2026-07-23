@@ -4,7 +4,7 @@
 Last updated: 2026-07-23
 
 - [prospecta-legacy-workflow-close-callback](prospecta-legacy-workflow-close-callback.md) — `ACCEPTED_ROW`/`BATCH_CLOSED` viram marcos app-owned; callback ativo no Demo 3 | flow | n8n, prospecta, imports
-- [prospecta-n8n-v7-4-lifecycle-events](prospecta-n8n-v7-4-lifecycle-events.md) — Export ativo não oferece worker reutilizável nem fatos X4 | gotcha | n8n, prospecta, imports
+- [prospecta-n8n-v7-4-lifecycle-events](prospecta-n8n-v7-4-lifecycle-events.md) — Export ativo não oferece X4; n8n 2.30.6 exige liberação explícita de `$env` nos Code nodes | gotcha | n8n, prospecta, imports
 - [prospecta-n8n-contract](prospecta-n8n-contract.md) — Ingress v1 local, cadeia canônica e gates remotos retidos | flow | n8n, prospecta, imports
 - [prospecta-batch-read-service](prospecta-batch-read-service.md) — Lotes usam uma leitura produtora para até 100 IDs | flow | prospecta, imports
 - [prospecta-producer-history-grants](prospecta-producer-history-grants.md) — Histórico usa colunas concedidas ao papel read-only | gotcha | prospecta, producer, grants
