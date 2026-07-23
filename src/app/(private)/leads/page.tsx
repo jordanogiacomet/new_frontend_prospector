@@ -6,6 +6,7 @@ import { useSearchParams } from "next/navigation";
 
 import { LeadListFilters } from "../../../components/leads/lead-list-filters";
 import { LeadTable } from "../../../components/leads/lead-table";
+import { LeadViewNavigation } from "../../../components/leads/lead-view-navigation";
 import type { LeadSummary } from "../../../types/leads";
 
 type ApprovedPriority = "B" | "C" | "E" | "R";
@@ -183,6 +184,10 @@ export default function LeadListPage() {
           análises já produzidas.
         </p>
       </header>
+
+      <div className="mt-10">
+        <LeadViewNavigation activeView="analysis" />
+      </div>
 
       <div className="mt-10">
         <LeadListFilters />

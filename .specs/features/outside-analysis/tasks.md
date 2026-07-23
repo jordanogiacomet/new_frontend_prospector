@@ -125,11 +125,11 @@ T6 ──→ T7
 
 **Done when:**
 
-- [ ] A nova página trata loading, sucesso, vazio, erro e página inválida.
-- [ ] O polling ocorre a cada cinco segundos apenas quando visível, sem
+- [x] A nova página trata loading, sucesso, vazio, erro e página inválida.
+- [x] O polling ocorre a cada cinco segundos apenas quando visível, sem
       sobreposição, e é cancelado ao desmontar.
-- [ ] A lista atual também apresenta a navegação com a aba correta ativa.
-- [ ] A ordem devolvida pelo servidor não é recalculada no navegador.
+- [x] A lista atual também apresenta a navegação com a aba correta ativa.
+- [x] A ordem devolvida pelo servidor não é recalculada no navegador.
 
 ### T7: Verificar e publicar Demo 3
 

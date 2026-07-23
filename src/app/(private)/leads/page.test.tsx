@@ -85,6 +85,12 @@ describe("lead list page", () => {
     render(<LeadListPage />);
 
     expect(
+      screen.getByRole("link", { name: "Para análise" }),
+    ).toHaveAttribute("aria-current", "page");
+    expect(
+      screen.getByRole("link", { name: "Fora da análise" }),
+    ).not.toHaveAttribute("aria-current");
+    expect(
       screen.getByRole("status", { name: "Carregando decisões" }),
     ).toBeInTheDocument();
     expect(screen.queryByRole("table")).not.toBeInTheDocument();
