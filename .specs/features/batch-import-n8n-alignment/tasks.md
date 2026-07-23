@@ -12,7 +12,7 @@ T02 → T05
 T04 + T05 → T06 → T11
 T04 → T07 → T08 → T09 → T10
 T06 + T10 + T11 → T12 → T13 → T14
-T05 → T15
+T05 → T15 → T16 → T17
 ```
 
 - T03/T04: primitivas produtoras e teste de integração.
@@ -20,6 +20,8 @@ T05 → T15
 - T07–T10: artefato n8n, aceitação, processamento e fechamento.
 - T11: leitura em lote e integridade.
 - T12–T14: contrato, UAT e rollout.
+- T15–T17: marcos operacionais do workflow legado, atualização visível e
+  conexão do Demo 3.
 
 ## Fases e gates
 
@@ -472,6 +474,83 @@ contracts; 57 remote HTTP cases stayed skipped. The 98-node export retained
 the same SHA-256. No workflow, cluster, deployment, secret or external
 configuration was changed.
 
+### T16: Registrar início operacional e atualizar telas visíveis
+
+**What:** Receber o primeiro `ACCEPTED_ROW` como início operacional app-owned,
+apresentá-lo sem promover o lote e reconsultar automaticamente lista, detalhe e
+histórico de leads enquanto suas páginas estiverem visíveis.
+
+**Where:** migração app-owned sequencial, rota/repositório de eventos,
+read-model de lotes, páginas de lotes, páginas/componentes de leads e testes
+co-localizados.
+
+**Depends on:** T15
+**Reuses:** segredo e correlação do callback T15, tabela append-only e polling
+privado existente nas páginas de importações.
+**Requirement:** ALIGN-15, ALIGN-19, ALIGN-20, ALIGN-21
+
+**Done when:**
+
+- [x] Primeiro `ACCEPTED_ROW` correlacionado gera um único evento mínimo.
+- [x] Demais linhas do lote são replay idempotente mesmo com outro horário.
+- [x] Lista/detalhe mostram “Processamento iniciado pelo workflow” sem mudar
+      `BatchStatus`, aceite ou contagens.
+- [x] Lista, detalhe e histórico de leads repetem GET sem cache a cada cinco
+      segundos somente enquanto visíveis e sem chamadas concorrentes.
+- [x] `BATCH_CLOSED` existente continua prevalecendo como encerramento.
+
+**Tests:** route/repository/service/component + PostgreSQL integration
+**Gate:** `pnpm lint && pnpm typecheck && pnpm test && pnpm build`, depois
+`pnpm test:integration` e `pnpm test:contract`
+
+**Status:** Completed on 23/07/2026. Migration `008` and the authenticated
+route persist one operational-start event per correlated submission. Batch
+read/UI semantics keep the contractual status and all unsupported counts
+unchanged. Lead list, detail and retained history poll every five seconds only
+while visible, block overlapping reads and abort pending reads on unmount.
+Commits: `859fcd0`, `80d972f` and `0a590b7`.
+
+### T17: Conectar a release operacional no Demo 3 e n8n
+
+**What:** Promover uma release imutável contendo T15/T16, aplicar somente
+migrações app-owned e configurar o mesmo segredo server-only e a URL exata de
+callback no Deployment local do n8n.
+
+**Where:** empacotamento/deploy Demo 3 e configuração Kubernetes do namespace
+n8n; nenhum JSON, ID, ativação ou chamada administrativa do workflow.
+
+**Depends on:** T16
+**Reuses:** preflight obrigatório, release imutável, gateway da rota exata e
+rollback do Demo 3.
+**Requirement:** ALIGN-17, ALIGN-18, ALIGN-22
+
+**Done when:**
+
+- [x] Preflight corresponde ao contexto, API HTTPS, UID e namespace
+      não produtivo aprovados antes de qualquer mutação.
+- [x] Release Demo 3 aplica migrações app-owned e passa rollout/smoke.
+- [x] URL do n8n é exatamente
+      `http://192.168.0.20:30100/api/imports/events` e o segredo vem de Secret.
+- [x] Callback autenticado sintético chega sem Basic Auth e não altera produtor.
+- [x] Plano de rollback restaura imagens/configuração anterior sem apagar
+      eventos; não foi necessário acioná-lo.
+- [x] O workflow atual permanece com a mesma identidade/export e sem edição,
+      clonagem ou ativação.
+
+**Tests:** preflight, rollout, smoke autenticado e callback sintético
+**Gate:** alvo Demo 3 exato e configuração n8n local explicitamente solicitados
+
+**Status:** Completed on 23/07/2026 for the exact authorized local profile.
+Preflight matched the configured fingerprint before mutation. Immutable release
+`demo3-preprod-20260723-lifecycle-refresh-001` is Ready, with app-owned
+migrations `007` and `008` verified. n8n revision 15 reads the exact URL and
+shared secret from Kubernetes Secret while retaining version 2.30.6 and its
+previous image digest. An authenticated callback probe reached the application
+and failed closed for an uncorrelated synthetic batch. The workflow export
+remained unchanged. One synthetic upload was submitted exactly once and ended
+honestly as `ACCEPTANCE_UNKNOWN`; its idempotent read-back did not call n8n
+again, so no real lifecycle callback was fabricated.
+
 ## Granularidade
 
 | Task | Unidade entregável | Status |
@@ -491,6 +570,8 @@ configuration was changed.
 | T13 | UAT sintético | Granular |
 | T14 | Cutover/rollback | Granular e separado da implementação |
 | T15 | Relato legado de encerramento | Granular e separado do contrato X4 |
+| T16 | Início operacional e polling visível | Granular |
+| T17 | Release e conexão do callback local | Granular e operacional |
 
 ## Diagram-definition cross-check
 
@@ -511,6 +592,8 @@ configuration was changed.
 | T13 | T12 | T12 → T13 | Match |
 | T14 | T13 | T13 → T14 | Match |
 | T15 | T05 | T05 → T15 | Match |
+| T16 | T15 | T15 → T16 | Match |
+| T17 | T16 | T16 → T17 | Match |
 
 ## Validação de testes co-localizados
 
@@ -525,6 +608,8 @@ configuration was changed.
 | T12 | Integração remota | `tests/contract` | Vitest contract |
 | T13 | Sistema | evidência sanitizada | full gate/UAT |
 | T15 | Callback/app/UI | teste ao lado + integration | Vitest/PostgreSQL |
+| T16 | Callback/read model/UI | teste ao lado + integration | Vitest/PostgreSQL |
+| T17 | Operação local | preflight/smoke sem dados reais | script + curl |
 
 ## Ferramentas na execução futura
 

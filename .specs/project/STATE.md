@@ -1,9 +1,10 @@
 # State
 
-**Last Updated:** 2026-07-22
-**Current Work:** Legacy `BATCH_CLOSED` receiver and “Processamento encerrado”
-presentation are complete locally; runtime hookup is not deployed, while the
-separate n8n v1/producer-worker path remains deferred behind OPEN-01–OPEN-05
+**Last Updated:** 2026-07-23
+**Current Work:** Legacy `ACCEPTED_ROW`/`BATCH_CLOSED` lifecycle receiver,
+visible-page lead refresh and shared callback configuration are active on the
+authorized Demo 3 target; the separate n8n v1/producer-worker path remains
+deferred behind OPEN-01–OPEN-05
 
 ---
 
@@ -156,10 +157,27 @@ producer scoring and recommendations.
 **Trade-off:** Delivery remains best-effort because the existing callback uses
 finite retry plus `continueOnFail`; the UI cannot infer failure from a missing
 event. Plain HTTP exposes the callback secret on the approved LAN profile.
-**Impact:** Local code, migration, gateway packaging and tests are complete.
-Runtime configuration is intentionally not applied: the app and n8n still need
-the same operator-provided secret and the exact callback URL. The export remains
-active with 98 nodes and its previously recorded SHA-256.
+**Impact:** Release `demo3-preprod-20260723-lifecycle-refresh-001` is active.
+The app and n8n now read the same callback credential from dedicated
+Kubernetes Secrets and n8n uses the exact authorized LAN URL. The export
+remains active with 98 nodes and its previously recorded SHA-256.
+
+### AD-012: First accepted row is operational start, not acceptance (2026-07-23)
+
+**Decision:** Persist only the first correlated `ACCEPTED_ROW` as the minimal
+app-owned event `WORKFLOW_STARTED_REPORTED`, and refresh open lead list, detail
+and retained-history pages every five seconds while visible.
+**Reason:** The existing upload `202` records submission but does not prove
+producer acceptance; users still need an honest start marker and automatic
+visibility of facts that later appear in the existing read-only producer
+queries.
+**Trade-off:** Callback delivery remains fallible on the approved plain-HTTP
+LAN profile. Polling improves freshness but does not create or copy producer
+facts. A missing event is not failure.
+**Impact:** Migrations `007`/`008` are active in Demo 3. n8n revision 15 kept
+version 2.30.6 and its existing image digest while gaining only two
+Secret-backed callback environment variables. One synthetic upload returned
+`ACCEPTANCE_UNKNOWN` after its single external submission and was not retried.
 
 ---
 
@@ -179,11 +197,10 @@ active with 98 nodes and its previously recorded SHA-256.
   rollback owner, and approval before applying producer DDL anywhere else.
 
 These five blockers apply only to the deferred n8n v1 batch-alignment path, not
-to the simplified T15 presentation. T15 still has an operational hookup gate:
-no Demo 3 or n8n environment was changed, so an authorized operator must set
-the shared callback secret and exact callback URL before the local UI can
-receive real close reports. Demo 3 continues to use the approved legacy import
-URL and must not be represented as v1 end-to-end completion.
+to the simplified T15/T16 presentation. The legacy lifecycle callback is
+connected on the exact authorized Demo 3/n8n profile. Demo 3 continues to use
+the approved legacy import URL and must not be represented as v1 end-to-end
+completion.
 
 ---
 
@@ -251,5 +268,5 @@ never consumed.
       source-available/no-correlated-facts presentation.
 - [x] Implement and locally validate the legacy `BATCH_CLOSED` receiver without
       modifying the 98-node workflow or contractual result semantics.
-- [ ] Configure and release the T15 receiver only after explicit operational
-      authorization for the Demo 3 and n8n environment/secret changes.
+- [x] Release T15/T16 and configure the shared callback credential and exact
+      URL in the explicitly authorized Demo 3/n8n environment.

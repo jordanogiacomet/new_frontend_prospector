@@ -1,23 +1,31 @@
-# Prospecta legacy workflow close callback
-> Existing n8n `BATCH_CLOSED` becomes an app-owned UI report, never contractual completion
+# Prospecta legacy workflow lifecycle callback
+> n8n `ACCEPTED_ROW`/`BATCH_CLOSED` become app-owned UI reports, never durable acceptance or contractual completion
 
 Entry: `src/app/api/imports/events/route.ts:POST()`
-Persistence: `src/server/repositories/imports/legacy-workflow-close-repository.ts:recordLegacyWorkflowClose()`
+Start persistence: `src/server/repositories/imports/legacy-workflow-start-repository.ts:recordLegacyWorkflowStart()`
+Close persistence: `src/server/repositories/imports/legacy-workflow-close-repository.ts:recordLegacyWorkflowClose()`
 Read: `src/server/repositories/imports/import-submissions-repository.ts:submissionReadColumns()`
-Migration: `db/app/007_legacy_workflow_close_report_forward.sql`
+Migrations: `db/app/007_legacy_workflow_close_report_forward.sql`,
+`db/app/008_legacy_workflow_start_report_forward.sql`
 
 Flow:
-- existing 98-node workflow sends its already-defined `BATCH_CLOSED` envelope;
+- existing 98-node workflow sends its already-defined lifecycle envelopes;
 - app compares `X-Prospecta-N8N-Secret` before reading JSON or PostgreSQL;
-- strict schema accepts only close=true/status=COMPLETED/EmpresaAqui and a
-  positive expected row count;
+- strict schemas accept the current `ACCEPTED_ROW` or
+  close=true/status=COMPLETED/EmpresaAqui `BATCH_CLOSED` forms;
 - configured organization plus legacy `import_batch_id` must correlate to an
-  acknowledged app submission with the same row count;
+  acknowledged app submission; close also requires the acknowledged row count;
+- first accepted row stores one `WORKFLOW_STARTED_REPORTED`; later rows are
+  idempotent even when their time or row differs;
 - one append-only `WORKFLOW_CLOSED_REPORTED` event is stored per submission;
 - exact replay succeeds, conflicting replay returns 409;
-- list/detail polling shows “Processamento encerrado”.
+- list/detail polling shows “Processamento iniciado pelo workflow” until a
+  close report supersedes it with “Processamento encerrado”;
+- lead list, detail and retained history poll every five seconds only while
+  visible, reject overlapping reads and abort on unmount.
 
 Boundary:
+- operational start is not durable producer acceptance;
 - `BatchStatus` is not changed to `COMPLETED`;
 - accepted/terminal/lead/blocked/failed counts remain sourced only from
   approved facts and stay null when absent;
@@ -25,9 +33,21 @@ Boundary:
   plus `continueOnFail`; missing callback remains “Envio registrado”;
 - no upload retry, producer write, workflow edit, activation or administration.
 
-Runtime hookup still requires an authorized operator to set the same random
-secret in the app and n8n environments and point the existing callback URL to
-the exact app route. Repo packaging is ready; no external configuration was
-applied on 2026-07-22.
+Runtime (2026-07-23):
+- immutable Demo 3 release
+  `demo3-preprod-20260723-lifecycle-refresh-001` is active and Ready;
+- app-owned migrations `007` and `008` are structurally verified;
+- n8n Deployment revision 15 reads the exact callback URL
+  `http://192.168.0.20:30100/api/imports/events` and shared credential from a
+  dedicated Kubernetes Secret;
+- n8n stayed on version 2.30.6 and its previously running image digest;
+- an authenticated request from the n8n pod reached the app: invalid body
+  failed 400 and an exact but uncorrelated synthetic event failed 404 without
+  a write;
+- one synthetic upload ended honestly as `ACCEPTANCE_UNKNOWN` and was not
+  retried. There was no correlated producer batch from which to prove a real
+  callback, so none was fabricated;
+- workflow export remains active with 98 nodes and SHA-256
+  `26a2c00f30a58de01eae60802d470c6ba4d16d0e6e09e8340453c38aea142c23`.
 
-Updated: 2026-07-22
+Updated: 2026-07-23

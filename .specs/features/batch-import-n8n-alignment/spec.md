@@ -1,7 +1,7 @@
 # Alinhamento de Importação em Lotes com n8n — Especificação
 
-**Status:** Encerramento legado implementado localmente; conexão externa não aplicada
-**Data:** 20/07/2026
+**Status:** Início operacional, atualização visível e callback legado ativos no Demo 3
+**Data:** 23/07/2026
 **Contexto:** `.specs/features/batch-import-n8n-alignment/context.md`
 
 ## Problema
@@ -28,8 +28,10 @@ impacto de uma fonte lenta ou indisponível.
 
 ## Escopo ativo simplificado em 22/07/2026
 
-O owner priorizou o fluxo atual de 98 nós: enviar o CSV uma única vez e saber
-quando esse workflow informou que terminou. A entrega ativa é ALIGN-19. A
+O owner priorizou o fluxo atual de 98 nós: enviar o CSV uma única vez, saber
+quando esse workflow informou que iniciou e terminou o processamento e
+reconsultar as telas visíveis sem recarregamento manual. As entregas ativas são
+ALIGN-19–ALIGN-22. A
 evolução separada v1, seus fatos X4 e OPEN-01–OPEN-05 permanecem preservados
 como trabalho futuro, mas não são pré-requisito para exibir o relato legado de
 encerramento. O workflow atual continua imutável.
@@ -49,9 +51,15 @@ encerramento. O workflow atual continua imutável.
 - [ ] Reduzir leitura de observações a uma consulta em lote por página.
 - [ ] Validar tudo com dados sintéticos e evidência explícita do alvo
       não produtivo.
-- [ ] Receber o `BATCH_CLOSED` já emitido pelo workflow legado como relato
+- [x] Receber o `BATCH_CLOSED` já emitido pelo workflow legado como relato
       app-owned de encerramento do loop, sem promovê-lo a fechamento produtor
       nem inventar contagens.
+- [x] Registrar somente o primeiro `ACCEPTED_ROW` como início operacional
+      app-owned, sem promovê-lo a aceite durável nem inventar contagens.
+- [x] Reconsultar automaticamente lista, detalhe e histórico de leads a cada
+      cinco segundos enquanto a página estiver visível.
+- [x] Implantar a release imutável no Demo 3 e configurar URL/segredo comuns
+      no app e no n8n sem editar o workflow atual.
 
 ## Fora de escopo
 
@@ -215,6 +223,38 @@ do processamento para não precisar acompanhar a execução manualmente.
 confirmar um único evento app-owned e observar a apresentação mudar no próximo
 refresh sem nenhuma escrita produtora.
 
+### P1: Início operacional e resultados visíveis sem recarga manual
+
+**História:** Como gestor, quero ver quando o workflow atual começou a processar
+o arquivo e quero que as decisões produzidas apareçam nas telas abertas sem
+precisar recarregar o navegador.
+
+**Critérios de aceitação:**
+
+1. QUANDO chegar o primeiro `ACCEPTED_ROW` autenticado e correlacionado, ENTÃO
+   o app DEVE registrar um único evento append-only mínimo com lote e horário.
+2. QUANDO chegarem os demais `ACCEPTED_ROW` do mesmo lote, ENTÃO o app DEVE
+   tratá-los como replay sem criar novos eventos nem conflito de horário.
+3. QUANDO o início operacional existir sem um fechamento posterior, ENTÃO
+   lista e detalhe de lotes DEVEM mostrar somente “Processamento iniciado pelo
+   workflow”.
+4. O início operacional NÃO DEVE alterar `BatchStatus`, preencher
+   `acceptedAt`, `rowCountAccepted`, terminais ou resultados.
+5. ENQUANTO lista de leads, detalhe do lead ou histórico retido estiverem
+   visíveis, ENTÃO o cliente DEVE repetir o GET privado sem cache a cada cinco
+   segundos, sem sobrepor requisições.
+6. QUANDO a página estiver oculta ou desmontada, ENTÃO o cliente NÃO DEVE
+   iniciar nova consulta e DEVE cancelar a consulta pendente ao desmontar.
+7. QUANDO a release for promovida ao Demo 3, ENTÃO app e n8n DEVEM usar o
+   mesmo segredo server-only e o callback exato
+   `http://192.168.0.20:30100/api/imports/events`, preservando o workflow
+   atual.
+
+**Teste independente:** Entregar dois `ACCEPTED_ROW` sintéticos do mesmo lote,
+confirmar um único início app-owned com status contratual ainda `SUBMITTED`,
+depois devolver uma nova decisão pelas APIs de leads e observá-la no próximo
+poll visível.
+
 ## Casos de borda
 
 - arquivo vazio, somente cabeçalho, UTF-8 inválido, aspas irrecuperáveis,
@@ -255,8 +295,11 @@ refresh sem nenhuma escrita produtora.
 | ALIGN-15 | Sem CSV, payload bruto, segredo ou erro produtor em logs/respostas | P1 | Gates estáticos/unitários implementados; cobertura remota pendente |
 | ALIGN-16 | Contrato sintético comprova identidade, correlação, timing e X4 | P1 | 13 casos estáticos passam; 57 casos HTTP permanecem skipped sem evidência remota |
 | ALIGN-17 | HTTP sem auth apenas no alvo LAN exato; produção bloqueada | P1 | Política existente; preservar |
-| ALIGN-18 | Rollout/rollback imutável, sem apagar auditoria ou produtor | P1 | Draft |
-| ALIGN-19 | Relato legado de encerramento autenticado, append-only e separado de `COMPLETED` | P1 | Implementado e validado localmente; configuração externa não aplicada |
+| ALIGN-18 | Rollout/rollback imutável, sem apagar auditoria ou produtor | P1 | Release Demo 3 executada; rollback imutável registrado e não acionado |
+| ALIGN-19 | Relato legado de encerramento autenticado, append-only e separado de `COMPLETED` | P1 | Ativo no Demo 3; callback autenticado alcança a rota |
+| ALIGN-20 | Primeiro `ACCEPTED_ROW` vira início operacional app-owned, nunca aceite durável | P1 | Implementado, testado e ativo |
+| ALIGN-21 | Lista, detalhe e histórico de leads atualizam por polling somente quando visíveis | P1 | Implementado, testado e ativo |
+| ALIGN-22 | Demo 3 e n8n compartilham callback/segredo sem editar o workflow atual | P1 | Configurado e verificado no alvo local autorizado |
 
 ## Critérios de sucesso
 

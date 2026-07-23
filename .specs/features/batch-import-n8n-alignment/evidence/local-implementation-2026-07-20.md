@@ -203,12 +203,59 @@ allowlisted passou 88/88.
 - `a96affd` `chore(demo3): package import close receiver`
 - `d710a7a` `test(imports): register callback API surface`
 
-### Limite operacional
+### Limite operacional em 22/07/2026
 
-Nenhum cluster, deployment, Secret real ou ambiente n8n foi alterado. Para o
-fluxo funcionar na Demo 3, um operador ainda precisa fornecer o mesmo segredo
-aleatório à aplicação e ao n8n e configurar no n8n a URL exata
-`http://192.168.0.20:30100/api/imports/events`. Essa ação reinicia workloads e
-permanece fora desta execução. Como o callback atual possui retries finitos e
-`continueOnFail`, ausência do evento nunca é inferida como falha; a tela
-permanece em “Envio registrado”.
+Naquela execução, nenhum cluster, deployment, Secret real ou ambiente n8n foi
+alterado. Esse limite foi superado pela autorização operacional e pela release
+registradas na extensão T16/T17 abaixo. A semântica de entrega continua
+honesta: ausência do evento nunca é inferida como falha e não causa reenvio.
+
+## Extensão T16/T17 — início operacional, polling e conexão local
+
+Em 23/07/2026, a aplicação passou a registrar somente o primeiro
+`ACCEPTED_ROW` autenticado e correlacionado como
+`WORKFLOW_STARTED_REPORTED`. O evento não promove aceite durável,
+`BatchStatus` ou contagens. Lista, detalhe e histórico retido de leads passaram
+a repetir as leituras privadas a cada cinco segundos somente enquanto a página
+estiver visível, sem sobreposição e com cancelamento no unmount.
+
+A release imutável
+`demo3-preprod-20260723-lifecycle-refresh-001` foi aplicada depois de o
+preflight corresponder ao contexto, API HTTPS, UID do `kube-system` e marcador
+de namespace não produtivo aprovados. A aplicação ficou Ready sem reinícios e
+os índices app-owned das migrações `007` e `008` foram verificados.
+
+No namespace local do n8n foi criado um Secret dedicado contendo a URL exata
+`http://192.168.0.20:30100/api/imports/events` e o mesmo segredo da aplicação.
+O Deployment passou para a revisão 15, manteve n8n 2.30.6 e foi fixado no mesmo
+digest de imagem já executado antes da mudança. O export ativo permaneceu com
+98 nós e SHA-256
+`26a2c00f30a58de01eae60802d470c6ba4d16d0e6e09e8340453c38aea142c23`;
+nenhum workflow foi editado, clonado, importado, ativado ou administrado.
+
+### Gates T16/T17
+
+O `pnpm` permaneceu indisponível; os scripts equivalentes foram executados via
+`npm`, sem instalar ou atualizar dependências.
+
+| Gate | Resultado |
+| --- | --- |
+| `npm run lint` | passou sem warnings |
+| `npm run typecheck` | passou |
+| `npm test` | 77 arquivos / 1.800 testes passaram |
+| build com overrides seguros apenas no processo | passou; 24 rotas |
+| integração PostgreSQL descartável | 8 arquivos / 89 testes passaram |
+| `npm run test:contract` | 3 arquivos / 18 testes locais passaram; 2 suites / 57 casos HTTP v1 ficaram skipped |
+| preflight e rollout Demo 3 | passaram; aplicação Ready e sem reinícios |
+| callback autenticado a partir do pod n8n | corpo inválido retornou 400; lote sintético não correlacionado retornou 404 |
+| smoke privado de leads e importações | páginas e APIs responderam 200 |
+| `git diff --check` | passou |
+
+O PostgreSQL descartável
+`prospecta-lifecycle-gate-20260723` foi removido depois dos testes. O único
+upload sintético novo foi enviado uma vez e terminou como
+`ACCEPTANCE_UNKNOWN`; a consulta idempotente posterior devolveu o resultado
+original sem nova chamada externa. Sem correlação produtora, nenhum callback
+de negócio foi inventado. A persistência correlacionada permanece comprovada
+pelos testes de integração, e o probe de runtime comprovou autenticação,
+parsing e falha fechada.
