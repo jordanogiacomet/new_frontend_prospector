@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { LeadDetail } from "../../../../types/leads";
@@ -156,6 +156,113 @@ describe("lead detail page", () => {
       "/api/leads/11222333000181",
       expect.any(Object),
     );
+  });
+
+  it("refreshes the visible detail every five seconds without overlapping requests and cleans up on unmount", async () => {
+    const visibilityStateSpy = vi
+      .spyOn(document, "visibilityState", "get")
+      .mockReturnValue("visible");
+    const setIntervalSpy = vi.spyOn(window, "setInterval");
+    const clearIntervalSpy = vi.spyOn(window, "clearInterval");
+    let detailRequestCount = 0;
+    let resolveRefresh: ((response: Response) => void) | undefined;
+    const refreshResponse = new Promise<Response>((resolve) => {
+      resolveRefresh = resolve;
+    });
+
+    fetchMock.mockImplementation(async (input) => {
+      const endpoint = String(input);
+
+      if (endpoint.endsWith("/history")) {
+        return respondWithJson({
+          data: [],
+          meta: {
+            page: 1,
+            pageSize: 20,
+            total: 0,
+            completeness: "retained_only",
+            label: "Análises retidas encontradas",
+            caveat:
+              "Análises mais antigas podem não estar presentes.",
+          },
+        });
+      }
+
+      detailRequestCount += 1;
+      return detailRequestCount === 1
+        ? respondWithJson(successfulResponse())
+        : refreshResponse;
+    });
+
+    const { unmount } = render(<LeadDetailPage />);
+
+    await screen.findByRole("heading", {
+      name: "Empresa Detalhe Sintética",
+    });
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    const refreshCall = setIntervalSpy.mock.calls.find(
+      ([, delay]) => delay === 5_000,
+    );
+    const refresh = refreshCall?.[0];
+    const refreshIntervalId =
+      setIntervalSpy.mock.results.find(
+        (_, index) => setIntervalSpy.mock.calls[index]?.[1] === 5_000,
+      )?.value;
+    const detailFetchCall = fetchMock.mock.calls.find(
+      ([input]) => !String(input).endsWith("/history"),
+    );
+    const initialSignal = (
+      detailFetchCall?.[1] as RequestInit | undefined
+    )?.signal;
+
+    expect(refreshCall?.[1]).toBe(5_000);
+    if (typeof refresh !== "function") {
+      throw new Error("Expected the lead detail refresh callback.");
+    }
+
+    await act(async () => {
+      refresh();
+      refresh();
+    });
+
+    expect(detailRequestCount).toBe(2);
+
+    await act(async () => {
+      resolveRefresh?.(
+        respondWithJson(
+          successfulResponse({
+            ...syntheticDetail,
+            companyName: "Empresa Detalhe Atualizada",
+          }),
+        ),
+      );
+    });
+
+    expect(
+      await screen.findByRole("heading", {
+        name: "Empresa Detalhe Atualizada",
+      }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", {
+        name: "Empresa Detalhe Sintética",
+      }),
+    ).not.toBeInTheDocument();
+
+    visibilityStateSpy.mockReturnValue("hidden");
+    await act(async () => {
+      refresh();
+    });
+
+    expect(detailRequestCount).toBe(2);
+
+    unmount();
+
+    expect(initialSignal?.aborted).toBe(true);
+    expect(clearIntervalSpy).toHaveBeenCalledWith(refreshIntervalId);
+    visibilityStateSpy.mockRestore();
+    setIntervalSpy.mockRestore();
+    clearIntervalSpy.mockRestore();
   });
 
   it("renders a distinct not-found state without exposing API details", async () => {

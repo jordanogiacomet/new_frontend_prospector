@@ -1,7 +1,13 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { render, screen, waitFor, within } from "@testing-library/react";
+import {
+  act,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { LeadHistoryItem } from "../../types/leads";
@@ -94,6 +100,79 @@ describe("lead retained history", () => {
         headers: { Accept: "application/json" },
       }),
     );
+  });
+
+  it("refreshes visible history every five seconds without overlapping requests and cleans up on unmount", async () => {
+    const visibilityStateSpy = vi
+      .spyOn(document, "visibilityState", "get")
+      .mockReturnValue("visible");
+    const setIntervalSpy = vi.spyOn(window, "setInterval");
+    const clearIntervalSpy = vi.spyOn(window, "clearInterval");
+    fetchMock.mockResolvedValueOnce(successfulHistory([currentItem], {
+      ...retainedMetadata,
+      total: 1,
+    }));
+
+    const { unmount } = render(<LeadHistory cnpj={syntheticCnpj} />);
+
+    await screen.findByText("decision-synthetic-history-current");
+    const refreshCall = setIntervalSpy.mock.calls.find(
+      ([, delay]) => delay === 5_000,
+    );
+    const refresh = refreshCall?.[0];
+    const refreshIntervalId =
+      setIntervalSpy.mock.results.find(
+        (_, index) => setIntervalSpy.mock.calls[index]?.[1] === 5_000,
+      )?.value;
+    const initialSignal = (
+      fetchMock.mock.calls[0]?.[1] as RequestInit | undefined
+    )?.signal;
+
+    expect(refreshCall).toBeDefined();
+    if (typeof refresh !== "function") {
+      throw new Error("Expected the lead history refresh callback.");
+    }
+
+    let resolveRefresh: ((response: Response) => void) | undefined;
+    fetchMock.mockReturnValueOnce(
+      new Promise<Response>((resolve) => {
+        resolveRefresh = resolve;
+      }),
+    );
+
+    await act(async () => {
+      refresh();
+      refresh();
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      resolveRefresh?.(
+        successfulHistory([currentItem, supersededItem]),
+      );
+    });
+
+    expect(
+      await screen.findByText(
+        "decision-synthetic-history-superseded",
+      ),
+    ).toBeInTheDocument();
+
+    visibilityStateSpy.mockReturnValue("hidden");
+    await act(async () => {
+      refresh();
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    unmount();
+
+    expect(initialSignal?.aborted).toBe(true);
+    expect(clearIntervalSpy).toHaveBeenCalledWith(refreshIntervalId);
+    visibilityStateSpy.mockRestore();
+    setIntervalSpy.mockRestore();
+    clearIntervalSpy.mockRestore();
   });
 
   it("preserves the reverse-chronological API order without client-side sorting", async () => {

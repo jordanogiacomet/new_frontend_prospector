@@ -70,6 +70,7 @@ const dataQualityCodes = new Set([
   "STALE_VALUE",
   "CONTENT_WITHHELD",
 ]);
+const refreshIntervalMilliseconds = 5_000;
 
 const nullableDetailTextFields = [
   "companyName",
@@ -268,8 +269,14 @@ export default function LeadDetailPage() {
 
   useEffect(() => {
     const abortController = new AbortController();
+    let requestInFlight = false;
 
     async function loadLead(): Promise<void> {
+      if (requestInFlight) {
+        return;
+      }
+
+      requestInFlight = true;
       const path = `/api/leads/${encodeURIComponent(cnpj)}`;
       const endpoint = query === "" ? path : `${path}?${query}`;
 
@@ -314,12 +321,22 @@ export default function LeadDetailPage() {
         if (!abortController.signal.aborted) {
           setRequestState({ requestKey, status: "error" });
         }
+      } finally {
+        requestInFlight = false;
       }
     }
 
     void loadLead();
+    const refreshIntervalId = window.setInterval(() => {
+      if (document.visibilityState === "visible") {
+        void loadLead();
+      }
+    }, refreshIntervalMilliseconds);
 
-    return () => abortController.abort();
+    return () => {
+      window.clearInterval(refreshIntervalId);
+      abortController.abort();
+    };
   }, [cnpj, query, requestKey]);
 
   if (currentState.status === "loading") {

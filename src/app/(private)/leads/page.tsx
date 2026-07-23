@@ -43,6 +43,7 @@ const approvedPriorities: ReadonlySet<string> = new Set([
   "E",
   "R",
 ]);
+const refreshIntervalMilliseconds = 5_000;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -105,8 +106,14 @@ export default function LeadListPage() {
 
   useEffect(() => {
     const abortController = new AbortController();
+    let requestInFlight = false;
 
     async function loadLeads(): Promise<void> {
+      if (requestInFlight) {
+        return;
+      }
+
+      requestInFlight = true;
       const endpoint = query === "" ? "/api/leads" : `/api/leads?${query}`;
 
       try {
@@ -139,12 +146,22 @@ export default function LeadListPage() {
         if (!abortController.signal.aborted) {
           setRequestState({ query, status: "error" });
         }
+      } finally {
+        requestInFlight = false;
       }
     }
 
     void loadLeads();
+    const refreshIntervalId = window.setInterval(() => {
+      if (document.visibilityState === "visible") {
+        void loadLeads();
+      }
+    }, refreshIntervalMilliseconds);
 
-    return () => abortController.abort();
+    return () => {
+      window.clearInterval(refreshIntervalId);
+      abortController.abort();
+    };
   }, [query]);
 
   const hasActiveFilters = ["cnpj", "uf", "priority"].some((key) =>

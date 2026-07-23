@@ -1,4 +1,9 @@
-import { render, screen, within } from "@testing-library/react";
+import {
+  act,
+  render,
+  screen,
+  within,
+} from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { LeadSummary } from "../../../types/leads";
@@ -114,6 +119,86 @@ describe("lead list page", () => {
       "/api/leads?page=2&pageSize=1&uf=SP",
       expect.objectContaining({ cache: "no-store" }),
     );
+  });
+
+  it("refreshes visible results every five seconds without overlapping requests and cleans up on unmount", async () => {
+    const visibilityStateSpy = vi
+      .spyOn(document, "visibilityState", "get")
+      .mockReturnValue("visible");
+    const setIntervalSpy = vi.spyOn(window, "setInterval");
+    const clearIntervalSpy = vi.spyOn(window, "clearInterval");
+    fetchMock.mockResolvedValueOnce(
+      respondWithJson(successfulResponse([syntheticLead])),
+    );
+
+    const { unmount } = render(<LeadListPage />);
+
+    await screen.findByText("Empresa Página Sintética");
+    const refreshCall = setIntervalSpy.mock.calls.find(
+      ([, delay]) => delay === 5_000,
+    );
+    const refresh = refreshCall?.[0];
+    const refreshIntervalId =
+      setIntervalSpy.mock.results.find(
+        (_, index) => setIntervalSpy.mock.calls[index]?.[1] === 5_000,
+      )?.value;
+    const initialSignal = (
+      fetchMock.mock.calls[0]?.[1] as RequestInit | undefined
+    )?.signal;
+
+    expect(refreshCall).toBeDefined();
+    if (typeof refresh !== "function") {
+      throw new Error("Expected the lead list refresh callback.");
+    }
+
+    let resolveRefresh: ((response: Response) => void) | undefined;
+    fetchMock.mockReturnValueOnce(
+      new Promise<Response>((resolve) => {
+        resolveRefresh = resolve;
+      }),
+    );
+
+    await act(async () => {
+      refresh();
+      refresh();
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      resolveRefresh?.(
+        respondWithJson(
+          successfulResponse([
+            {
+              ...syntheticLead,
+              companyName: "Empresa Atualizada Automaticamente",
+            },
+          ]),
+        ),
+      );
+    });
+
+    expect(
+      await screen.findByText("Empresa Atualizada Automaticamente"),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("Empresa Página Sintética"),
+    ).not.toBeInTheDocument();
+
+    visibilityStateSpy.mockReturnValue("hidden");
+    await act(async () => {
+      refresh();
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    unmount();
+
+    expect(initialSignal?.aborted).toBe(true);
+    expect(clearIntervalSpy).toHaveBeenCalledWith(refreshIntervalId);
+    visibilityStateSpy.mockRestore();
+    setIntervalSpy.mockRestore();
+    clearIntervalSpy.mockRestore();
   });
 
   it("shows a no-data state when no retained decisions are available", async () => {

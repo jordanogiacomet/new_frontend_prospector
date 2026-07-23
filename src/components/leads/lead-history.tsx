@@ -14,6 +14,7 @@ const retainedHistoryCompleteness = "retained_only";
 const retainedHistoryLabel = "Análises retidas encontradas";
 const retainedHistoryCaveat =
   "Análises mais antigas podem não estar presentes.";
+const refreshIntervalMilliseconds = 5_000;
 
 interface LeadHistoryProps {
   cnpj: string;
@@ -129,67 +130,86 @@ export function LeadHistory({ cnpj }: LeadHistoryProps) {
 
   useEffect(() => {
     const abortController = new AbortController();
+    let requestInFlight = false;
 
     async function loadHistory(): Promise<void> {
-      let response: Response;
+      if (requestInFlight) {
+        return;
+      }
+
+      requestInFlight = true;
 
       try {
-        response = await fetch(
-          `/api/leads/${encodeURIComponent(cnpj)}/history`,
-          {
-            method: "GET",
-            headers: { Accept: "application/json" },
-            cache: "no-store",
-            credentials: "same-origin",
-            signal: abortController.signal,
-          },
-        );
-      } catch {
-        if (!abortController.signal.aborted) {
-          setRequestState({ requestKey, status: "error" });
+        let response: Response;
+
+        try {
+          response = await fetch(
+            `/api/leads/${encodeURIComponent(cnpj)}/history`,
+            {
+              method: "GET",
+              headers: { Accept: "application/json" },
+              cache: "no-store",
+              credentials: "same-origin",
+              signal: abortController.signal,
+            },
+          );
+        } catch {
+          if (!abortController.signal.aborted) {
+            setRequestState({ requestKey, status: "error" });
+          }
+          return;
         }
-        return;
-      }
 
-      if (!response.ok) {
-        if (!abortController.signal.aborted) {
-          setRequestState({
-            requestKey,
-            status:
-              response.status === 503 ? "unavailable" : "error",
-          });
+        if (!response.ok) {
+          if (!abortController.signal.aborted) {
+            setRequestState({
+              requestKey,
+              status:
+                response.status === 503 ? "unavailable" : "error",
+            });
+          }
+          return;
         }
-        return;
-      }
 
-      let payload: unknown;
+        let payload: unknown;
 
-      try {
-        payload = await response.json();
-      } catch {
-        if (!abortController.signal.aborted) {
-          setRequestState({ requestKey, status: "malformed" });
+        try {
+          payload = await response.json();
+        } catch {
+          if (!abortController.signal.aborted) {
+            setRequestState({ requestKey, status: "malformed" });
+          }
+          return;
         }
-        return;
-      }
 
-      if (!abortController.signal.aborted) {
-        setRequestState(
-          isLeadHistoryEnvelope(payload)
-            ? {
-                requestKey,
-                status: "success",
-                history: payload.data,
-                metadata: payload.meta,
-              }
-            : { requestKey, status: "malformed" },
-        );
+        if (!abortController.signal.aborted) {
+          setRequestState(
+            isLeadHistoryEnvelope(payload)
+              ? {
+                  requestKey,
+                  status: "success",
+                  history: payload.data,
+                  metadata: payload.meta,
+                }
+              : { requestKey, status: "malformed" },
+          );
+        }
+      } finally {
+        requestInFlight = false;
       }
     }
 
     void loadHistory();
+    const refreshIntervalId = window.setInterval(() => {
+      if (document.visibilityState === "visible") {
+        void loadHistory();
+      }
+    }, refreshIntervalMilliseconds);
 
-    return () => abortController.abort();
+    return () => {
+      window.clearInterval(refreshIntervalId);
+      abortController.abort();
+    };
   }, [cnpj, requestKey]);
 
   return (
