@@ -666,6 +666,36 @@ afterAll(async () => {
 });
 
 describe("Prospecta app-owned schema migration", () => {
+  it("reapplies the close migration without rejecting an existing workflow start event", async () => {
+    const submissionId = syntheticUuid(880);
+
+    await insertImportSubmission({
+      submissionId,
+      idempotencyKey: "synthetic-reapply-close-after-start",
+    });
+    await pool.query(
+      `
+        INSERT INTO prospecting_app.import_submission_events (
+          event_id,
+          organization_id,
+          submission_id,
+          actor_subject,
+          event_type,
+          metadata
+        )
+        VALUES ($1, $2, $3, $4, 'WORKFLOW_STARTED_REPORTED', '{}'::jsonb)
+      `,
+      [
+        syntheticUuid(881),
+        "org-synthetic-a",
+        submissionId,
+        "system:n8n-import-callback",
+      ],
+    );
+
+    await expect(execute(legacyWorkflowCloseReportSql)).resolves.toBeUndefined();
+  });
+
   it("applies the forward migration and creates the expected app-owned tables", async () => {
     const tables = await queryRows<{ table_name: string }>(
       `

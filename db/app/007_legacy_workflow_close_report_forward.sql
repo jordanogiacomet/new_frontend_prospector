@@ -14,7 +14,10 @@ ALTER TABLE prospecting_app.import_submission_events
         'CSV_DELETION_CONFIRMED',
         'CSV_DELETION_FAILED',
         'RECONCILIATION_OBSERVED',
-        'WORKFLOW_CLOSED_REPORTED'
+        'WORKFLOW_CLOSED_REPORTED',
+        -- Keep later operational events valid when this idempotent migration
+        -- is reapplied by an immutable Demo 3 release.
+        'WORKFLOW_STARTED_REPORTED'
       )
     );
 
