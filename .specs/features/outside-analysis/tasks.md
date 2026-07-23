@@ -50,11 +50,11 @@ T6 ──→ T7
 
 **Done when:**
 
-- [ ] O SQL exige projeção atual íntegra, proveniência exata e um terminal.
-- [ ] Somente `CRM_DECIDIU_E_SALVO` é selecionado.
-- [ ] Lotes correlacionados usam `ANY($n::text[])` parametrizado.
-- [ ] O guard de 1.000 projeções e a paginação falham de forma segura.
-- [ ] A integração prova mesma organização, outra organização e resultado
+- [x] O SQL exige projeção atual íntegra, proveniência exata e um terminal.
+- [x] Somente `CRM_DECIDIU_E_SALVO` é selecionado.
+- [x] Lotes correlacionados usam `ANY($n::text[])` parametrizado.
+- [x] O guard de 1.000 projeções e a paginação falham de forma segura.
+- [x] A integração prova mesma organização, outra organização e resultado
       público com dados sintéticos.
 
 ### T3: Expor endpoint autenticado

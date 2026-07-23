@@ -56,9 +56,12 @@ type LeadReadVisibilityModule =
   typeof import("../../src/server/leads/lead-read-visibility");
 type LeadListRepositoryModule =
   typeof import("../../src/server/repositories/lead-list-repository");
+type OutsideAnalysisRepositoryModule =
+  typeof import("../../src/server/repositories/outside-analysis-repository");
 
 let visibilityModule: LeadReadVisibilityModule | null = null;
 let leadListRepository: LeadListRepositoryModule | null = null;
+let outsideAnalysisRepository: OutsideAnalysisRepositoryModule | null = null;
 
 function validateDatabaseUrl(
   rawValue: string | undefined,
@@ -150,6 +153,7 @@ async function setupDatabases(): Promise<void> {
       processing_result text NOT NULL,
       cnpj_normalizado text NOT NULL,
       final_action text,
+      reason text,
       run_created_at timestamptz NOT NULL,
       test_case_id text
     );
@@ -160,6 +164,9 @@ async function setupDatabases(): Promise<void> {
   );
   leadListRepository = await import(
     "../../src/server/repositories/lead-list-repository"
+  );
+  outsideAnalysisRepository = await import(
+    "../../src/server/repositories/outside-analysis-repository"
   );
 }
 
@@ -180,8 +187,15 @@ async function insertLead(input: {
   readonly cnpj: string;
   readonly sourceRow: number;
   readonly testCaseId: string | null;
+  readonly processingResult?: "INSERIDO_VALIDATION" | "CRM_DECIDIU_E_SALVO";
+  readonly finalAction?: string;
+  readonly reason?: string | null;
 }): Promise<void> {
   const leadRunId = `lr_${input.sourceRow.toString(16).padStart(8, "0")}`;
+  const processingResult =
+    input.processingResult ?? "INSERIDO_VALIDATION";
+  const finalAction = input.finalAction ?? "PROSPECTAR";
+  const reason = input.reason ?? null;
 
   await producerPool?.query(
     `
@@ -193,17 +207,21 @@ async function insertLead(input: {
         processing_result,
         cnpj_normalizado,
         final_action,
+        reason,
         run_created_at,
         test_case_id
       )
-      VALUES ($1, $2, $3, 'OK', 'INSERIDO_VALIDATION', $4, 'PROSPECTAR',
-        '2026-07-01T12:00:00.000Z'::timestamptz, $5)
+      VALUES ($1, $2, $3, 'OK', $4, $5, $6, $7,
+        '2026-07-01T12:00:00.000Z'::timestamptz, $8)
     `,
     [
       input.batchId,
       leadRunId,
       input.sourceRow,
+      processingResult,
       input.cnpj,
+      finalAction,
+      reason,
       input.testCaseId,
     ],
   );
@@ -364,6 +382,86 @@ describeIfDatabases("Demo 3 correlated lead visibility integration", () => {
     ).toEqual([
       "synthetic-production-batch",
       "synthetic-same-organization-batch",
+    ]);
+    expect(result?.total).toBe(2);
+  });
+
+  it("shows only current CRM decisions from production and same-organization correlated batches", async () => {
+    await insertLead({
+      batchId: "synthetic-crm-production-batch",
+      cnpj: "00000000000011",
+      sourceRow: 11,
+      testCaseId: null,
+      processingResult: "CRM_DECIDIU_E_SALVO",
+      finalAction: "NAO_ABORDAR",
+      reason: "Motivo sintético de produção",
+    });
+    await insertLead({
+      batchId: "synthetic-crm-same-organization-batch",
+      cnpj: "00000000000012",
+      sourceRow: 12,
+      testCaseId: "workflow-atual",
+      processingResult: "CRM_DECIDIU_E_SALVO",
+      finalAction: "NUTRIR",
+      reason: "Motivo sintético correlacionado",
+    });
+    await insertLead({
+      batchId: "synthetic-crm-other-organization-batch",
+      cnpj: "00000000000013",
+      sourceRow: 13,
+      testCaseId: "workflow-atual",
+      processingResult: "CRM_DECIDIU_E_SALVO",
+      finalAction: "NAO_ABORDAR",
+      reason: "Motivo sintético de outra organização",
+    });
+    await insertLead({
+      batchId: "synthetic-crm-uncorrelated-batch",
+      cnpj: "00000000000014",
+      sourceRow: 14,
+      testCaseId: "workflow-atual",
+      processingResult: "CRM_DECIDIU_E_SALVO",
+      finalAction: "NAO_ABORDAR",
+      reason: "Motivo sintético não correlacionado",
+    });
+    await insertLead({
+      batchId: "synthetic-public-same-organization-batch",
+      cnpj: "00000000000015",
+      sourceRow: 15,
+      testCaseId: "workflow-atual",
+      processingResult: "INSERIDO_VALIDATION",
+      reason: "Resultado público sintético",
+    });
+    await appPool?.query(
+      `
+        INSERT INTO prospecting_app.import_submissions (
+          organization_id,
+          producer_import_batch_id
+        )
+        VALUES
+          ($1, 'synthetic-crm-same-organization-batch'),
+          ($1, 'synthetic-public-same-organization-batch'),
+          ('synthetic-organization-b', 'synthetic-crm-other-organization-batch')
+      `,
+      [demo3Actor.organizationId],
+    );
+
+    const visibility =
+      await visibilityModule?.resolveLeadReadVisibility(demo3Actor);
+    const result =
+      await outsideAnalysisRepository?.listOutsideAnalysisCompanies(
+        { page: 1, pageSize: 20 },
+        visibility,
+      );
+
+    expect(
+      result?.companies.map((company) => company.import_batch_id).sort(),
+    ).toEqual([
+      "synthetic-crm-production-batch",
+      "synthetic-crm-same-organization-batch",
+    ]);
+    expect(result?.companies.map((company) => company.decisionReason).sort()).toEqual([
+      "Motivo sintético correlacionado",
+      "Motivo sintético de produção",
     ]);
     expect(result?.total).toBe(2);
   });
