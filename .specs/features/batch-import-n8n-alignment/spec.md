@@ -328,7 +328,7 @@ correlação permanecem ocultas.
 | ALIGN-20 | Primeiro `ACCEPTED_ROW` vira início operacional app-owned, nunca aceite durável | P1 | Implementado, testado e ativo |
 | ALIGN-21 | Lista, detalhe e histórico de leads atualizam por polling somente quando visíveis | P1 | Implementado, testado e ativo |
 | ALIGN-22 | Demo 3 e n8n compartilham callback/segredo sem editar o workflow atual | P1 | Configurado e verificado no alvo local autorizado |
-| ALIGN-23 | Demo 3 inclui test-runs somente por lote app-owned correlacionado à organização autenticada | P1 | Implementado localmente; implantação autorizada pendente |
+| ALIGN-23 | Demo 3 inclui test-runs somente por lote app-owned correlacionado à organização autenticada | P1 | Implementado, validado e ativo no Demo 3 autorizado |
 
 ## Critérios de sucesso
 

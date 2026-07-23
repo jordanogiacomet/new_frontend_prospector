@@ -577,13 +577,18 @@ predicado produtor de elegibilidade.
 - [x] Lista, detalhe e histórico aplicam a mesma união restrita.
 - [x] Fora do Demo 3 e com array vazio, o predicado produtivo permanece igual.
 - [x] Demo 2 mantém sua regra ampla existente sem consulta app-owned.
-- [ ] Gate completo, PostgreSQL sintético e rollout Demo 3 confirmados.
+- [x] Gate completo, PostgreSQL sintético e rollout Demo 3 confirmados.
 
 **Tests:** unit/route/repository + PostgreSQL descartável
 **Gate:** full local; rollout somente no alvo Demo 3 autorizado
 
-**Status:** Em implementação autorizada em 23/07/2026. Nenhum dado produtor foi
-alterado ou copiado e resultados `CRM_DECIDIU_E_SALVO` permanecem fora da lista.
+**Status:** Completed on 23/07/2026. Unit, repository, route and disposable
+PostgreSQL coverage proved production rows plus same-organization correlated
+test runs while rejecting other-organization and uncorrelated runs. Immutable
+release `demo3-preprod-20260723-correlated-leads-002` is Ready in the exact
+authorized Demo 3 target. Authenticated, value-free smoke confirmed list,
+detail and history visibility for the authorized batch. No producer fact was
+altered or copied, and `CRM_DECIDIU_E_SALVO` remains outside the list.
 
 ## Granularidade
 

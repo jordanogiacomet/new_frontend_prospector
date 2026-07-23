@@ -1,11 +1,9 @@
 # State
 
 **Last Updated:** 2026-07-23
-**Current Work:** Restricting Demo 3 test-marked lead visibility to producer
-batches correlated with app-owned submissions of the authenticated
-organization; lifecycle callbacks and visible-page refresh remain active, and
-the separate n8n v1/producer-worker path remains deferred behind
-OPEN-01–OPEN-05
+**Current Work:** Demo 3 correlated test-run visibility, lifecycle callbacks
+and visible-page lead refresh are active on the authorized target; the
+separate n8n v1/producer-worker path remains deferred behind OPEN-01–OPEN-05
 
 ---
 
@@ -202,7 +200,11 @@ batch-identity guarantee.
 **Impact:** Eligible `INSERIDO_VALIDATION` results from the user's correlated
 Demo 3 submission can appear without exposing unrelated test runs, copying
 producer data or changing producer facts. `CRM_DECIDIU_E_SALVO` remains outside
-“Leads para análise”.
+“Leads para análise”. Immutable release
+`demo3-preprod-20260723-correlated-leads-002` is active. A first candidate tag
+was published but never applied because replaying migration `007` after `008`
+temporarily narrowed the event constraint; commit `54ec775` made that replay
+forward-compatible and added a regression test before the successful rollout.
 
 ---
 

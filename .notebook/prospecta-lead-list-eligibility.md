@@ -36,4 +36,10 @@ Authorized Demo 3 resolution:
   byte-for-byte
 - `CRM_DECIDIU_E_SALVO` remains outside lead-list eligibility
 
+Runtime:
+- release `demo3-preprod-20260723-correlated-leads-002` is active
+- authenticated value-free smoke confirmed the authorized correlated batch in
+  list, detail and retained history
+- the n8n callback URL, credential and deployment revision remained unchanged
+
 Updated: 2026-07-23

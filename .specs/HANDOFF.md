@@ -1,13 +1,18 @@
 # Handoff
 
 **Date:** 2026-07-23
-**Feature:** Marcos operacionais do workflow legado e atualização visível
+**Feature:** Marcos operacionais e visibilidade correlacionada de leads
 **Status:** Implementado, validado e ativo no Demo 3 autorizado
 
 ## Resultado
 
 - A release imutável
-  `demo3-preprod-20260723-lifecycle-refresh-001` está ativa e Ready.
+  `demo3-preprod-20260723-correlated-leads-002` está ativa e Ready.
+- Resultados `INSERIDO_VALIDATION` marcados como teste podem aparecer somente
+  quando o lote está correlacionado a uma submissão app-owned da organização
+  autenticada no perfil Demo 3 exato.
+- Lotes de outra organização, lotes sem correlação e qualquer runtime fora do
+  Demo 3 preservam o predicado de produção anterior.
 - O primeiro `ACCEPTED_ROW` autenticado e correlacionado grava um único evento
   app-owned `WORKFLOW_STARTED_REPORTED` e aparece como
   **“Processamento iniciado pelo workflow”**.
@@ -28,6 +33,8 @@
 
 ## Commits funcionais
 
+- `2c9aaee` `fix(leads): scope Demo 3 test runs by submission`
+- `54ec775` `fix(db): keep workflow start event on migration replay`
 - `0a590b7` `feat(leads): refresh visible lead data`
 - `80d972f` `feat(imports): show workflow processing start`
 - `859fcd0` `feat(imports): record workflow operational start`
@@ -42,6 +49,9 @@
 - `src/server/repositories/imports/legacy-workflow-start-repository.ts`
 - `src/server/repositories/imports/legacy-workflow-close-repository.ts`
 - `src/server/imports/batch-read-service.ts`
+- `src/server/leads/lead-read-visibility.ts`
+- `src/server/repositories/production-run-predicate.ts`
+- repositories e rotas de lista, detalhe e histórico de leads
 - páginas/componentes de leads e lotes com polling visível
 - empacotamento e deploy imutável da Demo 3
 
@@ -52,15 +62,14 @@ equivalentes do `package.json` via `npm`, sem instalar dependências.
 
 - `npm run lint`: passou sem warnings.
 - `npm run typecheck`: passou.
-- `npm test`: 77 arquivos / 1.800 testes passaram.
+- `npm test`: 78 arquivos / 1.816 testes passaram.
 - `npm run build` com overrides seguros apenas no processo: passou, com 24
   rotas, incluindo `/api/imports/events`.
-- integração PostgreSQL descartável: 8 arquivos / 89 testes passaram.
+- integração PostgreSQL descartável: 9 arquivos / 91 testes passaram.
 - `npm run test:contract`: 3 arquivos / 18 testes locais passaram; 2 suites /
   57 casos HTTP do ingress v1 ficaram skipped por falta de alvo v1 separado.
 - `git diff --check`: passou.
-- PostgreSQL sintético descartável
-  `prospecta-lifecycle-gate-20260723`: removido após os testes.
+- PostgreSQL sintético descartável removido após os testes.
 
 ## Operação e verificação
 
@@ -68,6 +77,15 @@ equivalentes do `package.json` via `npm`, sem instalar dependências.
   marcador não produtivo do namespace antes de qualquer mutação.
 - Os índices app-owned das migrações `007` e `008` foram verificados.
 - A aplicação ficou Ready sem reinícios.
+- A primeira tag candidata de visibilidade foi publicada, mas não chegou aos
+  pods: a reaplicação de `007` após `008` detectou corretamente uma constraint
+  estreitada e abortou o deploy. O replay foi tornado forward-compatible,
+  coberto por teste RED/GREEN e promovido sob uma nova tag imutável.
+- O smoke autenticado e sem valores produtores confirmou a mesma regra em
+  lista, detalhe e histórico para o lote autorizado.
+- O Deployment e o StatefulSet estão `1/1`, sem reinícios. Os logs da aplicação
+  e do proxy de banco não apresentaram erros; o único registro do edge foi
+  ruído de autenticação de um probe local, sem falha upstream ou status 5xx.
 - O Deployment n8n passou à revisão 16, permaneceu na versão 2.30.6 e manteve
   o mesmo digest de imagem anteriormente executado. A revisão 16 declara
   `N8N_BLOCK_ENV_ACCESS_IN_NODE=false`, necessário para os Code nodes lerem as
