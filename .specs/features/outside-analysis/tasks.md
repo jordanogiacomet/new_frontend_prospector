@@ -89,9 +89,9 @@ T6 ──→ T7
 
 **Done when:**
 
-- [ ] Os dois links têm URLs estáveis e alvo mínimo de toque.
-- [ ] A visão atual usa `aria-current="page"`.
-- [ ] A navegação tem nome acessível e foco visível.
+- [x] Os dois links têm URLs estáveis e alvo mínimo de toque.
+- [x] A visão atual usa `aria-current="page"`.
+- [x] A navegação tem nome acessível e foco visível.
 
 ### T5: Apresentar tabela de decisões CRM
 
