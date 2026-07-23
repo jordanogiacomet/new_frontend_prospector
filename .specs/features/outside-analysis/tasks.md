@@ -1,0 +1,175 @@
+# Outside Analysis Tasks
+
+**Specification:** `.specs/features/outside-analysis/spec.md`
+**Design:** Inline — endpoint e página separados, reutilizando os padrões atuais
+**Status:** In Progress
+
+## Execution Plan
+
+```text
+T1 ──→ T2 ──→ T3 ──┐
+  ├──→ T5 ──────────┼──→ T6
+T4 ─────────────────┘
+T6 ──→ T7
+```
+
+## Task Breakdown
+
+### T1: Definir contrato público
+
+**What:** Criar query, DTO e mapper estritos para a visão fora da análise.
+**Where:** `src/lib/validators/lead-query.ts`, `src/types/leads.ts`,
+`src/server/mappers/outside-analysis-mapper.ts`
+**Depends on:** None
+**Reuses:** Paginação atual, `LeadSummary` e mappers deny-by-default.
+**Requirements:** OA-03, OA-04
+**Tests:** unit
+**Gate:** quick
+**Commit:** `feat(leads): define outside-analysis contract`
+
+**Done when:**
+
+- [ ] A query aceita somente `page` e `pageSize`, com máximo 20.
+- [ ] O DTO contém apenas campos aprovados necessários à tabela.
+- [ ] O mapper preserva ação/motivo armazenados e nulidade.
+- [ ] Testes direcionados passam sem remoções.
+
+### T2: Ler decisões atuais do CRM
+
+**What:** Criar repositório SELECT-only para a projeção atual
+`CRM_DECIDIU_E_SALVO`.
+**Where:** `src/server/repositories/outside-analysis-repository.ts`,
+`tests/integration/lead-correlated-visibility.test.ts`
+**Depends on:** T1
+**Reuses:** Integridade e visibilidade de
+`src/server/repositories/lead-list-repository.ts`.
+**Requirements:** OA-01, OA-02
+**Tests:** unit plus PostgreSQL integration
+**Gate:** full
+**Commit:** `feat(leads): read current CRM decisions`
+
+**Done when:**
+
+- [ ] O SQL exige projeção atual íntegra, proveniência exata e um terminal.
+- [ ] Somente `CRM_DECIDIU_E_SALVO` é selecionado.
+- [ ] Lotes correlacionados usam `ANY($n::text[])` parametrizado.
+- [ ] O guard de 1.000 projeções e a paginação falham de forma segura.
+- [ ] A integração prova mesma organização, outra organização e resultado
+      público com dados sintéticos.
+
+### T3: Expor endpoint autenticado
+
+**What:** Criar `GET /api/leads/outside-analysis`.
+**Where:** `src/app/api/leads/outside-analysis/route.ts`
+**Depends on:** T1, T2
+**Reuses:** `requirePermission`, `resolveLeadReadVisibility`,
+`paginatedSuccessResponse` e `mapApiError`.
+**Requirements:** OA-02, OA-03
+**Tests:** route/unit
+**Gate:** quick
+**Commit:** `feat(leads): expose outside-analysis endpoint`
+
+**Done when:**
+
+- [ ] `leads:read` é exigida antes de validação e consultas.
+- [ ] A organização autenticada resolve a visibilidade correlacionada.
+- [ ] Resposta e erros usam envelopes seguros e `private, no-store`.
+- [ ] Testes cobrem autenticação, validação, sucesso e falhas.
+
+### T4: Criar navegação entre visões
+
+**What:** Criar navegação por links para “Para análise” e “Fora da análise”.
+**Where:** `src/components/leads/lead-view-navigation.tsx`
+**Depends on:** None
+**Reuses:** Linguagem visual e estados de foco do menu atual.
+**Requirements:** OA-04
+**Tests:** component/unit
+**Gate:** quick
+**Commit:** `feat(leads): add lead view navigation`
+
+**Done when:**
+
+- [ ] Os dois links têm URLs estáveis e alvo mínimo de toque.
+- [ ] A visão atual usa `aria-current="page"`.
+- [ ] A navegação tem nome acessível e foco visível.
+
+### T5: Apresentar tabela de decisões CRM
+
+**What:** Criar tabela paginada com ação e motivo armazenados.
+**Where:** `src/components/leads/outside-analysis-table.tsx`
+**Depends on:** T1
+**Reuses:** Formatação brasileira, rótulos seguros e paginação da lista atual.
+**Requirements:** OA-04, OA-06
+**Tests:** component/unit
+**Gate:** quick
+**Commit:** `feat(leads): show outside-analysis decisions`
+
+**Done when:**
+
+- [ ] Todos os campos aprovados são apresentados e formatados.
+- [ ] Motivo ausente e ação desconhecida usam fallbacks seguros.
+- [ ] Não existe link “Abrir análise”.
+- [ ] A paginação preserva `pageSize` e seus limites.
+
+### T6: Montar a aba fora da análise
+
+**What:** Criar a página, integrar a navegação nas duas visões e ligar a API.
+**Where:** `src/app/(private)/leads/outside-analysis/page.tsx`,
+`src/app/(private)/leads/page.tsx`
+**Depends on:** T3, T4, T5
+**Reuses:** Polling e estados da lista atual.
+**Requirements:** OA-04, OA-05, OA-06
+**Tests:** component/unit
+**Gate:** quick
+**Commit:** `feat(leads): add outside-analysis view`
+
+**Done when:**
+
+- [ ] A nova página trata loading, sucesso, vazio, erro e página inválida.
+- [ ] O polling ocorre a cada cinco segundos apenas quando visível, sem
+      sobreposição, e é cancelado ao desmontar.
+- [ ] A lista atual também apresenta a navegação com a aba correta ativa.
+- [ ] A ordem devolvida pelo servidor não é recalculada no navegador.
+
+### T7: Verificar e publicar Demo 3
+
+**What:** Executar gates, atualizar rastreabilidade/notebook/estado e publicar
+uma release imutável.
+**Where:** Especificação, `.notebook/`, `.specs/project/STATE.md` e Demo 3.
+**Depends on:** T6
+**Reuses:** Processo de release `scripts/deploy-demo3-k8s.mjs`.
+**Requirements:** OA-01–OA-06
+**Tests:** build, full PostgreSQL integration, contract and authenticated smoke
+**Gate:** build
+**Commit:** `docs(prospecta): record outside-analysis rollout`
+
+**Done when:**
+
+- [ ] Todos os gates passam com contagens registradas.
+- [ ] Rastreabilidade marca OA-01–OA-06 como verificados.
+- [ ] Release imutável fica 1/1 na Demo 3.
+- [ ] Smoke autenticado confirma rota e página sem registrar valores reais.
+
+## Diagram-Definition Cross-Check
+
+| Task | Depends on | Diagram shows | Status |
+| --- | --- | --- | --- |
+| T1 | None | Root | ✅ |
+| T2 | T1 | T1 → T2 | ✅ |
+| T3 | T1, T2 | T1 → T2 → T3 | ✅ |
+| T4 | None | Root | ✅ |
+| T5 | T1 | T1 → T5 | ✅ |
+| T6 | T3, T4, T5 | T3/T4/T5 → T6 | ✅ |
+| T7 | T6 | T6 → T7 | ✅ |
+
+## Test Co-location Validation
+
+| Task | Layer | Matrix requires | Task says | Status |
+| --- | --- | --- | --- | --- |
+| T1 | Validator/mapper | unit | unit | ✅ |
+| T2 | Repository SQL | unit + integration | unit + integration | ✅ |
+| T3 | Route | route/unit | route/unit | ✅ |
+| T4 | React component | component/unit | component/unit | ✅ |
+| T5 | React component | component/unit | component/unit | ✅ |
+| T6 | React page | component/unit | component/unit | ✅ |
+| T7 | Release | full build + smoke | build/integration/contract/smoke | ✅ |
