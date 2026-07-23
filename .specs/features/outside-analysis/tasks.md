@@ -106,10 +106,10 @@ T6 ──→ T7
 
 **Done when:**
 
-- [ ] Todos os campos aprovados são apresentados e formatados.
-- [ ] Motivo ausente e ação desconhecida usam fallbacks seguros.
-- [ ] Não existe link “Abrir análise”.
-- [ ] A paginação preserva `pageSize` e seus limites.
+- [x] Todos os campos aprovados são apresentados e formatados.
+- [x] Motivo ausente e ação desconhecida usam fallbacks seguros.
+- [x] Não existe link “Abrir análise”.
+- [x] A paginação preserva `pageSize` e seus limites.
 
 ### T6: Montar a aba fora da análise
 
