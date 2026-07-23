@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   getServerEnv: vi.fn(),
   recordLegacyWorkflowClose: vi.fn(),
+  recordLegacyWorkflowStart: vi.fn(),
 }));
 
 vi.mock("server-only", () => ({}));
@@ -13,6 +14,12 @@ vi.mock(
   "../../../../server/repositories/imports/legacy-workflow-close-repository",
   () => ({
     recordLegacyWorkflowClose: mocks.recordLegacyWorkflowClose,
+  }),
+);
+vi.mock(
+  "../../../../server/repositories/imports/legacy-workflow-start-repository",
+  () => ({
+    recordLegacyWorkflowStart: mocks.recordLegacyWorkflowStart,
   }),
 );
 
@@ -30,6 +37,26 @@ const body = {
     row_count_expected: 2,
     source: "EmpresaAqui",
     pipeline_version: "v7.4",
+  },
+} as const;
+const acceptedRowBody = {
+  import_batch_id: "empresaqui_2026-07-22T13:50:05.504Z",
+  event_type: "ACCEPTED_ROW",
+  occurred_at: "2026-07-22T13:51:05.504Z",
+  source_row: 1,
+  lead_run_id: "lead-run-synthetic-001",
+  idempotency_key: "empresaqui:synthetic:001",
+  cnpj_normalizado: "12345678000195",
+  payload: {
+    accepted: true,
+    source: "EmpresaAqui",
+    test_case_id: null,
+    pre_trust_status: "LOW_RISK",
+    company: {
+      cnpj: "12345678000195",
+      razao_social: "Empresa Sintética Ltda.",
+      nome_fantasia: "Empresa Sintética",
+    },
   },
 } as const;
 
@@ -59,12 +86,17 @@ async function responseBody(response: Response): Promise<unknown> {
 beforeEach(() => {
   mocks.getServerEnv.mockReset();
   mocks.recordLegacyWorkflowClose.mockReset();
+  mocks.recordLegacyWorkflowStart.mockReset();
   mocks.getServerEnv.mockReturnValue({
     AUTH_ALLOWED_ORG_ID: "org-synthetic-a",
     FEATURE_IMPORTS_ENABLED: true,
     N8N_IMPORT_EVENT_SECRET: secret,
   });
   mocks.recordLegacyWorkflowClose.mockResolvedValue({
+    kind: "recorded",
+    submissionCount: 1,
+  });
+  mocks.recordLegacyWorkflowStart.mockResolvedValue({
     kind: "recorded",
     submissionCount: 1,
   });
@@ -84,6 +116,7 @@ describe("POST /api/imports/events", () => {
     expect(response.status).toBe(503);
     expect(callback.json).not.toHaveBeenCalled();
     expect(mocks.recordLegacyWorkflowClose).not.toHaveBeenCalled();
+    expect(mocks.recordLegacyWorkflowStart).not.toHaveBeenCalled();
   });
 
   it.each([undefined, "wrong-secret-that-is-at-least-32-bytes"])(
@@ -96,6 +129,7 @@ describe("POST /api/imports/events", () => {
       expect(response.status).toBe(401);
       expect(callback.json).not.toHaveBeenCalled();
       expect(mocks.recordLegacyWorkflowClose).not.toHaveBeenCalled();
+      expect(mocks.recordLegacyWorkflowStart).not.toHaveBeenCalled();
       expect(await responseBody(response)).toEqual({
         error: {
           code: "IMPORT_EVENT_UNAUTHORIZED",
@@ -116,6 +150,7 @@ describe("POST /api/imports/events", () => {
     expect(response.status).toBe(400);
     expect(callback.json).not.toHaveBeenCalled();
     expect(mocks.recordLegacyWorkflowClose).not.toHaveBeenCalled();
+    expect(mocks.recordLegacyWorkflowStart).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -132,6 +167,29 @@ describe("POST /api/imports/events", () => {
 
     expect(response.status).toBe(400);
     expect(mocks.recordLegacyWorkflowClose).not.toHaveBeenCalled();
+    expect(mocks.recordLegacyWorkflowStart).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { ...acceptedRowBody, source_row: 0 },
+    { ...acceptedRowBody, occurred_at: "not-a-date" },
+    {
+      ...acceptedRowBody,
+      payload: { ...acceptedRowBody.payload, accepted: false },
+    },
+    {
+      ...acceptedRowBody,
+      payload: { ...acceptedRowBody.payload, source: "Other" },
+    },
+    { ...acceptedRowBody, unexpected: true },
+  ])("rejects a malformed accepted-row callback", async (json) => {
+    const callback = request({ authorization: secret, json });
+
+    const response = await POST(callback.request);
+
+    expect(response.status).toBe(400);
+    expect(mocks.recordLegacyWorkflowClose).not.toHaveBeenCalled();
+    expect(mocks.recordLegacyWorkflowStart).not.toHaveBeenCalled();
   });
 
   it("records a valid close report under the configured organization", async () => {
@@ -165,6 +223,104 @@ describe("POST /api/imports/events", () => {
     expect(response.status).toBe(200);
     expect(await responseBody(response)).toEqual({
       data: { recorded: false, replayed: true },
+    });
+  });
+
+  it("records only the accepted-row batch and time under the configured organization", async () => {
+    const response = await POST(
+      request({ authorization: secret, json: acceptedRowBody }).request,
+    );
+
+    expect(response.status).toBe(200);
+    expect(mocks.recordLegacyWorkflowStart).toHaveBeenCalledWith({
+      organizationId: "org-synthetic-a",
+      importBatchId: acceptedRowBody.import_batch_id,
+      occurredAt: new Date(acceptedRowBody.occurred_at),
+    });
+    expect(mocks.recordLegacyWorkflowClose).not.toHaveBeenCalled();
+    expect(await responseBody(response)).toEqual({
+      data: { recorded: true, replayed: false },
+    });
+  });
+
+  it("accepts a later accepted-row callback as an idempotent replay", async () => {
+    mocks.recordLegacyWorkflowStart.mockResolvedValue({
+      kind: "replayed",
+      submissionCount: 1,
+    });
+
+    const response = await POST(
+      request({
+        authorization: secret,
+        json: {
+          ...acceptedRowBody,
+          occurred_at: "2026-07-22T13:55:05.504Z",
+          source_row: 2,
+        },
+      }).request,
+    );
+
+    expect(response.status).toBe(200);
+    expect(await responseBody(response)).toEqual({
+      data: { recorded: false, replayed: true },
+    });
+  });
+
+  it("maps a safe accepted-row correlation failure", async () => {
+    mocks.recordLegacyWorkflowStart.mockResolvedValue({
+      kind: "not_found",
+      error: {
+        code: "IMPORT_WORKFLOW_START_NOT_FOUND",
+        httpStatus: 404,
+        message: "Import workflow start correlation was not found.",
+      },
+    });
+
+    const response = await POST(
+      request({ authorization: secret, json: acceptedRowBody }).request,
+    );
+
+    expect(response.status).toBe(404);
+    expect(await responseBody(response)).toMatchObject({
+      error: { code: "IMPORT_WORKFLOW_START_NOT_FOUND" },
+    });
+  });
+
+  it("maps a safe accepted-row persistence conflict", async () => {
+    mocks.recordLegacyWorkflowStart.mockResolvedValue({
+      kind: "conflict",
+      error: {
+        code: "IMPORT_WORKFLOW_START_CONFLICT",
+        httpStatus: 409,
+        message: "Import workflow start facts conflict with the submission.",
+      },
+    });
+
+    const response = await POST(
+      request({ authorization: secret, json: acceptedRowBody }).request,
+    );
+
+    expect(response.status).toBe(409);
+    expect(await responseBody(response)).toMatchObject({
+      error: { code: "IMPORT_WORKFLOW_START_CONFLICT" },
+    });
+  });
+
+  it("uses a generic safe error when accepted-row persistence is unavailable", async () => {
+    mocks.recordLegacyWorkflowStart.mockRejectedValue(
+      new Error("synthetic database failure"),
+    );
+
+    const response = await POST(
+      request({ authorization: secret, json: acceptedRowBody }).request,
+    );
+
+    expect(response.status).toBe(503);
+    expect(await responseBody(response)).toEqual({
+      error: {
+        code: "IMPORT_EVENT_UNAVAILABLE",
+        message: "Não foi possível registrar o evento de importação agora.",
+      },
     });
   });
 

@@ -94,6 +94,7 @@ export interface ImportSubmissionReadModel {
     readonly acceptedAt: Date;
     readonly rowCountAccepted: number;
   } | null;
+  readonly workflowReportedStartedAt: Date | null;
   readonly workflowCloseReport: {
     readonly reportedClosedAt: Date;
     readonly rowCountExpected: number;
@@ -215,6 +216,7 @@ interface ImportSubmissionReadRow {
   readonly acknowledged_row_count: number | null;
   readonly durable_accepted_at: Date | null;
   readonly durable_accepted_row_count: number | null;
+  readonly workflow_reported_started_at: Date | null;
   readonly workflow_reported_closed_at: Date | null;
   readonly workflow_reported_row_count: number | string | null;
   readonly status: ImportSubmissionReadStatus;
@@ -655,6 +657,14 @@ function submissionReadColumns(): string {
           FROM prospecting_app.import_submission_events AS import_events
           WHERE import_events.organization_id = import_submissions.organization_id
             AND import_events.submission_id = import_submissions.submission_id
+            AND import_events.event_type = 'WORKFLOW_STARTED_REPORTED'
+          LIMIT 1
+        ) AS workflow_reported_started_at,
+        (
+          SELECT import_events.occurred_at
+          FROM prospecting_app.import_submission_events AS import_events
+          WHERE import_events.organization_id = import_submissions.organization_id
+            AND import_events.submission_id = import_submissions.submission_id
             AND import_events.event_type = 'WORKFLOW_CLOSED_REPORTED'
           LIMIT 1
         ) AS workflow_reported_closed_at,
@@ -728,6 +738,7 @@ function mapSubmissionReadRow(
             acceptedAt: row.durable_accepted_at,
             rowCountAccepted: row.durable_accepted_row_count,
           },
+    workflowReportedStartedAt: row.workflow_reported_started_at,
     workflowCloseReport:
       row.workflow_reported_closed_at === null ||
       row.workflow_reported_row_count === null

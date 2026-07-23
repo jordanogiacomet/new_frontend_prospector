@@ -107,6 +107,10 @@ function batchSummary(
       overrides.observationBasis === undefined
         ? null
         : overrides.observationBasis,
+    workflowReportedStartedAt:
+      overrides.workflowReportedStartedAt === undefined
+        ? null
+        : overrides.workflowReportedStartedAt,
     workflowReportedClosedAt:
       overrides.workflowReportedClosedAt === undefined
         ? null

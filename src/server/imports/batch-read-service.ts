@@ -190,6 +190,8 @@ function composeBatchSummary(
       producerObservations,
       freshness: null,
     }),
+    workflowReportedStartedAt:
+      submission.workflowReportedStartedAt?.toISOString() ?? null,
     workflowReportedClosedAt:
       submission.workflowCloseReport?.reportedClosedAt.toISOString() ??
       null,

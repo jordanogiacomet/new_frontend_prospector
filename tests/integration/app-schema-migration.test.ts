@@ -28,6 +28,12 @@ const importAcceptanceReconciliationSql = readSql(
 const legacyWorkflowCloseReportSql = readSql(
   "007_legacy_workflow_close_report_forward.sql",
 );
+const legacyWorkflowStartReportSql = readSql(
+  "008_legacy_workflow_start_report_forward.sql",
+);
+const legacyWorkflowStartReportRollbackSql = readSql(
+  "008_legacy_workflow_start_report_rollback.sql",
+);
 const disposableTargets = [
   {
     hostname: "localhost",
@@ -59,12 +65,14 @@ const pool = new Pool({
 type ImportSubmissionRepository = typeof import("../../src/server/repositories/imports/import-submissions-repository");
 type ImportAcceptanceReconciliationRepository = typeof import("../../src/server/repositories/imports/import-acceptance-reconciliation-repository");
 type LegacyWorkflowCloseRepository = typeof import("../../src/server/repositories/imports/legacy-workflow-close-repository");
+type LegacyWorkflowStartRepository = typeof import("../../src/server/repositories/imports/legacy-workflow-start-repository");
 
 let importSubmissionRepository: ImportSubmissionRepository | null = null;
 let importAcceptanceReconciliationRepository:
   | ImportAcceptanceReconciliationRepository
   | null = null;
 let legacyWorkflowCloseRepository: LegacyWorkflowCloseRepository | null = null;
+let legacyWorkflowStartRepository: LegacyWorkflowStartRepository | null = null;
 
 function readSql(filename: string): string {
   return readFileSync(resolve(process.cwd(), "db/app", filename), "utf8");
@@ -154,6 +162,7 @@ async function resetDisposableDatabase(): Promise<void> {
   await execute(auditRequestContextSql);
   await execute(importAcceptanceReconciliationSql);
   await execute(legacyWorkflowCloseReportSql);
+  await execute(legacyWorkflowStartReportSql);
   await execute(grantsSql);
   await createProducerLikeObjects();
 }
@@ -309,6 +318,17 @@ async function loadLegacyWorkflowCloseRepository(): Promise<LegacyWorkflowCloseR
   }
 
   return legacyWorkflowCloseRepository;
+}
+
+async function loadLegacyWorkflowStartRepository(): Promise<LegacyWorkflowStartRepository> {
+  if (legacyWorkflowStartRepository === null) {
+    configureRepositoryEnvironment();
+    legacyWorkflowStartRepository = await import(
+      "../../src/server/repositories/imports/legacy-workflow-start-repository"
+    );
+  }
+
+  return legacyWorkflowStartRepository;
 }
 
 async function withRolePool<Result>(
@@ -894,6 +914,7 @@ describe("Prospecta app-owned schema migration", () => {
         "commercial_audit_events_org_target_idx",
         "commercial_audit_events_org_workspace_occurred_idx",
         "import_submission_events_org_submission_occurred_idx",
+        "import_submission_events_one_workflow_start_uk",
         "import_submissions_org_created_at_idx",
         "import_submissions_org_idempotency_key_uk",
         "import_submissions_org_producer_batch_idx",
@@ -1594,6 +1615,103 @@ describe("Prospecta import submission repository integration", () => {
         },
       },
     });
+  });
+
+  it("records only the first workflow start time and refuses rollback after the append-only event", async () => {
+    const submissions = await loadImportSubmissionRepository();
+    const startReports = await loadLegacyWorkflowStartRepository();
+    const importBatchId = "empresaqui_2026-07-23T13:50:05.504Z";
+    const firstOccurredAt = new Date("2026-07-23T13:51:05.504Z");
+    const laterOccurredAt = new Date("2026-07-23T13:52:05.504Z");
+    const created = await submissions.recordImportSubmissionIntent({
+      organizationId: "org-synthetic-a",
+      actorSubject: "oidc|synthetic-manager",
+      idempotencyKey: "repo-workflow-start-idem",
+      file: {
+        filename: "empresaqui-workflow-start.csv",
+        sha256: syntheticHash("6"),
+        sizeBytes: 512,
+        mediaType: "text/csv",
+      },
+    });
+    const submissionId =
+      created.kind === "created" ? created.submission.submissionId : "";
+
+    await submissions.recordProducerAcknowledgement({
+      organizationId: "org-synthetic-a",
+      actorSubject: "oidc|synthetic-manager",
+      submissionId,
+      acknowledgement: {
+        accepted: true,
+        message: "Arquivo recebido para processamento.",
+        import_batch_id: importBatchId,
+        row_count: 2,
+        source: "EmpresaAqui",
+      },
+    });
+
+    await expect(
+      startReports.recordLegacyWorkflowStart({
+        organizationId: "org-synthetic-b",
+        importBatchId,
+        occurredAt: firstOccurredAt,
+      }),
+    ).resolves.toMatchObject({ kind: "not_found" });
+    await expect(
+      startReports.recordLegacyWorkflowStart({
+        organizationId: "org-synthetic-a",
+        importBatchId,
+        occurredAt: firstOccurredAt,
+      }),
+    ).resolves.toEqual({ kind: "recorded", submissionCount: 1 });
+    await expect(
+      startReports.recordLegacyWorkflowStart({
+        organizationId: "org-synthetic-a",
+        importBatchId,
+        occurredAt: laterOccurredAt,
+      }),
+    ).resolves.toEqual({ kind: "replayed", submissionCount: 1 });
+
+    const rows = await queryRows<{
+      status: string;
+      durable_accepted_at: Date | null;
+      durable_accepted_row_count: number | null;
+      event_type: string;
+      occurred_at: Date;
+      metadata: Record<string, unknown>;
+    }>(
+      `
+        SELECT
+          submissions.status,
+          submissions.durable_accepted_at,
+          submissions.durable_accepted_row_count,
+          events.event_type,
+          events.occurred_at,
+          events.metadata
+        FROM prospecting_app.import_submissions AS submissions
+        JOIN prospecting_app.import_submission_events AS events
+          ON events.organization_id = submissions.organization_id
+         AND events.submission_id = submissions.submission_id
+        WHERE submissions.organization_id = $1
+          AND submissions.submission_id = $2
+          AND events.event_type = 'WORKFLOW_STARTED_REPORTED'
+      `,
+      ["org-synthetic-a", submissionId],
+    );
+
+    expect(rows).toEqual([
+      {
+        status: "PRODUCER_ACKNOWLEDGED",
+        durable_accepted_at: null,
+        durable_accepted_row_count: null,
+        event_type: "WORKFLOW_STARTED_REPORTED",
+        occurred_at: firstOccurredAt,
+        metadata: { import_batch_id: importBatchId },
+      },
+    ]);
+    await expect(execute(legacyWorkflowStartReportRollbackSql)).rejects.toThrow(
+      /Cannot roll back legacy workflow start support after reports exist/,
+    );
   });
 
   it("promotes a matching durable acceptance and appends one idempotent reconciliation event", async () => {

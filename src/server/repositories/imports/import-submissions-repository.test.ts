@@ -148,6 +148,7 @@ function submissionReadRow(
     acknowledged_row_count: number | null;
     durable_accepted_at: Date | null;
     durable_accepted_row_count: number | null;
+    workflow_reported_started_at: Date | null;
     workflow_reported_closed_at: Date | null;
     workflow_reported_row_count: number | string | null;
     status: ImportSubmissionReadModel["appStatus"];
@@ -172,6 +173,8 @@ function submissionReadRow(
     durable_accepted_at: overrides.durable_accepted_at ?? null,
     durable_accepted_row_count:
       overrides.durable_accepted_row_count ?? null,
+    workflow_reported_started_at:
+      overrides.workflow_reported_started_at ?? null,
     workflow_reported_closed_at:
       overrides.workflow_reported_closed_at ?? null,
     workflow_reported_row_count:
@@ -860,6 +863,7 @@ describe("listImportSubmissions", () => {
           acknowledgedAt,
         },
         durableAcceptance: null,
+        workflowReportedStartedAt: null,
         workflowCloseReport: null,
       },
     ]);
@@ -893,6 +897,32 @@ describe("listImportSubmissions", () => {
     });
     expect(readStatements()[1]?.text).toMatch(
       /WORKFLOW_CLOSED_REPORTED/i,
+    );
+  });
+
+  it("maps the first app-owned workflow start without changing submission status or acceptance", async () => {
+    const workflowStartedAt = new Date("2026-07-07T12:05:00.000Z");
+    mocks.query.mockResolvedValueOnce([{ total: 1 }]).mockResolvedValueOnce([
+      submissionReadRow({
+        producer_acknowledged_at: acknowledgedAt,
+        producer_import_batch_id: importBatchId,
+        acknowledged_row_count: 3,
+        workflow_reported_started_at: workflowStartedAt,
+        status: "PRODUCER_ACKNOWLEDGED",
+        status_fact_source: "workflow_acknowledgement",
+      }),
+    ]);
+
+    const result = await listImportSubmissions({ organizationId });
+
+    expect(result.submissions[0]).toMatchObject({
+      appStatus: "PRODUCER_ACKNOWLEDGED",
+      durableAcceptance: null,
+      workflowReportedStartedAt: workflowStartedAt,
+      workflowCloseReport: null,
+    });
+    expect(readStatements()[1]?.text).toMatch(
+      /WORKFLOW_STARTED_REPORTED/i,
     );
   });
 
@@ -983,6 +1013,7 @@ describe("getImportSubmissionDetail", () => {
         lastObservedAt: null,
         workflowAcknowledgement: null,
         durableAcceptance: null,
+        workflowReportedStartedAt: null,
         workflowCloseReport: null,
       },
     });

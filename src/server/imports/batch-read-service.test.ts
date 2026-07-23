@@ -51,6 +51,7 @@ const submittedAt = new Date("2026-07-07T12:00:00.000Z");
 const acknowledgedAt = new Date("2026-07-07T12:01:00.000Z");
 const acceptedAt = new Date("2026-07-07T12:02:00.000Z");
 const observedAt = new Date("2026-07-07T12:03:00.000Z");
+const startedAt = new Date("2026-07-07T12:03:30.000Z");
 const closedAt = new Date("2026-07-07T12:04:00.000Z");
 const importBatchId = "empresaqui_2026-07-07T12:00:00.000Z";
 
@@ -76,6 +77,10 @@ function submission(
     durableAcceptance:
       "durableAcceptance" in overrides
         ? (overrides.durableAcceptance ?? null)
+        : null,
+    workflowReportedStartedAt:
+      "workflowReportedStartedAt" in overrides
+        ? (overrides.workflowReportedStartedAt ?? null)
         : null,
     workflowCloseReport:
       "workflowCloseReport" in overrides
@@ -340,6 +345,7 @@ describe("listImportBatches", () => {
       statusBasis: "SUBMISSION_RECORDED",
       observationStatus: "AVAILABLE",
       observationBasis: null,
+      workflowReportedStartedAt: null,
       workflowReportedClosedAt: null,
       workflowReportedRowCount: null,
     });
@@ -406,6 +412,29 @@ describe("listImportBatches", () => {
       terminalCount: null,
       workflowReportedClosedAt: closedAt.toISOString(),
       workflowReportedRowCount: 3,
+    });
+  });
+
+  it("surfaces workflow start separately without promoting contractual status or counts", async () => {
+    mocks.listImportSubmissions.mockResolvedValueOnce(
+      listResult({
+        submissions: [
+          acknowledgedSubmission({
+            workflowReportedStartedAt: startedAt,
+          }),
+        ],
+      }),
+    );
+
+    const result = await listImportBatches({ organizationId });
+
+    expect(result.batches[0]).toMatchObject({
+      status: "SUBMITTED",
+      acceptedAt: null,
+      rowCountAccepted: null,
+      terminalCount: null,
+      workflowReportedStartedAt: startedAt.toISOString(),
+      workflowReportedClosedAt: null,
     });
   });
 
@@ -665,6 +694,7 @@ describe("listImportBatches", () => {
       statusBasis: "PRODUCER_ACTIVITY_OBSERVED",
       observationStatus: "AVAILABLE",
       observationBasis: null,
+      workflowReportedStartedAt: null,
       workflowReportedClosedAt: null,
       workflowReportedRowCount: null,
     };

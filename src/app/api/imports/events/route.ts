@@ -10,6 +10,10 @@ import {
   recordLegacyWorkflowClose,
   type RecordLegacyWorkflowCloseResult,
 } from "../../../../server/repositories/imports/legacy-workflow-close-repository";
+import {
+  recordLegacyWorkflowStart,
+  type RecordLegacyWorkflowStartResult,
+} from "../../../../server/repositories/imports/legacy-workflow-start-repository";
 
 const machineSecretHeader = "X-Prospecta-N8N-Secret";
 
@@ -36,6 +40,35 @@ const closeEventSchema = z.strictObject({
     pipeline_version: presentText(128).nullable(),
   }),
 });
+
+const nullablePresentText = (maximumLength: number) =>
+  presentText(maximumLength).nullable();
+
+const acceptedRowEventSchema = z.strictObject({
+  import_batch_id: presentText(128),
+  event_type: z.literal("ACCEPTED_ROW"),
+  occurred_at: z.iso.datetime({ offset: true }),
+  source_row: z.number().int().positive().safe().nullable(),
+  lead_run_id: nullablePresentText(256),
+  idempotency_key: nullablePresentText(256),
+  cnpj_normalizado: nullablePresentText(32),
+  payload: z.strictObject({
+    accepted: z.literal(true),
+    source: z.literal("EmpresaAqui"),
+    test_case_id: nullablePresentText(256),
+    pre_trust_status: nullablePresentText(128),
+    company: z.strictObject({
+      cnpj: nullablePresentText(32),
+      razao_social: nullablePresentText(512),
+      nome_fantasia: nullablePresentText(512),
+    }),
+  }),
+});
+
+const importEventSchema = z.discriminatedUnion("event_type", [
+  closeEventSchema,
+  acceptedRowEventSchema,
+]);
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   const environment = getServerEnv();
@@ -76,13 +109,23 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return invalidEventResponse();
   }
 
-  const parsed = closeEventSchema.safeParse(input);
+  const parsed = importEventSchema.safeParse(input);
 
   if (!parsed.success) {
     return invalidEventResponse();
   }
 
   try {
+    if (parsed.data.event_type === "ACCEPTED_ROW") {
+      const result = await recordLegacyWorkflowStart({
+        organizationId: environment.AUTH_ALLOWED_ORG_ID,
+        importBatchId: parsed.data.import_batch_id,
+        occurredAt: new Date(parsed.data.occurred_at),
+      });
+
+      return startResultResponse(result);
+    }
+
     const result = await recordLegacyWorkflowClose({
       organizationId: environment.AUTH_ALLOWED_ORG_ID,
       importBatchId: parsed.data.import_batch_id,
@@ -95,7 +138,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return errorResponse(
       503,
       "IMPORT_EVENT_UNAVAILABLE",
-      "Não foi possível registrar o encerramento agora.",
+      "Não foi possível registrar o evento de importação agora.",
     );
   }
 }
@@ -126,6 +169,30 @@ function isJsonRequest(request: NextRequest): boolean {
 
 function closeResultResponse(
   result: RecordLegacyWorkflowCloseResult,
+): NextResponse {
+  if (result.kind === "recorded") {
+    return NextResponse.json(
+      { data: { recorded: true, replayed: false } },
+      { headers: privateNoStoreHeaders },
+    );
+  }
+
+  if (result.kind === "replayed") {
+    return NextResponse.json(
+      { data: { recorded: false, replayed: true } },
+      { headers: privateNoStoreHeaders },
+    );
+  }
+
+  return errorResponse(
+    result.error.httpStatus,
+    result.error.code,
+    result.error.message,
+  );
+}
+
+function startResultResponse(
+  result: RecordLegacyWorkflowStartResult,
 ): NextResponse {
   if (result.kind === "recorded") {
     return NextResponse.json(

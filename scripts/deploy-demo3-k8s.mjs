@@ -20,6 +20,7 @@ const sourceSecretName = "prospecta-demo-secrets";
 const appMigrationFiles = [
   "db/app/006_import_acceptance_reconciliation_forward.sql",
   "db/app/007_legacy_workflow_close_report_forward.sql",
+  "db/app/008_legacy_workflow_start_report_forward.sql",
 ];
 const deploymentLockFile = join(
   tmpdir(),
@@ -712,6 +713,10 @@ function verifyExistingAppMigrations() {
         || count(*) FILTER (
           WHERE indexname = 'import_submission_events_one_workflow_close_uk'
         )::text
+        || '|'
+        || count(*) FILTER (
+          WHERE indexname = 'import_submission_events_one_workflow_start_uk'
+        )::text
       FROM pg_indexes
       WHERE schemaname = 'prospecting_app'`,
     ],
@@ -723,7 +728,7 @@ function verifyExistingAppMigrations() {
 
   if (
     verification.status !== 0 ||
-    verification.stdout.trim() !== "0|1|1"
+    verification.stdout.trim() !== "0|1|1|1"
   ) {
     fail("app-owned migration verification failed");
   }

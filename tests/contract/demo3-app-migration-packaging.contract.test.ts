@@ -7,6 +7,8 @@ const repositoryRoot = process.cwd();
 const migrationPath = "db/app/006_import_acceptance_reconciliation_forward.sql";
 const workflowCloseMigrationPath =
   "db/app/007_legacy_workflow_close_report_forward.sql";
+const workflowStartMigrationPath =
+  "db/app/008_legacy_workflow_start_report_forward.sql";
 
 function readRepositoryFile(path: string): string {
   return readFileSync(resolve(repositoryRoot, path), "utf8");
@@ -25,6 +27,10 @@ describe("Demo 3 app-owned migration packaging", () => {
     expect(dockerfile).toMatch(
       /COPY db\/app\/007_legacy_workflow_close_report_forward\.sql \/docker-entrypoint-initdb\.d\/[0-9]+-legacy-workflow-close-report\.sql/,
     );
+    expect(dockerIgnore).toContain(`!${workflowStartMigrationPath}`);
+    expect(dockerfile).toMatch(
+      /COPY db\/app\/008_legacy_workflow_start_report_forward\.sql \/docker-entrypoint-initdb\.d\/[0-9]+-legacy-workflow-start-report\.sql/,
+    );
   });
 
   it("applies the idempotent app migration before replacing an existing app release", () => {
@@ -37,6 +43,7 @@ describe("Demo 3 app-owned migration packaging", () => {
 
     expect(migrationDeclaration).toBeGreaterThanOrEqual(0);
     expect(deployScript).toContain(workflowCloseMigrationPath);
+    expect(deployScript).toContain(workflowStartMigrationPath);
     expect(migrationCall).toBeGreaterThan(migrationDeclaration);
     expect(manifestApply).toBeGreaterThan(migrationCall);
     expect(deployScript).toMatch(
@@ -48,6 +55,9 @@ describe("Demo 3 app-owned migration packaging", () => {
     );
     expect(deployScript).toContain(
       "import_submission_events_one_workflow_close_uk",
+    );
+    expect(deployScript).toContain(
+      "import_submission_events_one_workflow_start_uk",
     );
   });
 
@@ -66,6 +76,16 @@ describe("Demo 3 app-owned migration packaging", () => {
       "prospecting_app.import_submission_events",
     );
     expect(workflowCloseMigration).not.toMatch(
+      /lead_import_batches|lead_input_rows|lead_processing_state|lead_decisions|prospecta_import_acceptances/,
+    );
+
+    const workflowStartMigration = readRepositoryFile(
+      workflowStartMigrationPath,
+    );
+    expect(workflowStartMigration).toContain(
+      "prospecting_app.import_submission_events",
+    );
+    expect(workflowStartMigration).not.toMatch(
       /lead_import_batches|lead_input_rows|lead_processing_state|lead_decisions|prospecta_import_acceptances/,
     );
   });

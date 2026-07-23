@@ -15,6 +15,7 @@ db/app/*
 !db/app/005_commercial_audit_request_context_forward.sql
 !db/app/006_import_acceptance_reconciliation_forward.sql
 !db/app/007_legacy_workflow_close_report_forward.sql
+!db/app/008_legacy_workflow_start_report_forward.sql
 docs
 node_modules
 tests
