@@ -140,6 +140,7 @@ function isBatchSummary(value: unknown): value is BatchSummary {
     statusBases.has(value.statusBasis) &&
     isString(value.observationStatus) &&
     observationStatuses.has(value.observationStatus) &&
+    isNullableString(value.workflowReportedStartedAt) &&
     hasValidWorkflowCloseReport(
       value.workflowReportedClosedAt,
       value.workflowReportedRowCount,
@@ -418,6 +419,14 @@ function BatchDetail({ batch }: { readonly batch: BatchSummary }) {
             label="Última observação"
             value={formatBrazilianDate(batch.lastObservedAt)}
           />
+          {batch.workflowReportedStartedAt === null ? null : (
+            <FactItem
+              label="Início operacional informado"
+              value={formatBrazilianDate(
+                batch.workflowReportedStartedAt,
+              )}
+            />
+          )}
           {batch.workflowReportedClosedAt === null ? null : (
             <>
               <FactItem
@@ -616,15 +625,34 @@ function statusBadgeClass(
 }
 
 function displayStatusLabel(batch: BatchSummary): string {
-  return batch.workflowReportedClosedAt === null
-    ? statusLabel(batch.status)
-    : "Processamento encerrado";
+  if (batch.workflowReportedClosedAt !== null) {
+    return "Processamento encerrado";
+  }
+
+  if (hasWorkflowReportedStart(batch)) {
+    return "Processamento iniciado pelo workflow";
+  }
+
+  return statusLabel(batch.status);
 }
 
 function batchSituationBasis(batch: BatchSummary): string {
-  return batch.workflowReportedClosedAt === null
-    ? statusBasisLabel(batch.statusBasis)
-    : "encerramento informado pelo workflow";
+  if (batch.workflowReportedClosedAt !== null) {
+    return "encerramento informado pelo workflow";
+  }
+
+  if (hasWorkflowReportedStart(batch)) {
+    return "início operacional informado pelo workflow";
+  }
+
+  return statusBasisLabel(batch.statusBasis);
+}
+
+function hasWorkflowReportedStart(batch: BatchSummary): boolean {
+  return (
+    batch.status === "SUBMITTED" &&
+    batch.workflowReportedStartedAt !== null
+  );
 }
 
 function observationBadgeClass(
@@ -679,6 +707,10 @@ function statusBasisLabel(statusBasis: BatchStatusBasis): string {
 function statusNarrative(batch: BatchSummary): string {
   if (batch.workflowReportedClosedAt !== null) {
     return "O workflow informou que terminou o processamento deste arquivo. As contagens por resultado permanecem indisponíveis enquanto não houver fatos aprovados.";
+  }
+
+  if (hasWorkflowReportedStart(batch)) {
+    return "O workflow informou que iniciou o processamento deste arquivo. Isso não confirma aceite durável nem resultados.";
   }
 
   switch (batch.status) {

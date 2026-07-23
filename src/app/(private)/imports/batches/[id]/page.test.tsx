@@ -71,6 +71,10 @@ function batchSummary(
       overrides.workflowReportedClosedAt === undefined
         ? null
         : overrides.workflowReportedClosedAt,
+    workflowReportedStartedAt:
+      overrides.workflowReportedStartedAt === undefined
+        ? null
+        : overrides.workflowReportedStartedAt,
     workflowReportedRowCount:
       overrides.workflowReportedRowCount === undefined
         ? null
@@ -270,6 +274,71 @@ describe("batch detail page", () => {
     );
     expect(document.body).toHaveTextContent(
       `Terminais: ${UNAVAILABLE_LABEL}`,
+    );
+  });
+
+  it("reports the first workflow row as operational start without durable acceptance", async () => {
+    fetchMock.mockResolvedValue(
+      apiResponse(
+        detailEnvelope(
+          batchSummary({
+            status: "SUBMITTED",
+            workflowReportedStartedAt: "2026-07-08T15:05:00.000Z",
+          }),
+        ),
+      ),
+    );
+
+    render(<BatchDetailPage />);
+
+    expect(
+      await screen.findByRole("heading", {
+        name: "Processamento iniciado pelo workflow",
+      }),
+    ).toBeInTheDocument();
+    expect(document.body).toHaveTextContent(
+      "O workflow informou que iniciou o processamento deste arquivo.",
+    );
+    expect(document.body).toHaveTextContent(
+      "Isso não confirma aceite durável nem resultados.",
+    );
+    expect(document.body).toHaveTextContent(
+      "Base da situaçãoinício operacional informado pelo workflow",
+    );
+    expect(document.body).toHaveTextContent(
+      "Início operacional informado08/07/2026",
+    );
+    expect(document.body).toHaveTextContent(
+      `Linhas aceitas: ${UNAVAILABLE_LABEL}`,
+    );
+    expect(document.body).not.toHaveTextContent(
+      "Aceite confirmado08/07/2026",
+    );
+  });
+
+  it("keeps workflow closure ahead of the earlier operational start", async () => {
+    fetchMock.mockResolvedValue(
+      apiResponse(
+        detailEnvelope(
+          batchSummary({
+            status: "SUBMITTED",
+            workflowReportedStartedAt: "2026-07-08T15:05:00.000Z",
+            workflowReportedClosedAt: "2026-07-08T15:30:00.000Z",
+            workflowReportedRowCount: 5,
+          }),
+        ),
+      ),
+    );
+
+    render(<BatchDetailPage />);
+
+    expect(
+      await screen.findByRole("heading", {
+        name: "Processamento encerrado",
+      }),
+    ).toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent(
+      "Processamento iniciado pelo workflow",
     );
   });
 

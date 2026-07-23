@@ -142,6 +142,7 @@ function isBatchSummary(value: unknown): value is BatchSummary {
     statusBases.has(value.statusBasis) &&
     isString(value.observationStatus) &&
     observationStatuses.has(value.observationStatus) &&
+    isNullableString(value.workflowReportedStartedAt) &&
     hasValidWorkflowCloseReport(
       value.workflowReportedClosedAt,
       value.workflowReportedRowCount,
@@ -515,10 +516,10 @@ function BatchListTable({
                 </td>
                 <td className="px-3 py-5">
                   <StatusBadge batch={batch} />
-                  {batch.workflowReportedClosedAt === null ? null : (
+                  {workflowReportedStatusAt(batch) === null ? null : (
                     <p className="mt-2 text-xs font-semibold text-[oklch(48%_0.025_252)]">
                       {formatBrazilianDate(
-                        batch.workflowReportedClosedAt,
+                        workflowReportedStatusAt(batch),
                       )}
                     </p>
                   )}
@@ -717,15 +718,43 @@ function statusBadgeClass(
 }
 
 function displayStatusLabel(batch: BatchSummary): string {
-  return batch.workflowReportedClosedAt === null
-    ? statusLabel(batch.status)
-    : "Processamento encerrado";
+  if (batch.workflowReportedClosedAt !== null) {
+    return "Processamento encerrado";
+  }
+
+  if (hasWorkflowReportedStart(batch)) {
+    return "Processamento iniciado pelo workflow";
+  }
+
+  return statusLabel(batch.status);
 }
 
 function batchSituationBasis(batch: BatchSummary): string {
-  return batch.workflowReportedClosedAt === null
-    ? statusBasisLabel(batch.statusBasis)
-    : "encerramento informado pelo workflow";
+  if (batch.workflowReportedClosedAt !== null) {
+    return "encerramento informado pelo workflow";
+  }
+
+  if (hasWorkflowReportedStart(batch)) {
+    return "início operacional informado pelo workflow";
+  }
+
+  return statusBasisLabel(batch.statusBasis);
+}
+
+function hasWorkflowReportedStart(batch: BatchSummary): boolean {
+  return (
+    batch.status === "SUBMITTED" &&
+    batch.workflowReportedStartedAt !== null
+  );
+}
+
+function workflowReportedStatusAt(batch: BatchSummary): string | null {
+  return (
+    batch.workflowReportedClosedAt ??
+    (hasWorkflowReportedStart(batch)
+      ? batch.workflowReportedStartedAt
+      : null)
+  );
 }
 
 function observationBadgeClass(

@@ -77,6 +77,10 @@ function batchSummary(
       overrides.workflowReportedClosedAt === undefined
         ? null
         : overrides.workflowReportedClosedAt,
+    workflowReportedStartedAt:
+      overrides.workflowReportedStartedAt === undefined
+        ? null
+        : overrides.workflowReportedStartedAt,
     workflowReportedRowCount:
       overrides.workflowReportedRowCount === undefined
         ? null
@@ -293,6 +297,57 @@ describe("batch list page", () => {
     );
     expect(row!).toHaveTextContent(`Linhas aceitas: ${UNAVAILABLE_LABEL}`);
     expect(row!).toHaveTextContent(`Terminais: ${UNAVAILABLE_LABEL}`);
+  });
+
+  it("shows the first workflow row as operational start without claiming durable acceptance", async () => {
+    fetchMock.mockResolvedValue(
+      apiResponse(
+        batchListEnvelope([
+          batchSummary({
+            status: "SUBMITTED",
+            workflowReportedStartedAt: "2026-07-08T14:05:00.000Z",
+          }),
+        ]),
+      ),
+    );
+
+    render(<BatchListPage />);
+
+    const row = (await screen.findByText(importBatchId)).closest("tr");
+
+    expect(row).not.toBeNull();
+    expect(row!).toHaveTextContent("Processamento iniciado pelo workflow");
+    expect(row!).toHaveTextContent(
+      "Base: início operacional informado pelo workflow",
+    );
+    expect(row!).toHaveTextContent(`Linhas aceitas: ${UNAVAILABLE_LABEL}`);
+    expect(row!).toHaveTextContent(`Terminais: ${UNAVAILABLE_LABEL}`);
+    expect(row!).not.toHaveTextContent("Aceite confirmado");
+  });
+
+  it("keeps workflow closure ahead of the earlier operational start", async () => {
+    fetchMock.mockResolvedValue(
+      apiResponse(
+        batchListEnvelope([
+          batchSummary({
+            status: "SUBMITTED",
+            workflowReportedStartedAt: "2026-07-08T14:05:00.000Z",
+            workflowReportedClosedAt: "2026-07-08T14:30:00.000Z",
+            workflowReportedRowCount: 2,
+          }),
+        ]),
+      ),
+    );
+
+    render(<BatchListPage />);
+
+    const row = (await screen.findByText(importBatchId)).closest("tr");
+
+    expect(row).not.toBeNull();
+    expect(row!).toHaveTextContent("Processamento encerrado");
+    expect(row!).not.toHaveTextContent(
+      "Processamento iniciado pelo workflow",
+    );
   });
 
   it("links each import to its app-owned detail route without displaying its identifier", async () => {
