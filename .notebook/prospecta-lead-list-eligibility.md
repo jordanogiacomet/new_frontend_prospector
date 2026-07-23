@@ -42,4 +42,19 @@ Runtime:
   list, detail and retained history
 - the n8n callback URL, credential and deployment revision remained unchanged
 
+Non-analysis terminal path:
+- `CRM_DECIDIU_E_SALVO` is a final producer destination, not proof that the
+  company was generically discarded
+- the current workflow uses it when public validation was skipped by the
+  rules/CRM route (`searchMeta.skippedPublicValidation`)
+- `company_validation_runs.final_action` and `.reason` are already inside the
+  approved read-only column grant
+- a value-free Demo 3 read confirmed that current rows in this destination
+  have both stored action and stored reason
+- a future “Fora da análise” reader should reuse exact current
+  projection/run/provenance integrity and the Demo 3 correlated-batch boundary,
+  while selecting only this explicit terminal result
+- UI copy should say “Fora da análise” or “Decisão pelo CRM”, not “Falhou” or
+  “Descartado”, and must display the stored reason without recalculation
+
 Updated: 2026-07-23
