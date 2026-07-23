@@ -71,10 +71,10 @@ T6 ──→ T7
 
 **Done when:**
 
-- [ ] `leads:read` é exigida antes de validação e consultas.
-- [ ] A organização autenticada resolve a visibilidade correlacionada.
-- [ ] Resposta e erros usam envelopes seguros e `private, no-store`.
-- [ ] Testes cobrem autenticação, validação, sucesso e falhas.
+- [x] `leads:read` é exigida antes de validação e consultas.
+- [x] A organização autenticada resolve a visibilidade correlacionada.
+- [x] Resposta e erros usam envelopes seguros e `private, no-store`.
+- [x] Testes cobrem autenticação, validação, sucesso e falhas.
 
 ### T4: Criar navegação entre visões
 
