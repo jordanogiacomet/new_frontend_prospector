@@ -8,13 +8,15 @@ import type {
   LeadDetailParams,
   LeadHistoryQuery,
 } from "../../../../../lib/validators/lead-query";
+import type { AuthorizedActor } from "../../../../../server/auth/authorization";
 import type { LeadHistoryResult } from "../../../../../server/repositories/lead-history-repository";
+import type { LeadRunVisibilityOptions } from "../../../../../server/repositories/production-run-predicate";
 
 const {
   listLeadHistoryMock,
   requirePermissionMock,
-  isDemo2TestRunVisibilityEnabledMock,
   isDemoDataEnabledMock,
+  resolveLeadReadVisibilityMock,
   validationObserver,
 } = vi.hoisted(() => ({
   listLeadHistoryMock:
@@ -22,6 +24,7 @@ const {
       (
         cnpj: string,
         query: LeadHistoryQuery,
+        options?: LeadRunVisibilityOptions,
       ) => Promise<LeadHistoryResult>
     >(),
   requirePermissionMock:
@@ -30,12 +33,18 @@ const {
         Promise<{
           readonly status: "authorized";
           readonly actor: {
+            readonly issuer: string;
+            readonly subject: string;
+            readonly organizationId: string;
             readonly permissions: readonly string[];
           };
         }>
     >(),
-  isDemo2TestRunVisibilityEnabledMock: vi.fn<() => boolean>(),
   isDemoDataEnabledMock: vi.fn<() => boolean>(),
+  resolveLeadReadVisibilityMock:
+    vi.fn<
+      (actor: AuthorizedActor) => Promise<LeadRunVisibilityOptions>
+    >(),
   validationObserver: vi.fn<
     (target: "params" | "query", input: unknown) => void
   >(),
@@ -46,9 +55,10 @@ vi.mock("../../../../../server/auth/require-api-session", () => ({
   requirePermission: requirePermissionMock,
 }));
 vi.mock("../../../../../server/demo/mode", () => ({
-  isDemo2TestRunVisibilityEnabled:
-    isDemo2TestRunVisibilityEnabledMock,
   isDemoDataEnabled: isDemoDataEnabledMock,
+}));
+vi.mock("../../../../../server/leads/lead-read-visibility", () => ({
+  resolveLeadReadVisibility: resolveLeadReadVisibilityMock,
 }));
 vi.mock(
   "../../../../../server/repositories/lead-history-repository",
@@ -130,16 +140,21 @@ describe("GET /api/leads/:cnpj/history", () => {
   beforeEach(() => {
     requirePermissionMock.mockReset();
     listLeadHistoryMock.mockReset();
-    isDemo2TestRunVisibilityEnabledMock.mockReset();
     isDemoDataEnabledMock.mockReset();
+    resolveLeadReadVisibilityMock.mockReset();
     validationObserver.mockReset();
 
     requirePermissionMock.mockResolvedValue({
       status: "authorized",
-      actor: { permissions: ["leads:read"] },
+      actor: {
+        issuer: "urn:synthetic",
+        subject: "synthetic-subject",
+        organizationId: "synthetic-organization",
+        permissions: ["leads:read"],
+      },
     });
-    isDemo2TestRunVisibilityEnabledMock.mockReturnValue(false);
     isDemoDataEnabledMock.mockReturnValue(false);
+    resolveLeadReadVisibilityMock.mockResolvedValue({});
     listLeadHistoryMock.mockResolvedValue({
       history: [syntheticHistoryItem],
       ...retainedMetadata,
@@ -164,6 +179,7 @@ describe("GET /api/leads/:cnpj/history", () => {
       },
     });
     expect(validationObserver).not.toHaveBeenCalled();
+    expect(resolveLeadReadVisibilityMock).not.toHaveBeenCalled();
     expect(listLeadHistoryMock).not.toHaveBeenCalled();
     expectPrivateNoStore(response);
   });
@@ -186,6 +202,7 @@ describe("GET /api/leads/:cnpj/history", () => {
       },
     });
     expect(validationObserver).not.toHaveBeenCalled();
+    expect(resolveLeadReadVisibilityMock).not.toHaveBeenCalled();
     expect(listLeadHistoryMock).not.toHaveBeenCalled();
     expectPrivateNoStore(response);
   });
@@ -196,11 +213,20 @@ describe("GET /api/leads/:cnpj/history", () => {
       callOrder.push("authenticate");
       return {
         status: "authorized",
-        actor: { permissions: ["leads:read"] },
+        actor: {
+          issuer: "urn:synthetic",
+          subject: "synthetic-subject",
+          organizationId: "synthetic-organization",
+          permissions: ["leads:read"],
+        },
       };
     });
     validationObserver.mockImplementation((target) => {
       callOrder.push(`validate-${target}`);
+    });
+    resolveLeadReadVisibilityMock.mockImplementation(async () => {
+      callOrder.push("visibility");
+      return {};
     });
     listLeadHistoryMock.mockImplementation(async () => {
       callOrder.push("repository");
@@ -220,6 +246,7 @@ describe("GET /api/leads/:cnpj/history", () => {
       "authenticate",
       "validate-params",
       "validate-query",
+      "visibility",
       "repository",
     ]);
     expect(requirePermissionMock).toHaveBeenCalledOnce();
@@ -240,20 +267,44 @@ describe("GET /api/leads/:cnpj/history", () => {
         page: 1,
         pageSize: 20,
       },
+      {},
     );
   });
 
-  it("includes test-marked history only when the server enables Demo 2 visibility", async () => {
-    isDemo2TestRunVisibilityEnabledMock.mockReturnValue(true);
+  it("passes correlated visibility resolved from the authenticated actor", async () => {
+    const visibility = {
+      includeTestRunsFromImportBatchIds: [
+        "synthetic-correlated-batch",
+      ],
+    } as const;
+    resolveLeadReadVisibilityMock.mockResolvedValue(visibility);
 
     const response = await routeModule.GET(createRequest(), createContext());
 
     expect(response.status).toBe(200);
+    expect(resolveLeadReadVisibilityMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        organizationId: "synthetic-organization",
+      }),
+    );
     expect(listLeadHistoryMock).toHaveBeenCalledWith(
       syntheticCnpj,
       { page: 1, pageSize: 20 },
-      { includeDemo2TestRuns: true },
+      visibility,
     );
+  });
+
+  it("does not resolve producer visibility for synthetic demo data", async () => {
+    isDemoDataEnabledMock.mockReturnValue(true);
+
+    const response = await routeModule.GET(
+      createRequest(),
+      createContext("12345678000195"),
+    );
+
+    expect(response.status).toBe(200);
+    expect(resolveLeadReadVisibilityMock).not.toHaveBeenCalled();
+    expect(listLeadHistoryMock).not.toHaveBeenCalled();
   });
 
   it("forwards explicit pagination including the approved page-size limit", async () => {
@@ -269,6 +320,7 @@ describe("GET /api/leads/:cnpj/history", () => {
         page: 3,
         pageSize: 20,
       },
+      {},
     );
   });
 

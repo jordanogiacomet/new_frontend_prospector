@@ -11,7 +11,10 @@ import {
   type LeadDetailRow,
 } from "../mappers/lead-detail-mapper";
 import type { SensitiveContentAccess } from "../mappers/lead-sensitive-content";
-import { buildLeadRunVisibilityPredicate } from "./production-run-predicate";
+import {
+  buildLeadRunVisibilityPredicate,
+  type LeadRunVisibilityOptions,
+} from "./production-run-predicate";
 
 const baseValues: readonly unknown[] = [
   "OK",
@@ -26,9 +29,11 @@ function buildDetailStatement(
   cnpj: string,
   leadRunId?: string,
   includeSensitiveContent = false,
-  includeDemo2TestRuns = false,
+  options: LeadRunVisibilityOptions = {},
 ): SqlStatement {
   const values: unknown[] = [...baseValues, cnpj];
+  const correlatedImportBatchIdsParameter =
+    appendCorrelatedImportBatchIds(values, options);
   const strategicReportCte = includeSensitiveContent
     ? `,
 report_detail AS (
@@ -126,7 +131,10 @@ report_detail AS (
     AND company_validations.validated_at <= CURRENT_TIMESTAMP
     AND terminal.integrity_status = $1
     AND terminal.processing_result = $3
-    AND ${buildLeadRunVisibilityPredicate("terminal", includeDemo2TestRuns)}
+    AND ${buildLeadRunVisibilityPredicate("terminal", {
+      includeDemo2TestRuns: options.includeDemo2TestRuns,
+      correlatedImportBatchIdsParameter,
+    })}
     AND terminal.lead_run_id ~ $5
     AND terminal.cnpj_normalizado = company_validations.cnpj_normalizado
     AND terminal.import_batch_id IS NOT DISTINCT FROM company_validations.last_import_batch_id
@@ -190,16 +198,34 @@ export async function getLeadDetail(
     allowedUrlHosts: [],
     now: new Date(),
   },
-  options: { readonly includeDemo2TestRuns?: boolean } = {},
+  options: LeadRunVisibilityOptions = {},
 ): Promise<LeadDetail | null> {
   const [row] = await databaseQuery<LeadDetailRow>(
     buildDetailStatement(
       cnpj,
       leadRunId,
       sensitiveAccess.enabled,
-      options.includeDemo2TestRuns,
+      options,
     ),
   );
 
   return row ? mapLeadDetail(row, sensitiveAccess) : null;
+}
+
+function appendCorrelatedImportBatchIds(
+  values: unknown[],
+  options: LeadRunVisibilityOptions,
+): number | undefined {
+  const importBatchIds = options.includeTestRunsFromImportBatchIds;
+
+  if (
+    options.includeDemo2TestRuns ||
+    importBatchIds === undefined ||
+    importBatchIds.length === 0
+  ) {
+    return undefined;
+  }
+
+  values.push(importBatchIds);
+  return values.length;
 }

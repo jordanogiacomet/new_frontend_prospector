@@ -7,10 +7,10 @@ import {
 } from "../../../server/api/errors";
 import { requirePermission } from "../../../server/auth/require-api-session";
 import {
-  isDemo2TestRunVisibilityEnabled,
   isDemoDataEnabled,
 } from "../../../server/demo/mode";
 import { listDemoLeads } from "../../../server/demo/prospecta-demo-data";
+import { resolveLeadReadVisibility } from "../../../server/leads/lead-read-visibility";
 import { applyLeadSummaryAuditAccess } from "../../../server/mappers/lead-audit-access";
 import { listLeads } from "../../../server/repositories/lead-list-repository";
 
@@ -27,9 +27,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     );
     const { leads, total } = isDemoDataEnabled()
       ? listDemoLeads(query)
-      : isDemo2TestRunVisibilityEnabled()
-        ? await listLeads(query, { includeDemo2TestRuns: true })
-        : await listLeads(query);
+      : await listLeads(
+          query,
+          await resolveLeadReadVisibility(authorization.actor),
+        );
     const canReadAudit = authorization.actor.permissions.includes("audit:read");
     const visibleLeads = leads.map((lead) =>
       applyLeadSummaryAuditAccess(lead, canReadAudit),

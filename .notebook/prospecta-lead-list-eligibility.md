@@ -26,4 +26,14 @@ Boundary:
   profile
 - do not reprocess automatically to change visibility
 
+Authorized Demo 3 resolution:
+- require the exact isolated Demo 3 runtime and shared actor
+- read app-owned correlated `import_batch_id` values for the authenticated
+  organization
+- use the normal production predicate OR a bound `ANY($n::text[])` batch check
+- apply the same options to list, detail and retained history
+- an empty correlation set or any other runtime keeps the production predicate
+  byte-for-byte
+- `CRM_DECIDIU_E_SALVO` remains outside lead-list eligibility
+
 Updated: 2026-07-23

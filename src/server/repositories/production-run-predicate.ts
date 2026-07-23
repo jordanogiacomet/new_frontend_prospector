@@ -4,6 +4,16 @@ export type ProductionRunAlias =
   | "current_terminal"
   | "run";
 
+export interface LeadRunVisibilityOptions {
+  readonly includeDemo2TestRuns?: boolean;
+  readonly includeTestRunsFromImportBatchIds?: readonly string[];
+}
+
+interface LeadRunVisibilityPredicateOptions {
+  readonly includeDemo2TestRuns?: boolean;
+  readonly correlatedImportBatchIdsParameter?: number;
+}
+
 export function buildProductionRunPredicate(
   alias: ProductionRunAlias,
 ): string {
@@ -12,7 +22,16 @@ export function buildProductionRunPredicate(
 
 export function buildLeadRunVisibilityPredicate(
   alias: ProductionRunAlias,
-  includeDemo2TestRuns = false,
+  options: LeadRunVisibilityPredicateOptions = {},
 ): string {
-  return includeDemo2TestRuns ? "TRUE" : buildProductionRunPredicate(alias);
+  if (options.includeDemo2TestRuns) {
+    return "TRUE";
+  }
+
+  const productionPredicate = buildProductionRunPredicate(alias);
+  const parameter = options.correlatedImportBatchIdsParameter;
+
+  return parameter === undefined
+    ? productionPredicate
+    : `(${productionPredicate} OR ${alias}.import_batch_id = ANY($${parameter}::text[]))`;
 }

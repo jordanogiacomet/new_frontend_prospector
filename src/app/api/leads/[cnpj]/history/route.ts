@@ -10,10 +10,10 @@ import {
 } from "../../../../../server/api/errors";
 import { requirePermission } from "../../../../../server/auth/require-api-session";
 import {
-  isDemo2TestRunVisibilityEnabled,
   isDemoDataEnabled,
 } from "../../../../../server/demo/mode";
 import { listDemoLeadHistory } from "../../../../../server/demo/prospecta-demo-data";
+import { resolveLeadReadVisibility } from "../../../../../server/leads/lead-read-visibility";
 import { listLeadHistory } from "../../../../../server/repositories/lead-history-repository";
 
 const privateNoStoreHeaders = {
@@ -29,7 +29,7 @@ export async function GET(
   context: LeadHistoryRouteContext,
 ): Promise<NextResponse> {
   try {
-    await requirePermission("leads:read");
+    const authorization = await requirePermission("leads:read");
 
     const { cnpj } = leadDetailParamsSchema.parse(
       await context.params,
@@ -45,11 +45,11 @@ export async function GET(
       caveat,
     } = isDemoDataEnabled()
       ? listDemoLeadHistory(cnpj, query)
-      : isDemo2TestRunVisibilityEnabled()
-        ? await listLeadHistory(cnpj, query, {
-            includeDemo2TestRuns: true,
-          })
-        : await listLeadHistory(cnpj, query);
+      : await listLeadHistory(
+          cnpj,
+          query,
+          await resolveLeadReadVisibility(authorization.actor),
+        );
 
     return NextResponse.json(
       paginatedSuccessResponse(history, {

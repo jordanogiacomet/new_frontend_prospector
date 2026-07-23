@@ -183,6 +183,60 @@ describe("listLeads", () => {
     expect(count.text).toContain("terminal.run_created_at <= CURRENT_TIMESTAMP");
   });
 
+  it("includes test-marked runs only from bound correlated import batches", async () => {
+    const correlatedBatchIds = [
+      "synthetic-correlated-batch",
+      "batch'); SELECT pg_sleep(1); --",
+    ];
+    mocks.query
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ total: 0 }])
+      .mockResolvedValueOnce([]);
+
+    await listLeads(
+      { page: 3, pageSize: 7 },
+      { includeTestRunsFromImportBatchIds: correlatedBatchIds },
+    );
+
+    const [, count, data] = statements();
+    expect(count.text).toContain(
+      "terminal.import_batch_id = ANY($7::text[])",
+    );
+    expect(data.text).toContain(
+      "terminal.import_batch_id = ANY($7::text[])",
+    );
+    expect(data.text).toMatch(/LIMIT\s+\$8\s+OFFSET\s+\$9/i);
+    expect(count.values).toEqual([
+      "OK",
+      "^[0-9]{14}$",
+      "INSERIDO_VALIDATION",
+      "",
+      approvedRunIdPattern,
+      1,
+      correlatedBatchIds,
+    ]);
+    expect(data.values).toEqual([...count.values, 7, 14]);
+    expect(count.text).not.toContain(correlatedBatchIds[0]);
+    expect(count.text).not.toContain(correlatedBatchIds[1]);
+  });
+
+  it("keeps the production predicate when the correlated batch list is empty", async () => {
+    mocks.query
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ total: 0 }])
+      .mockResolvedValueOnce([]);
+
+    await listLeads(defaultQuery, {
+      includeTestRunsFromImportBatchIds: [],
+    });
+
+    const [, count, data] = statements();
+    expect(count.text).not.toContain("ANY(");
+    expect(data.text).not.toContain("ANY(");
+    expect(count.values).toHaveLength(6);
+    expect(data.text).toMatch(/LIMIT\s+\$7\s+OFFSET\s+\$8/i);
+  });
+
   it("requires exactly one eligible terminal per current projection", async () => {
     mocks.query
       .mockResolvedValueOnce([])

@@ -14,7 +14,10 @@ import {
   mapLeadHistoryItem,
   type LeadHistoryRow,
 } from "../mappers/lead-history-mapper";
-import { buildLeadRunVisibilityPredicate } from "./production-run-predicate";
+import {
+  buildLeadRunVisibilityPredicate,
+  type LeadRunVisibilityOptions,
+} from "./production-run-predicate";
 
 const maximumRetainedHistoryRows = 6;
 const retainedHistoryCompleteness = "retained_only";
@@ -22,7 +25,10 @@ const retainedHistoryLabel = "Análises retidas encontradas";
 const retainedHistoryCaveat =
   "Análises mais antigas podem não estar presentes.";
 
-function buildEligibleHistoryCte(includeDemo2TestRuns = false): string {
+function buildEligibleHistoryCte(
+  options: LeadRunVisibilityOptions,
+  correlatedImportBatchIdsParameter?: number,
+): string {
   return `WITH eligible_history AS (
   SELECT
     history.id,
@@ -35,7 +41,10 @@ function buildEligibleHistoryCte(includeDemo2TestRuns = false): string {
   FROM public.company_validation_runs AS history
   WHERE history.integrity_status = $1
     AND history.processing_result = $2
-    AND ${buildLeadRunVisibilityPredicate("history", includeDemo2TestRuns)}
+    AND ${buildLeadRunVisibilityPredicate("history", {
+      includeDemo2TestRuns: options.includeDemo2TestRuns,
+      correlatedImportBatchIdsParameter,
+    })}
     AND BTRIM(history.lead_run_id) <> $3
     AND history.lead_run_id ~ $4
     AND history.cnpj_normalizado = $5
@@ -44,7 +53,10 @@ function buildEligibleHistoryCte(includeDemo2TestRuns = false): string {
 )`;
 }
 
-function buildCurrentDecisionCtes(includeDemo2TestRuns = false): string {
+function buildCurrentDecisionCtes(
+  options: LeadRunVisibilityOptions,
+  correlatedImportBatchIdsParameter?: number,
+): string {
   return `current_terminal_candidates AS (
   SELECT
     current_terminal.id::text AS decision_id,
@@ -63,7 +75,10 @@ function buildCurrentDecisionCtes(includeDemo2TestRuns = false): string {
     AND current_projection.cnpj_normalizado = $5
     AND current_terminal.integrity_status = $1
     AND current_terminal.processing_result = $2
-    AND ${buildLeadRunVisibilityPredicate("current_terminal", includeDemo2TestRuns)}
+    AND ${buildLeadRunVisibilityPredicate("current_terminal", {
+      includeDemo2TestRuns: options.includeDemo2TestRuns,
+      correlatedImportBatchIdsParameter,
+    })}
     AND current_terminal.lead_run_id ~ $4
     AND current_terminal.cnpj_normalizado = current_projection.cnpj_normalizado
     AND current_terminal.import_batch_id IS NOT DISTINCT FROM current_projection.last_import_batch_id
@@ -96,26 +111,33 @@ export interface LeadHistoryResult {
 
 function buildCountStatement(
   cnpj: string,
-  includeDemo2TestRuns = false,
+  options: LeadRunVisibilityOptions,
 ): SqlStatement {
+  const values: unknown[] = [
+    "OK",
+    "INSERIDO_VALIDATION",
+    "",
+    leadRunIdPattern.source,
+    cnpj,
+  ];
+  const correlatedImportBatchIdsParameter =
+    appendCorrelatedImportBatchIds(values, options);
+
   return {
-    text: `${buildEligibleHistoryCte(includeDemo2TestRuns)}
+    text: `${buildEligibleHistoryCte(
+      options,
+      correlatedImportBatchIdsParameter,
+    )}
 SELECT COUNT(*)::integer AS total
 FROM eligible_history`,
-    values: [
-      "OK",
-      "INSERIDO_VALIDATION",
-      "",
-      leadRunIdPattern.source,
-      cnpj,
-    ],
+    values,
   };
 }
 
 function buildDataStatement(
   cnpj: string,
   input: LeadHistoryQuery,
-  includeDemo2TestRuns = false,
+  options: LeadRunVisibilityOptions,
 ): SqlStatement {
   const values: unknown[] = [
     "OK",
@@ -127,10 +149,18 @@ function buildDataStatement(
     input.pageSize,
     (input.page - 1) * input.pageSize,
   ];
+  const correlatedImportBatchIdsParameter =
+    appendCorrelatedImportBatchIds(values, options);
 
   return {
-    text: `${buildEligibleHistoryCte(includeDemo2TestRuns)},
-${buildCurrentDecisionCtes(includeDemo2TestRuns)}
+    text: `${buildEligibleHistoryCte(
+      options,
+      correlatedImportBatchIdsParameter,
+    )},
+${buildCurrentDecisionCtes(
+  options,
+  correlatedImportBatchIdsParameter,
+)}
 SELECT
   history.id::text AS id,
   history.import_batch_id,
@@ -161,10 +191,10 @@ function isApprovedTotal(total: unknown): total is number {
 export async function listLeadHistory(
   cnpj: string,
   input: LeadHistoryQuery,
-  options: { readonly includeDemo2TestRuns?: boolean } = {},
+  options: LeadRunVisibilityOptions = {},
 ): Promise<LeadHistoryResult> {
   const [countRow] = await databaseQuery<LeadHistoryCountRow>(
-    buildCountStatement(cnpj, options.includeDemo2TestRuns),
+    buildCountStatement(cnpj, options),
   );
 
   if (!countRow || !isApprovedTotal(countRow.total)) {
@@ -172,7 +202,7 @@ export async function listLeadHistory(
   }
 
   const rows = await databaseQuery<LeadHistoryQueryRow>(
-    buildDataStatement(cnpj, input, options.includeDemo2TestRuns),
+    buildDataStatement(cnpj, input, options),
   );
 
   return {
@@ -184,4 +214,22 @@ export async function listLeadHistory(
     label: retainedHistoryLabel,
     caveat: retainedHistoryCaveat,
   };
+}
+
+function appendCorrelatedImportBatchIds(
+  values: unknown[],
+  options: LeadRunVisibilityOptions,
+): number | undefined {
+  const importBatchIds = options.includeTestRunsFromImportBatchIds;
+
+  if (
+    options.includeDemo2TestRuns ||
+    importBatchIds === undefined ||
+    importBatchIds.length === 0
+  ) {
+    return undefined;
+  }
+
+  values.push(importBatchIds);
+  return values.length;
 }

@@ -236,6 +236,58 @@ describe("getLeadDetail", () => {
     );
   });
 
+  it("uses a bound correlated batch array before an optional exact run", async () => {
+    const correlatedBatchIds = [
+      "synthetic-correlated-batch",
+      "batch'); SELECT pg_sleep(1); --",
+    ];
+    mocks.query.mockResolvedValueOnce([]);
+
+    await getLeadDetail(
+      syntheticCnpj,
+      syntheticLeadRunId,
+      undefined,
+      { includeTestRunsFromImportBatchIds: correlatedBatchIds },
+    );
+
+    expect(statement().text).toContain(
+      "terminal.import_batch_id = ANY($8::text[])",
+    );
+    expect(statement().text).toMatch(
+      /terminal\.lead_run_id\s*=\s*\$9/i,
+    );
+    expect(statement().values).toEqual([
+      "OK",
+      "^[0-9]{14}$",
+      "INSERIDO_VALIDATION",
+      "",
+      approvedRunIdPattern,
+      1,
+      syntheticCnpj,
+      correlatedBatchIds,
+      syntheticLeadRunId,
+    ]);
+    expect(statement().text).not.toContain(correlatedBatchIds[0]);
+    expect(statement().text).not.toContain(correlatedBatchIds[1]);
+  });
+
+  it("keeps exact-run positions unchanged for an empty correlated list", async () => {
+    mocks.query.mockResolvedValueOnce([]);
+
+    await getLeadDetail(
+      syntheticCnpj,
+      syntheticLeadRunId,
+      undefined,
+      { includeTestRunsFromImportBatchIds: [] },
+    );
+
+    expect(statement().text).not.toContain("ANY(");
+    expect(statement().text).toMatch(
+      /terminal\.lead_run_id\s*=\s*\$8/i,
+    );
+    expect(statement().values).toHaveLength(8);
+  });
+
   it("requires exactly one eligible terminal row per projection", async () => {
     mocks.query.mockResolvedValueOnce([]);
 

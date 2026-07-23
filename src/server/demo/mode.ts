@@ -22,3 +22,22 @@ export function isDemo2TestRunVisibilityEnabled(
       input.DEMO2_K8S_RUNTIME_ENABLED === "true")
   );
 }
+
+/**
+ * Demo 3 may read test-marked producer runs only after a separate,
+ * organization-scoped correlation check. This gate deliberately mirrors the
+ * isolated local pre-production profile validated by the server environment.
+ */
+export function isDemo3CorrelatedLeadVisibilityEnabled(
+  input: Record<string, string | undefined> = process.env,
+): boolean {
+  return (
+    input.NODE_ENV === "production" &&
+    input.AUTH_DEV_BYPASS_ENABLED === "true" &&
+    input.DEMO3_LOCAL_RUNTIME_ENABLED === "true" &&
+    input.FEATURE_COMMERCIAL_ENABLED === "true" &&
+    input.FEATURE_DEMO_DATA_ENABLED !== "true" &&
+    input.DEMO2_FULL_ACCESS_ENABLED !== "true" &&
+    input.DEMO2_K8S_RUNTIME_ENABLED !== "true"
+  );
+}

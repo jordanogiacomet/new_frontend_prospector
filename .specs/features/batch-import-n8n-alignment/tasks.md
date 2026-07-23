@@ -12,7 +12,7 @@ T02 → T05
 T04 + T05 → T06 → T11
 T04 → T07 → T08 → T09 → T10
 T06 + T10 + T11 → T12 → T13 → T14
-T05 → T15 → T16 → T17
+T05 → T15 → T16 → T17 → T18
 ```
 
 - T03/T04: primitivas produtoras e teste de integração.
@@ -20,8 +20,8 @@ T05 → T15 → T16 → T17
 - T07–T10: artefato n8n, aceitação, processamento e fechamento.
 - T11: leitura em lote e integridade.
 - T12–T14: contrato, UAT e rollout.
-- T15–T17: marcos operacionais do workflow legado, atualização visível e
-  conexão do Demo 3.
+- T15–T18: marcos operacionais do workflow legado, atualização visível,
+  conexão e visibilidade correlacionada do Demo 3.
 
 ## Fases e gates
 
@@ -555,6 +555,36 @@ close and reported row count while keeping contractual status `SUBMITTED`.
 The idempotent read-back was a duplicate without an external resubmission. The
 workflow export remained unchanged and pre-fix executions were not retried.
 
+### T18: Restringir resultados de teste ao lote enviado pela organização
+
+**What:** No perfil Demo 3 exato, incluir resultados produtores marcados como
+teste somente quando o `import_batch_id` estiver correlacionado a uma
+submissão app-owned da organização autenticada.
+
+**Where:** resolução server-only de visibilidade, repositories e rotas de
+lista, detalhe e histórico de leads.
+
+**Depends on:** T17
+**Reuses:** ator compartilhado do Demo 3, correlação app-owned existente e
+predicado produtor de elegibilidade.
+**Requirement:** ALIGN-15, ALIGN-21, ALIGN-23
+
+**Done when:**
+
+- [x] Perfil e ator Demo 3 exatos são exigidos antes da consulta app-owned.
+- [x] A consulta de correlação recebe somente o `organizationId` autenticado.
+- [x] IDs são enviados como um único parâmetro PostgreSQL `text[]`.
+- [x] Lista, detalhe e histórico aplicam a mesma união restrita.
+- [x] Fora do Demo 3 e com array vazio, o predicado produtivo permanece igual.
+- [x] Demo 2 mantém sua regra ampla existente sem consulta app-owned.
+- [ ] Gate completo, PostgreSQL sintético e rollout Demo 3 confirmados.
+
+**Tests:** unit/route/repository + PostgreSQL descartável
+**Gate:** full local; rollout somente no alvo Demo 3 autorizado
+
+**Status:** Em implementação autorizada em 23/07/2026. Nenhum dado produtor foi
+alterado ou copiado e resultados `CRM_DECIDIU_E_SALVO` permanecem fora da lista.
+
 ## Granularidade
 
 | Task | Unidade entregável | Status |
@@ -576,6 +606,7 @@ workflow export remained unchanged and pre-fix executions were not retried.
 | T15 | Relato legado de encerramento | Granular e separado do contrato X4 |
 | T16 | Início operacional e polling visível | Granular |
 | T17 | Release e conexão do callback local | Granular e operacional |
+| T18 | Visibilidade test-run por correlação app-owned | Granular e restrita ao Demo 3 |
 
 ## Diagram-definition cross-check
 
@@ -598,6 +629,7 @@ workflow export remained unchanged and pre-fix executions were not retried.
 | T15 | T05 | T05 → T15 | Match |
 | T16 | T15 | T15 → T16 | Match |
 | T17 | T16 | T16 → T17 | Match |
+| T18 | T17 | T17 → T18 | Match |
 
 ## Validação de testes co-localizados
 
@@ -614,6 +646,7 @@ workflow export remained unchanged and pre-fix executions were not retried.
 | T15 | Callback/app/UI | teste ao lado + integration | Vitest/PostgreSQL |
 | T16 | Callback/read model/UI | teste ao lado + integration | Vitest/PostgreSQL |
 | T17 | Operação local | preflight/smoke sem dados reais | script + curl |
+| T18 | Gate/repos/routes | teste ao lado + integration | Vitest/PostgreSQL |
 
 ## Ferramentas na execução futura
 

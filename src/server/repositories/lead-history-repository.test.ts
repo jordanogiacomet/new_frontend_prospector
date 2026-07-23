@@ -145,6 +145,69 @@ describe("listLeadHistory", () => {
     expect(data.text).toContain("current_terminal.processing_result = $2");
   });
 
+  it("uses the same bound correlated batch array for retained and current runs", async () => {
+    const correlatedBatchIds = [
+      "synthetic-correlated-batch",
+      "batch'); SELECT pg_sleep(1); --",
+    ];
+    mocks.query
+      .mockResolvedValueOnce([{ total: 0 }])
+      .mockResolvedValueOnce([]);
+
+    await listLeadHistory(syntheticCnpj, defaultPage, {
+      includeTestRunsFromImportBatchIds: correlatedBatchIds,
+    });
+
+    const [count, data] = statements();
+    expect(count.text).toContain(
+      "history.import_batch_id = ANY($6::text[])",
+    );
+    expect(data.text).toContain(
+      "history.import_batch_id = ANY($9::text[])",
+    );
+    expect(data.text).toContain(
+      "current_terminal.import_batch_id = ANY($9::text[])",
+    );
+    expect(data.text).toMatch(/LIMIT\s+\$7\s+OFFSET\s+\$8/i);
+    expect(count.values).toEqual([
+      "OK",
+      "INSERIDO_VALIDATION",
+      "",
+      approvedRunIdPattern,
+      syntheticCnpj,
+      correlatedBatchIds,
+    ]);
+    expect(data.values).toEqual([
+      "OK",
+      "INSERIDO_VALIDATION",
+      "",
+      approvedRunIdPattern,
+      syntheticCnpj,
+      1,
+      20,
+      0,
+      correlatedBatchIds,
+    ]);
+    expect(data.text).not.toContain(correlatedBatchIds[0]);
+    expect(data.text).not.toContain(correlatedBatchIds[1]);
+  });
+
+  it("keeps production history predicates for an empty correlated list", async () => {
+    mocks.query
+      .mockResolvedValueOnce([{ total: 0 }])
+      .mockResolvedValueOnce([]);
+
+    await listLeadHistory(syntheticCnpj, defaultPage, {
+      includeTestRunsFromImportBatchIds: [],
+    });
+
+    const [count, data] = statements();
+    expect(count.text).not.toContain("ANY(");
+    expect(data.text).not.toContain("ANY(");
+    expect(count.values).toHaveLength(5);
+    expect(data.values).toHaveLength(8);
+  });
+
   it("preserves distinct decisions and run identifiers without grouping", async () => {
     mocks.query
       .mockResolvedValueOnce([{ total: 3 }])

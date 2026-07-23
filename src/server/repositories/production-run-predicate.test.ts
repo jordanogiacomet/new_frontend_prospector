@@ -52,10 +52,22 @@ describe("buildProductionRunPredicate", () => {
 
   it("includes test-marked runs only when the Demo 2 option is explicit", () => {
     expect(
-      buildLeadRunVisibilityPredicate("terminal", true),
+      buildLeadRunVisibilityPredicate("terminal", {
+        includeDemo2TestRuns: true,
+      }),
     ).toBe("TRUE");
     expect(
       buildLeadRunVisibilityPredicate("terminal"),
     ).toBe(buildProductionRunPredicate("terminal"));
+  });
+
+  it("admits test-marked runs only through a bound correlated batch array", () => {
+    expect(
+      buildLeadRunVisibilityPredicate("terminal", {
+        correlatedImportBatchIdsParameter: 7,
+      }),
+    ).toBe(
+      "((terminal.test_case_id IS NULL OR terminal.test_case_id = 'SR_' || terminal.source_row) OR terminal.import_batch_id = ANY($7::text[]))",
+    );
   });
 });

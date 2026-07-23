@@ -11,10 +11,10 @@ import {
 } from "../../../../server/api/errors";
 import { requirePermission } from "../../../../server/auth/require-api-session";
 import {
-  isDemo2TestRunVisibilityEnabled,
   isDemoDataEnabled,
 } from "../../../../server/demo/mode";
 import { getDemoLeadDetail } from "../../../../server/demo/prospecta-demo-data";
+import { resolveLeadReadVisibility } from "../../../../server/leads/lead-read-visibility";
 import { applyLeadDetailAuditAccess } from "../../../../server/mappers/lead-audit-access";
 import { getLeadDetail } from "../../../../server/repositories/lead-detail-repository";
 import { getSensitiveContentAccess } from "../../../../server/sensitive-content/access";
@@ -48,11 +48,12 @@ export async function GET(
     } else {
       const sensitiveAccess = getSensitiveContentAccess(authorization.actor);
 
-      detail = isDemo2TestRunVisibilityEnabled()
-        ? await getLeadDetail(cnpj, leadRunId, sensitiveAccess, {
-            includeDemo2TestRuns: true,
-          })
-        : await getLeadDetail(cnpj, leadRunId, sensitiveAccess);
+      detail = await getLeadDetail(
+        cnpj,
+        leadRunId,
+        sensitiveAccess,
+        await resolveLeadReadVisibility(authorization.actor),
+      );
     }
 
     if (detail === null) {

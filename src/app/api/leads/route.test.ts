@@ -5,18 +5,27 @@ import { NextRequest } from "next/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { LeadListQuery } from "../../../lib/validators/lead-query";
-import type { LeadListResult } from "../../../server/repositories/lead-list-repository";
+import type { AuthorizedActor } from "../../../server/auth/authorization";
+import type {
+  LeadListOptions,
+  LeadListResult,
+} from "../../../server/repositories/lead-list-repository";
 import type { LeadSummary } from "../../../types/leads";
 
 const {
   listLeadsMock,
   requirePermissionMock,
-  isDemo2TestRunVisibilityEnabledMock,
   isDemoDataEnabledMock,
+  resolveLeadReadVisibilityMock,
   validationObserver,
 } = vi.hoisted(() => ({
   listLeadsMock:
-    vi.fn<(query: LeadListQuery) => Promise<LeadListResult>>(),
+    vi.fn<
+      (
+        query: LeadListQuery,
+        options?: LeadListOptions,
+      ) => Promise<LeadListResult>
+    >(),
   requirePermissionMock:
     vi.fn<
       () => Promise<{
@@ -29,8 +38,11 @@ const {
         };
       }>
     >(),
-  isDemo2TestRunVisibilityEnabledMock: vi.fn<() => boolean>(),
   isDemoDataEnabledMock: vi.fn<() => boolean>(),
+  resolveLeadReadVisibilityMock:
+    vi.fn<
+      (actor: AuthorizedActor) => Promise<LeadListOptions>
+    >(),
   validationObserver: vi.fn<(input: unknown) => void>(),
 }));
 
@@ -39,9 +51,10 @@ vi.mock("../../../server/auth/require-api-session", () => ({
   requirePermission: requirePermissionMock,
 }));
 vi.mock("../../../server/demo/mode", () => ({
-  isDemo2TestRunVisibilityEnabled:
-    isDemo2TestRunVisibilityEnabledMock,
   isDemoDataEnabled: isDemoDataEnabledMock,
+}));
+vi.mock("../../../server/leads/lead-read-visibility", () => ({
+  resolveLeadReadVisibility: resolveLeadReadVisibilityMock,
 }));
 vi.mock("../../../server/repositories/lead-list-repository", () => ({
   listLeads: listLeadsMock,
@@ -112,13 +125,13 @@ describe("GET /api/leads", () => {
   beforeEach(() => {
     requirePermissionMock.mockReset();
     listLeadsMock.mockReset();
-    isDemo2TestRunVisibilityEnabledMock.mockReset();
     isDemoDataEnabledMock.mockReset();
+    resolveLeadReadVisibilityMock.mockReset();
     validationObserver.mockReset();
 
     requirePermissionMock.mockResolvedValue(syntheticAuthorizationContext);
-    isDemo2TestRunVisibilityEnabledMock.mockReturnValue(false);
     isDemoDataEnabledMock.mockReturnValue(false);
+    resolveLeadReadVisibilityMock.mockResolvedValue({});
     listLeadsMock.mockResolvedValue({
       leads: [syntheticLead],
       total: 1,
@@ -140,6 +153,7 @@ describe("GET /api/leads", () => {
       },
     });
     expect(validationObserver).not.toHaveBeenCalled();
+    expect(resolveLeadReadVisibilityMock).not.toHaveBeenCalled();
     expect(listLeadsMock).not.toHaveBeenCalled();
     expectPrivateNoStore(response);
   });
@@ -160,7 +174,7 @@ describe("GET /api/leads", () => {
     });
     expect(validationObserver).not.toHaveBeenCalled();
     expect(isDemoDataEnabledMock).not.toHaveBeenCalled();
-    expect(isDemo2TestRunVisibilityEnabledMock).not.toHaveBeenCalled();
+    expect(resolveLeadReadVisibilityMock).not.toHaveBeenCalled();
     expect(listLeadsMock).not.toHaveBeenCalled();
     expectPrivateNoStore(response);
   });
@@ -174,6 +188,10 @@ describe("GET /api/leads", () => {
     validationObserver.mockImplementation(() => {
       callOrder.push("validate");
     });
+    resolveLeadReadVisibilityMock.mockImplementation(async () => {
+      callOrder.push("visibility");
+      return {};
+    });
     listLeadsMock.mockImplementation(async () => {
       callOrder.push("repository");
       return { leads: [], total: 0 };
@@ -185,6 +203,7 @@ describe("GET /api/leads", () => {
     expect(callOrder).toEqual([
       "authorize",
       "validate",
+      "visibility",
       "repository",
     ]);
     expect(requirePermissionMock).toHaveBeenCalledOnce();
@@ -196,22 +215,43 @@ describe("GET /api/leads", () => {
 
     expect(response.status).toBe(200);
     expect(listLeadsMock).toHaveBeenCalledOnce();
-    expect(listLeadsMock).toHaveBeenCalledWith({
-      page: 1,
-      pageSize: 20,
-    });
+    expect(listLeadsMock).toHaveBeenCalledWith(
+      {
+        page: 1,
+        pageSize: 20,
+      },
+      {},
+    );
   });
 
-  it("includes test-marked runs only when the server enables Demo 2 visibility", async () => {
-    isDemo2TestRunVisibilityEnabledMock.mockReturnValue(true);
+  it("passes correlated visibility resolved from the authenticated actor", async () => {
+    const visibility = {
+      includeTestRunsFromImportBatchIds: [
+        "synthetic-correlated-batch",
+      ],
+    } as const;
+    resolveLeadReadVisibilityMock.mockResolvedValue(visibility);
 
     const response = await routeModule.GET(createRequest());
 
     expect(response.status).toBe(200);
+    expect(resolveLeadReadVisibilityMock).toHaveBeenCalledWith(
+      syntheticAuthorizationContext.actor,
+    );
     expect(listLeadsMock).toHaveBeenCalledWith(
       { page: 1, pageSize: 20 },
-      { includeDemo2TestRuns: true },
+      visibility,
     );
+  });
+
+  it("does not resolve producer visibility for synthetic demo data", async () => {
+    isDemoDataEnabledMock.mockReturnValue(true);
+
+    const response = await routeModule.GET(createRequest());
+
+    expect(response.status).toBe(200);
+    expect(resolveLeadReadVisibilityMock).not.toHaveBeenCalled();
+    expect(listLeadsMock).not.toHaveBeenCalled();
   });
 
   it("does not serialize the server authorization actor", async () => {
@@ -249,13 +289,16 @@ describe("GET /api/leads", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(listLeadsMock).toHaveBeenCalledWith({
-      page: 2,
-      pageSize: 10,
-      cnpj: "00000000000000",
-      uf: "SP",
-      priority: "B",
-    });
+    expect(listLeadsMock).toHaveBeenCalledWith(
+      {
+        page: 2,
+        pageSize: 10,
+        cnpj: "00000000000000",
+        uf: "SP",
+        priority: "B",
+      },
+      {},
+    );
   });
 
   it("returns 400 for an invalid parameter without querying", async () => {

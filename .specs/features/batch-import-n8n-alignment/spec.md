@@ -26,7 +26,7 @@ Além disso, a lista de lotes consulta observações produtoras individualmente
 por submissão. Isso cria até 100 leituras produtoras por página e amplia o
 impacto de uma fonte lenta ou indisponível.
 
-## Escopo ativo simplificado em 22/07/2026
+## Escopo ativo simplificado em 23/07/2026
 
 O owner priorizou o fluxo atual de 98 nós: enviar o CSV uma única vez, saber
 quando esse workflow informou que iniciou e terminou o processamento e
@@ -255,6 +255,34 @@ confirmar um único início app-owned com status contratual ainda `SUBMITTED`,
 depois devolver uma nova decisão pelas APIs de leads e observá-la no próximo
 poll visível.
 
+### P1: Resultados do CSV autorizado visíveis no Demo 3
+
+**História:** Como gestor no Demo 3, quero ver os resultados elegíveis do CSV
+que enviei pelo Prospecta mesmo quando o workflow local os marcou como teste,
+sem abrir dados de outros testes ou organizações.
+
+**Critérios de aceitação:**
+
+1. QUANDO a leitura ocorrer fora do perfil Demo 3 exato, ENTÃO o predicado de
+   produção existente DEVE permanecer inalterado.
+2. QUANDO o ator não for o usuário compartilhado autorizado do Demo 3, ENTÃO
+   nenhum lote marcado como teste DEVE ser incluído.
+3. QUANDO um lote marcado como teste tiver correlação app-owned com uma
+   submissão da organização autenticada, ENTÃO seus resultados terminais
+   `INSERIDO_VALIDATION` elegíveis PODEM aparecer.
+4. QUANDO o lote estiver correlacionado somente a outra organização ou não
+   estiver correlacionado, ENTÃO seus resultados marcados como teste DEVEM
+   continuar ocultos.
+5. Lista, detalhe e histórico DEVEM usar a mesma regra e os IDs de lote DEVEM
+   ser parâmetros PostgreSQL, nunca texto interpolado.
+6. Resultados `CRM_DECIDIU_E_SALVO` continuam fora de “Leads para análise”;
+   esta regra não reprocessa, copia nem altera fatos produtores.
+
+**Teste independente:** Em dois bancos PostgreSQL descartáveis com dados
+sintéticos, confirmar que uma linha produtiva e uma linha de lote correlacionado
+à mesma organização aparecem, enquanto linhas de outra organização e sem
+correlação permanecem ocultas.
+
 ## Casos de borda
 
 - arquivo vazio, somente cabeçalho, UTF-8 inválido, aspas irrecuperáveis,
@@ -300,6 +328,7 @@ poll visível.
 | ALIGN-20 | Primeiro `ACCEPTED_ROW` vira início operacional app-owned, nunca aceite durável | P1 | Implementado, testado e ativo |
 | ALIGN-21 | Lista, detalhe e histórico de leads atualizam por polling somente quando visíveis | P1 | Implementado, testado e ativo |
 | ALIGN-22 | Demo 3 e n8n compartilham callback/segredo sem editar o workflow atual | P1 | Configurado e verificado no alvo local autorizado |
+| ALIGN-23 | Demo 3 inclui test-runs somente por lote app-owned correlacionado à organização autenticada | P1 | Implementado localmente; implantação autorizada pendente |
 
 ## Critérios de sucesso
 

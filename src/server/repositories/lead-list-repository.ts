@@ -14,7 +14,10 @@ import {
   mapLeadSummary,
   type LeadSummaryRow,
 } from "../mappers/lead-summary-mapper";
-import { buildLeadRunVisibilityPredicate } from "./production-run-predicate";
+import {
+  buildLeadRunVisibilityPredicate,
+  type LeadRunVisibilityOptions,
+} from "./production-run-predicate";
 
 const maximumCurrentProjections = 1_000;
 const sourceGuardLimit = maximumCurrentProjections + 1;
@@ -26,7 +29,10 @@ LIMIT $1`,
   values: [sourceGuardLimit],
 };
 
-function buildEligibleCurrentCte(includeDemo2TestRuns = false): string {
+function buildEligibleCurrentCte(
+  options: LeadRunVisibilityOptions,
+  correlatedImportBatchIdsParameter?: number,
+): string {
   return `WITH current_terminal_candidates AS (
   SELECT
     terminal.id::text AS decision_id,
@@ -61,7 +67,10 @@ function buildEligibleCurrentCte(includeDemo2TestRuns = false): string {
     AND company_validations.validated_at <= CURRENT_TIMESTAMP
     AND terminal.integrity_status = $1
     AND terminal.processing_result = $3
-    AND ${buildLeadRunVisibilityPredicate("terminal", includeDemo2TestRuns)}
+    AND ${buildLeadRunVisibilityPredicate("terminal", {
+      includeDemo2TestRuns: options.includeDemo2TestRuns,
+      correlatedImportBatchIdsParameter,
+    })}
     AND terminal.lead_run_id ~ $5
     AND terminal.cnpj_normalizado = company_validations.cnpj_normalizado
     AND terminal.import_batch_id IS NOT DISTINCT FROM company_validations.last_import_batch_id
@@ -116,9 +125,7 @@ export interface LeadListResult {
   readonly total: number;
 }
 
-export interface LeadListOptions {
-  readonly includeDemo2TestRuns?: boolean;
-}
+export type LeadListOptions = LeadRunVisibilityOptions;
 
 interface FilterStatements {
   readonly clause: string;
@@ -157,11 +164,18 @@ function buildCountStatement(
   filters: FilterStatements,
   options: LeadListOptions,
 ): SqlStatement {
+  const values = [...filters.values];
+  const correlatedImportBatchIdsParameter =
+    appendCorrelatedImportBatchIds(values, options);
+
   return {
-    text: `${buildEligibleCurrentCte(options.includeDemo2TestRuns)}
+    text: `${buildEligibleCurrentCte(
+      options,
+      correlatedImportBatchIdsParameter,
+    )}
 SELECT COUNT(*)::integer AS total
 FROM eligible_current AS lead${filters.clause}`,
-    values: filters.values,
+    values,
   };
 }
 
@@ -170,13 +184,19 @@ function buildDataStatement(
   input: LeadListQuery,
   options: LeadListOptions,
 ): SqlStatement {
-  const values = [...filters.values, input.pageSize];
+  const values = [...filters.values];
+  const correlatedImportBatchIdsParameter =
+    appendCorrelatedImportBatchIds(values, options);
+  values.push(input.pageSize);
   const limitParameter = `$${values.length}`;
   values.push((input.page - 1) * input.pageSize);
   const offsetParameter = `$${values.length}`;
 
   return {
-    text: `${buildEligibleCurrentCte(options.includeDemo2TestRuns)}
+    text: `${buildEligibleCurrentCte(
+      options,
+      correlatedImportBatchIdsParameter,
+    )}
 SELECT
   lead.decision_id,
   lead.import_batch_id,
@@ -200,6 +220,24 @@ ORDER BY lead.validated_at DESC, lead.projection_id DESC
 LIMIT ${limitParameter} OFFSET ${offsetParameter}`,
     values,
   };
+}
+
+function appendCorrelatedImportBatchIds(
+  values: unknown[],
+  options: LeadRunVisibilityOptions,
+): number | undefined {
+  const importBatchIds = options.includeTestRunsFromImportBatchIds;
+
+  if (
+    options.includeDemo2TestRuns ||
+    importBatchIds === undefined ||
+    importBatchIds.length === 0
+  ) {
+    return undefined;
+  }
+
+  values.push(importBatchIds);
+  return values.length;
 }
 
 function isValidTotal(total: unknown): total is number {

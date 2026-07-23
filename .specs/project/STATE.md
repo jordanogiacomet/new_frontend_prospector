@@ -1,10 +1,11 @@
 # State
 
 **Last Updated:** 2026-07-23
-**Current Work:** Legacy `ACCEPTED_ROW`/`BATCH_CLOSED` lifecycle receiver,
-visible-page lead refresh and shared callback configuration are active on the
-authorized Demo 3 target; the separate n8n v1/producer-worker path remains
-deferred behind OPEN-01–OPEN-05
+**Current Work:** Restricting Demo 3 test-marked lead visibility to producer
+batches correlated with app-owned submissions of the authenticated
+organization; lifecycle callbacks and visible-page refresh remain active, and
+the separate n8n v1/producer-worker path remains deferred behind
+OPEN-01–OPEN-05
 
 ---
 
@@ -183,6 +184,25 @@ synthetic upload reported operational start in about five seconds. Pre-fix
 executions were not retried. The execution later succeeded and reported close
 plus workflow row count while contractual status remained `SUBMITTED`; an
 idempotent read-back caused no external resubmission.
+
+### AD-013: Demo 3 test-run visibility requires app-owned batch correlation (2026-07-23)
+
+**Decision:** Preserve the normal production visibility predicate and add a
+Demo 3-only union for test-marked terminal runs whose `import_batch_id` is
+correlated to an app-owned submission of the authenticated organization.
+Require the exact Demo 3 runtime and shared actor, and apply the same bound
+`text[]` batch set to lead list, detail and retained history.
+**Reason:** The current local workflow marked three otherwise eligible results
+from an owner-submitted CSV with a non-production `test_case_id`, so polling
+worked but the established production predicate correctly hid them.
+**Trade-off:** Each visible-page poll performs one additional app-owned lookup.
+The exception is valid only for the single-organization Demo 3 profile and
+must not become a production multi-organization rule without a stronger global
+batch-identity guarantee.
+**Impact:** Eligible `INSERIDO_VALIDATION` results from the user's correlated
+Demo 3 submission can appear without exposing unrelated test runs, copying
+producer data or changing producer facts. `CRM_DECIDIU_E_SALVO` remains outside
+“Leads para análise”.
 
 ---
 
