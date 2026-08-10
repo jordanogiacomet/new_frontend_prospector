@@ -45,6 +45,21 @@
   permit the response, and the gateway is configured by the immutable Demo 3
   release. This is an accepted single-tester LAN limitation: it does not
   establish individual audit identity.
+- On 2026-07-31 the repository owner separately authorized the staged Demo 3
+  implementation of `contact-enrichment-v2`: professional contact preview,
+  human-selected reveal, app-owned encrypted storage, field/channel
+  suppression, retention erasure, rights handling, and connection of the
+  commercial-queue action to the Prospecta API. The governing policy and
+  exact field allowlist are versioned under
+  `.specs/features/contact-enrichment-v2/`. This approval does not turn the
+  shared Demo 3 actor into an individual production identity, does not make
+  an unknown legal-controller identity or privacy contact factual, and does
+  not authorize PII over the existing plain-HTTP n8n edge. Real-contact tests
+  remain fail-closed until the controller transparency fields, HTTPS path,
+  provider response contract, n8n no-execution-data setting, and controlled
+  test case all pass their recorded preflight. Production rollout remains
+  target-specific and cannot start until its hostname/namespace, OIDC issuer,
+  credentials, migration owner, rollout, and rollback evidence are supplied.
 - The exact internal n8n ingress at
   `http://192.168.0.20:30098/webhook/empresaqui/import` may be exercised from
   this profile through the Prospecta API. The app still sends one exact-byte
@@ -281,6 +296,10 @@ the current productive workflow while developing it.
   - `commercial:read`
   - `commercial:write`
   - `commercial:assign`
+  - `contacts:enrich`
+  - `contacts:read`
+  - `contacts:reveal`
+  - `contacts:govern`
   - `sensitive:read`
   - `costs:read`
   - `audit:read`
@@ -315,6 +334,10 @@ the current productive workflow while developing it.
 
 - Follow
   `.specs/features/prospecting-console/decisions/sensitive-content-policy.md`.
+- Contact preview/reveal additionally follows
+  `.specs/features/contact-enrichment-v2/spec.md`; its independent contact
+  permissions, field/channel allowlist, encryption, suppression, retention,
+  rights, and transparency gates take precedence over `sensitive:read`.
 - Database presence is not permission to expose a field.
 - Withhold by default unless the exact source column/JSON path, business
   meaning, permission, retention, and UI purpose are allowlisted.
@@ -401,8 +424,20 @@ Authorized endpoint direction:
 - `GET/POST /api/workspaces/:id/activities`
 - `GET/POST /api/workspaces/:id/notes`
 - `GET /api/workspaces/:id/audit`
+- `POST /api/contact-enrichment/v2`
+- `GET /api/contact-enrichment/v2/:requestId`
+- `POST /api/contact-enrichment/v2/:requestId/reveal`
+- `POST /api/contact-enrichment/v2/callback` (authenticated machine receiver)
+- `POST /api/contact-enrichment/v2/reveal-callback` (authenticated machine receiver)
+- `POST /api/contact-enrichment/v2/contacts/:contactId/suppress`
+- `POST /api/contact-enrichment/v2/rights`
+- `POST /api/contact-enrichment/v2/retention`
 
 No route may call an unapproved n8n endpoint or mutate producer data.
+The v2 contact routes above remain disabled unless the separately approved
+`.specs/features/contact-enrichment-v2/` policy, permission, HTTPS,
+transparency, encryption, suppression, retention, and activation gates all
+pass. The Demo 3 HTTP exception does not authorize v2 PII transport.
 
 ## UI rules
 

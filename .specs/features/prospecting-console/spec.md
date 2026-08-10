@@ -200,6 +200,13 @@ Authorized staged implementation may build this capability against a
 disposable app schema. Production use still requires the database, identity,
 security, and rollout gates.
 
+The unfiltered queue SHALL be a live projection of the same current-company
+relation used by Leads for the authenticated actor. Producer filters,
+visibility, ordering, and pagination follow
+`contracts/commercial-queue-membership.md`; explicit commercial filters are
+intentional subsets, while workspace state and company domain are decorations
+that never determine membership.
+
 ### P3: Expand governed content and integrations
 
 Contact content, CRM integration, notifications, analytics, and exports remain
@@ -226,8 +233,9 @@ separate, policy-gated features.
 | PC-15 | Append-only activities, notes, and audit | `contracts/app-write-model.md` | Approved for implementation |
 | PC-16 | Sensitive field/URL/Markdown controls | `decisions/sensitive-content-policy.md` | Approved framework |
 | PC-17 | UAT, security review, gradual rollout and rollback | `tasks.md` | Planned |
+| PC-18 | Leads/commercial-queue current membership parity | `contracts/commercial-queue-membership.md` | Implemented and synthetically verified |
 
-**Coverage:** 17 requirements mapped to contracts, decisions, evidence, and
+**Coverage:** 18 requirements mapped to contracts, decisions, evidence, and
 atomic tasks. The internal upload slice may proceed with acknowledgement-only
 semantics; production security, durable acceptance, completion, and
 performance evidence remain pending.

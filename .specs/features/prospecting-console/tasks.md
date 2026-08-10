@@ -1644,6 +1644,17 @@ mutation, migration, schema change, producer write, app-schema write,
 sensitive-content expansion, score/action/priority/verdict/trust
 recalculation, or commit was performed.
 
+**Parity addendum (2026-08-06):** Requirement PC-18 removes the independent
+queue copy of current-lead eligibility. Leads and the queue now consume
+`src/server/repositories/current-lead-query.ts` for the exact eligibility CTE,
+source guard, base parameters, correlated Demo 3 visibility, and stable
+ordering. `GET /api/work-queue` resolves visibility from the same authenticated
+actor helper as `GET /api/leads`. Company domain and app-owned workspace state
+are applied only after membership is established. Explicit commercial filters
+remain intentional subsets. Focused unit/route verification passed 3 files / 92
+tests; disposable PostgreSQL verification passed 1 file / 12 tests and compared
+the exact synthetic CNPJ sequence and total returned by both repositories.
+
 **Recorded tests:** Added unit coverage in
 `src/server/commercial/work-queue-repository.test.ts` and DB integration
 coverage in

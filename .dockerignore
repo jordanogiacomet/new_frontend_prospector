@@ -16,6 +16,9 @@ db/app/*
 !db/app/006_import_acceptance_reconciliation_forward.sql
 !db/app/007_legacy_workflow_close_report_forward.sql
 !db/app/008_legacy_workflow_start_report_forward.sql
+!db/app/009_contact_enrichment_ledger_forward.sql
+!db/app/010_contact_data_governance_forward.sql
+!db/app/011_contact_company_resolution_forward.sql
 docs
 node_modules
 tests

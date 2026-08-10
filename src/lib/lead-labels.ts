@@ -23,9 +23,12 @@ const VERDICT_LABELS: Readonly<Record<string, string>> = {
   REVISAO_HUMANA: "Revisão humana",
 };
 
-const TRUST_STATUS_LABELS: Readonly<Record<string, string>> = {
-  "Revisão Humana": "Revisão humana",
-};
+const TRUST_STATUS_CATEGORY_LABELS = [
+  { prefix: "Aprovada", label: "Aprovada" },
+  { prefix: "Nutrir", label: "Nutrir" },
+  { prefix: "Não Abordar", label: "Não abordar" },
+  { prefix: "Revisão Humana", label: "Revisão humana" },
+] as const;
 
 const APPROVED_LOW_CONFIDENCE_TRUST_STATUSES: ReadonlySet<string> = new Set();
 
@@ -61,7 +64,16 @@ export function getVerdictLabel(storedValue: string | null): string {
 }
 
 export function getTrustStatusLabel(storedValue: string | null): string {
-  return getDomainLabel(TRUST_STATUS_LABELS, storedValue);
+  if (typeof storedValue !== "string") {
+    return UNAVAILABLE_LABEL;
+  }
+
+  const category = TRUST_STATUS_CATEGORY_LABELS.find(
+    ({ prefix }) =>
+      storedValue === prefix || storedValue.startsWith(`${prefix} `),
+  );
+
+  return category?.label ?? UNKNOWN_DOMAIN_LABEL;
 }
 
 export function deriveConfidenceIndicator(

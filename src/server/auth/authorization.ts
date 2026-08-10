@@ -7,6 +7,9 @@ export interface AuthorizationPolicy {
   organizationId: string;
   costsReadEnabled: boolean;
   costsReadSubjects: readonly string[];
+  contactDataEnabled: boolean;
+  contactReadSubjects: readonly string[];
+  contactGovernSubjects: readonly string[];
 }
 
 export interface AuthorizedActor {
@@ -45,6 +48,10 @@ export function createDevelopmentAuthorization(
   costsReadSubjects: readonly string[] = [],
   demo2K8sRuntimeEnabled = false,
   demo3LocalRuntimeEnabled = false,
+  contactEnrichmentEnabled = false,
+  contactDataEnabled = false,
+  contactReadSubjects: readonly string[] = [],
+  contactGovernSubjects: readonly string[] = [],
 ): ServerSessionAuthorization | null {
   const isApprovedDemo2Runtime =
     nodeEnv === "development" || demo2K8sRuntimeEnabled;
@@ -78,6 +85,13 @@ export function createDevelopmentAuthorization(
     (hasDemo2FullAccess || hasDemo3FullAccess) &&
     costsEnabled &&
     costsReadSubjects.includes(subject);
+  const hasContactReadAccess =
+    hasDemo3FullAccess &&
+    contactEnrichmentEnabled &&
+    contactDataEnabled &&
+    contactReadSubjects.includes(subject);
+  const hasContactGovernAccess =
+    hasContactReadAccess && contactGovernSubjects.includes(subject);
   const permissions: readonly Permission[] = hasDemo2FullAccess
     ? [
         "leads:read",
@@ -99,6 +113,15 @@ export function createDevelopmentAuthorization(
           "commercial:write",
           "commercial:assign",
           "audit:read",
+          ...(contactEnrichmentEnabled
+            ? (["contacts:enrich"] as const)
+            : []),
+          ...(hasContactReadAccess
+            ? (["contacts:read", "contacts:reveal"] as const)
+            : []),
+          ...(hasContactGovernAccess
+            ? (["contacts:govern"] as const)
+            : []),
           ...(sensitiveContentEnabled ? (["sensitive:read"] as const) : []),
           ...(hasCostsReadAccess ? (["costs:read"] as const) : []),
         ]
@@ -174,10 +197,28 @@ function permissionsForIdentity(
   identity: AuthorizedIdentityFields,
   policy: AuthorizationPolicy,
 ): readonly Permission[] {
-  return policy.costsReadEnabled &&
+  const permissions: Permission[] = [];
+
+  if (
+    policy.costsReadEnabled &&
     policy.costsReadSubjects.includes(identity.subject)
-    ? ["costs:read"]
-    : [];
+  ) {
+    permissions.push("costs:read");
+  }
+  if (
+    policy.contactDataEnabled &&
+    policy.contactReadSubjects.includes(identity.subject)
+  ) {
+    permissions.push("contacts:enrich", "contacts:read", "contacts:reveal");
+  }
+  if (
+    policy.contactDataEnabled &&
+    policy.contactGovernSubjects.includes(identity.subject)
+  ) {
+    permissions.push("contacts:govern");
+  }
+
+  return permissions;
 }
 
 export function authorizeIdentityClaims(

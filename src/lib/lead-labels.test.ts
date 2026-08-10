@@ -71,6 +71,24 @@ describe("approved verdict and trust labels", () => {
     expect(getTrustStatusLabel("Revisão Humana")).toBe("Revisão humana");
   });
 
+  it.each([
+    ["Aprovada com validação sintética", "Aprovada"],
+    ["Nutrir - evidência sintética insuficiente", "Nutrir"],
+    ["Não Abordar", "Não abordar"],
+    ["Revisão Humana - validação sintética", "Revisão humana"],
+  ])("maps the approved trust-status category in %s", (storedValue, label) => {
+    expect(getTrustStatusLabel(storedValue)).toBe(label);
+  });
+
+  it.each([
+    "Aprovadamente",
+    "NutrirAgora",
+    "Não Abordaremos",
+    "Revisão Humanamente",
+  ])("does not map an unbounded trust-status prefix in %s", (storedValue) => {
+    expect(getTrustStatusLabel(storedValue)).toBe(UNKNOWN_DOMAIN_LABEL);
+  });
+
   it("does not normalize an unapproved trust status", () => {
     expect(getTrustStatusLabel("REVISAO_HUMANA")).toBe(UNKNOWN_DOMAIN_LABEL);
   });

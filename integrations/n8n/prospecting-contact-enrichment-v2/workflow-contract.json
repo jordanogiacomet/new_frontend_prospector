@@ -1,0 +1,99 @@
+{
+  "contractVersions": [
+    "prospecta-contact-company-search-v2",
+    "prospecta-contact-enrichment-preview-by-company-id-v1",
+    "prospecta-contact-enrichment-preview-v2",
+    "prospecta-contact-enrichment-reveal-v2"
+  ],
+  "workflowName": "Prospecta - Contact Enrichment v2 - Inactive",
+  "workflowState": "INACTIVE_REFERENCE_ONLY",
+  "ingress": {
+    "method": "POST",
+    "webhookPath": "prospecta/lusha/contact-enrichment-v2",
+    "transport": "HTTPS_REQUIRED",
+    "authentication": "NATIVE_N8N_HEADER_AUTH_CREDENTIAL",
+    "initialResponse": "202_WITHOUT_CONTACT_DATA",
+    "automaticRetry": false
+  },
+  "companySearch": {
+    "providerOperation": "POST https://api.lusha.com/v3/companies/prospecting",
+    "searchCriteria": [
+      "COMPANY_NAME",
+      "CITY_WHEN_AVAILABLE",
+      "STATE_WHEN_AVAILABLE",
+      "COUNTRY_BR_MAPPED_TO_PROVIDER_NAME_BRAZIL"
+    ],
+    "providerPageSize": 10,
+    "billing": "API_SEARCH_MAY_CHARGE_PER_SUCCESSFUL_RESULT",
+    "selection": "ONE_HUMAN_CONFIRMED_APP_OWNED_MATCH",
+    "callbackPath": "/api/contact-enrichment/v2/company-search-callback",
+    "maximumMatches": 5,
+    "allowedFields": [
+      "provider_company_id",
+      "company_name",
+      "company_domain",
+      "industry",
+      "location.city",
+      "location.state",
+      "location.country"
+    ],
+    "browserProviderId": false,
+    "rawProviderPayload": false
+  },
+  "preview": {
+    "providerOperation": "POST https://api.lusha.com/v3/contacts/decision-makers",
+    "selectors": ["CONFIRMED_DOMAIN", "SERVER_DECRYPTED_PROVIDER_COMPANY_ID"],
+    "maximumCandidates": 10,
+    "callbackPath": "/api/contact-enrichment/v2/callback",
+    "allowedFields": [
+      "provider_contact_id",
+      "full_name",
+      "job_title",
+      "departments",
+      "seniority",
+      "location.city",
+      "location.state",
+      "location.country",
+      "linkedin_url",
+      "can_reveal_work_email",
+      "can_reveal_business_phone"
+    ]
+  },
+  "reveal": {
+    "selection": "ONE_HUMAN_SELECTED_CONTACT",
+    "providerOperation": "POST https://api.lusha.com/v3/contacts/enrich",
+    "waterfallReveal": "PROHIBITED",
+    "callbackPath": "/api/contact-enrichment/v2/reveal-callback",
+    "allowedEmailTypes": ["work"],
+    "allowedPhoneTypes": ["work", "direct"],
+    "doNotCall": "SUPPRESS_AND_WITHHOLD"
+  },
+  "credentials": {
+    "ingress": "MANUAL_NATIVE_HEADER_AUTH_BINDING",
+    "lusha": "MANUAL_NATIVE_HEADER_AUTH_BINDING",
+    "callback": "MANUAL_NATIVE_HEADER_AUTH_BINDING",
+    "repositorySecrets": false
+  },
+  "persistence": {
+    "producerWrites": false,
+    "n8nExecutionData": "NONE",
+    "rawProviderPayload": false,
+    "prospectaAppOwnedOnly": true
+  },
+  "activationGates": [
+    "IDENTIFIED_NON_PRODUCTION_HTTPS_TARGET",
+    "CONTROLLER_TRANSPARENCY_FIELDS",
+    "NATIVE_CREDENTIAL_BINDINGS",
+    "NO_EXECUTION_DATA_REMOTELY_VERIFIED",
+    "SYNTHETIC_CONTRACT_PASS",
+    "EXPLICIT_ACTIVATION_APPROVAL"
+  ],
+  "productionGates": [
+    "INDIVIDUAL_IDENTITY",
+    "HMAC_TIMESTAMP_NONCE_REPLAY_CONTRACT",
+    "DURABLE_RATE_LIMIT",
+    "PRODUCTION_CREDENTIALS",
+    "REVIEWED_MIGRATION_AND_BACKUP",
+    "CANARY_ROLLOUT_AND_ROLLBACK"
+  ]
+}

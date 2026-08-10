@@ -35,9 +35,13 @@ and workspace -> DTO mapper re-applies allowlists for `previous_metadata`,
 
 Work queue entry: `src/server/commercial/work-queue-repository.ts`
 
-Flow: actor organization + validated filters/sort/pagination ->
+Shared current-lead membership:
+`src/server/repositories/current-lead-query.ts`
+
+Flow: authenticated actor visibility + actor organization + validated
+filters/sort/pagination ->
 workspace-filter CNPJ lookup when commercial filters are present ->
-guarded current producer lead SELECT through `producer-client` ->
+shared guarded current producer lead SELECT through `producer-client` ->
 active org-scoped workspace lookup through `app-client` -> compose
 `producerLead` and nullable `workspace` without recalculating producer facts
 
@@ -79,6 +83,10 @@ Rules:
 - Work queue: producer facts and commercial state stay contractually distinct;
   producer unavailable returns empty items with `total: null`; app DB
   unavailable remains the app-client safe database error
+- Work queue membership: with no commercial filter, Leads and Queue use the
+  same eligibility, actor visibility, producer filters, source guard, stable
+  ordering, and pagination. Domain/workspace data only decorates the selected
+  rows; no app-owned membership snapshot exists.
 - Workspace create route: never reads organization, actor, author,
   permissions, or audit metadata from the request
 - Workspace detail/update route: derives organization, subject, and
@@ -108,4 +116,4 @@ Tests:
 - Integration config includes co-located `src/**/*.integration.test.ts` and
   disables file parallelism for shared disposable DB reset safety
 
-Updated: 2026-07-16
+Updated: 2026-08-06

@@ -44,6 +44,10 @@ function queueItem(
   overrides: Partial<CommercialWorkQueueItem> = {},
 ): CommercialWorkQueueItem {
   return {
+    companyDomain:
+      overrides.companyDomain === undefined
+        ? "empresa.example"
+        : overrides.companyDomain,
     producerLead: overrides.producerLead ?? {
       decision_id: "decision-synthetic-work-queue",
       import_batch_id: "batch-synthetic-work-queue",
@@ -157,7 +161,7 @@ describe("commercial work queue page", () => {
       screen.getByRole("heading", { name: "Fila comercial" }),
     ).toBeInTheDocument();
     expect(
-      await screen.findByRole("table", { name: "Fila comercial" }),
+      await screen.findByRole("region", { name: "Empresas na fila comercial" }),
     ).toBeInTheDocument();
   });
 
@@ -185,7 +189,7 @@ describe("commercial work queue page", () => {
 
     render(<CommercialWorkQueuePage />);
 
-    await screen.findByRole("table", { name: "Fila comercial" });
+    await screen.findByRole("region", { name: "Empresas na fila comercial" });
     expect(firstFetchCall()[0]).toBe(
       "/api/work-queue?page=3&pageSize=50&cnpj_normalizado=12345678000195&uf=PE&priority=B&commercial_stage=CONTACTED&responsible_subject=oidc%7Csynthetic-responsible&sort=last_analysis_desc",
     );
@@ -195,7 +199,7 @@ describe("commercial work queue page", () => {
     navigationState.query = "page=4&pageSize=50&uf=PE";
     render(<CommercialWorkQueuePage />);
 
-    await screen.findByRole("table", { name: "Fila comercial" });
+    await screen.findByRole("region", { name: "Empresas na fila comercial" });
     fireEvent.change(screen.getByLabelText("Prioridade do produtor"), {
       target: { value: "B" },
     });
@@ -210,7 +214,7 @@ describe("commercial work queue page", () => {
       "page=2&pageSize=10&uf=PE&unknown=value&sort=score_desc";
     render(<CommercialWorkQueuePage />);
 
-    await screen.findByRole("table", { name: "Fila comercial" });
+    await screen.findByRole("region", { name: "Empresas na fila comercial" });
     fireEvent.change(screen.getByLabelText("CNPJ"), {
       target: { value: "12.345.678/0001-95" },
     });
@@ -253,43 +257,39 @@ describe("commercial work queue page", () => {
     expect(screen.getByText("25 empresas")).toBeInTheDocument();
   });
 
-  it("renders the desktop table with producer and commercial columns", async () => {
+  it("organizes each company as one responsive opportunity sheet", async () => {
     render(<CommercialWorkQueuePage />);
 
-    const table = await screen.findByRole("table", { name: "Fila comercial" });
-    for (const column of [
-      "Empresa",
-      "CNPJ",
-      "Recomendação do produtor",
-      "Estado comercial",
-      "Próxima ação",
-      "Última análise",
-    ]) {
-      expect(within(table).getByRole("columnheader", { name: column })).toBeInTheDocument();
-    }
-  });
-
-  it("renders responsive business cards alongside the desktop table", async () => {
-    render(<CommercialWorkQueuePage />);
-
-    const cards = await screen.findByRole("region", {
-      name: "Cartões da fila comercial",
+    const queue = await screen.findByRole("region", {
+      name: "Empresas na fila comercial",
     });
-    expect(within(cards).getByText("Empresa Horizonte Sintética")).toBeInTheDocument();
+    const opportunity = within(queue).getByRole("article", {
+      name: "Empresa Horizonte Sintética",
+    });
+    for (const section of [
+      "Recomendação do produtor",
+      "Acompanhamento comercial",
+      "Próxima ação",
+      "Contatos profissionais",
+    ]) {
+      expect(
+        within(opportunity).getByRole("heading", { name: section }),
+      ).toBeInTheDocument();
+    }
     expect(
-      within(cards).getByText("Acompanhamento comercial"),
+      within(opportunity).getByText("12.345.678/0001-95"),
     ).toBeInTheDocument();
   });
 
   it("links each existing commercial workspace from the queue", async () => {
     render(<CommercialWorkQueuePage />);
 
-    await screen.findByRole("table", { name: "Fila comercial" });
+    await screen.findByRole("region", { name: "Empresas na fila comercial" });
     const links = screen.getAllByRole("link", {
       name: "Abrir acompanhamento comercial de Empresa Horizonte Sintética",
     });
 
-    expect(links).toHaveLength(2);
+    expect(links).toHaveLength(1);
     for (const link of links) {
       expect(link).toHaveAttribute(
         "href",
@@ -298,11 +298,87 @@ describe("commercial work queue page", () => {
     }
   });
 
+  it("offers one enrichment action per company", async () => {
+    render(<CommercialWorkQueuePage />);
+
+    await screen.findByRole("region", { name: "Empresas na fila comercial" });
+    expect(
+      screen.getAllByRole("button", {
+        name: "Enriquecer lead e recuperar contatos de Empresa Horizonte Sintética",
+      }),
+    ).toHaveLength(1);
+  });
+
+  it("prefills the approved company domain and asks for confirmation before contact request", async () => {
+    render(<CommercialWorkQueuePage />);
+
+    const [button] = await screen.findAllByRole("button", {
+      name: "Enriquecer lead e recuperar contatos de Empresa Horizonte Sintética",
+    });
+    fireEvent.click(button);
+
+    const domainInput = await screen.findByRole("textbox", {
+      name: "Domínio da empresa",
+    });
+    expect(domainInput).toHaveValue("empresa.example");
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it("uses the queue company and location only through the Prospecta company-search route", async () => {
+    fetchMock.mockImplementation((input) => {
+      if (input.startsWith("/api/work-queue?")) {
+        return Promise.resolve(
+          apiResponse(queueEnvelope([queueItem({ companyDomain: null })])),
+        );
+      }
+      if (input === "/api/contact-enrichment/v2/company-search") {
+        return Promise.resolve(
+          apiResponse(
+            {
+              data: {
+                searchRequestId: "00000000-0000-4000-8000-000000000780",
+                status: "SEARCH_DISPATCHED",
+                requestedAt: "2026-08-06T12:00:00.000Z",
+                updatedAt: "2026-08-06T12:00:00.000Z",
+              },
+            },
+            202,
+          ),
+        );
+      }
+      throw new Error(`Unexpected synthetic request: ${input}`);
+    });
+    render(<CommercialWorkQueuePage />);
+
+    const button = await screen.findByRole("button", {
+      name: "Enriquecer lead e recuperar contatos de Empresa Horizonte Sintética",
+    });
+    fireEvent.click(button);
+    fireEvent.click(
+      screen.getByRole("button", { name: "Localizar empresa pelo nome" }),
+    );
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    const companySearch = fetchMock.mock.calls[1];
+    expect(companySearch?.[0]).toBe(
+      "/api/contact-enrichment/v2/company-search",
+    );
+    expect(companySearch?.[1]?.body).toBe(
+      JSON.stringify({
+        cnpj_normalizado: cnpj,
+        company_name: "Empresa Horizonte Sintética",
+        company_city: "Recife",
+        company_state: "PE",
+        company_country_iso2: "BR",
+      }),
+    );
+  });
+
   it("starts a commercial workspace from an unmapped queue item", async () => {
     fetchMock.mockResolvedValue(apiResponse(queueEnvelope([queueItem({ workspace: null })])));
     render(<CommercialWorkQueuePage />);
 
-    await screen.findByRole("table", { name: "Fila comercial" });
+    await screen.findByRole("region", { name: "Empresas na fila comercial" });
     expect(
       screen.queryByRole("link", { name: /Abrir acompanhamento comercial/i }),
     ).not.toBeInTheDocument();
@@ -310,7 +386,7 @@ describe("commercial work queue page", () => {
       screen.getAllByRole("button", {
         name: "Iniciar acompanhamento comercial de Empresa Horizonte Sintética",
       }),
-    ).toHaveLength(2);
+    ).toHaveLength(1);
   });
 
   it("creates a workspace with only the selected producer references and opens it", async () => {
@@ -391,7 +467,7 @@ describe("commercial work queue page", () => {
   it("formats CNPJ and both queue dates for Brazil", async () => {
     render(<CommercialWorkQueuePage />);
 
-    await screen.findByRole("table", { name: "Fila comercial" });
+    await screen.findByRole("region", { name: "Empresas na fila comercial" });
     expect(screen.getByText("12.345.678/0001-95")).toBeInTheDocument();
     expect(screen.getAllByText("10/07/2026").length).toBeGreaterThan(0);
     expect(document.body).toHaveTextContent("Prazo: 11/07/2026");
@@ -400,7 +476,7 @@ describe("commercial work queue page", () => {
   it("keeps producer recommendation textually separate from the commercial workspace", async () => {
     render(<CommercialWorkQueuePage />);
 
-    await screen.findByRole("table", { name: "Fila comercial" });
+    await screen.findByRole("region", { name: "Empresas na fila comercial" });
     expect(document.body).toHaveTextContent(
       "O acompanhamento comercial não altera a recomendação do produtor.",
     );
@@ -413,11 +489,18 @@ describe("commercial work queue page", () => {
   it("renders badges for producer priority, trust, action, and commercial stage", async () => {
     render(<CommercialWorkQueuePage />);
 
-    await screen.findByRole("table", { name: "Fila comercial" });
-    expect(screen.getAllByText("Prioridade B").length).toBeGreaterThanOrEqual(2);
-    expect(screen.getAllByText("Revisão humana").length).toBeGreaterThanOrEqual(2);
-    expect(screen.getAllByText("Prospectar").length).toBeGreaterThanOrEqual(2);
-    expect(screen.getAllByText("Estágio: Contatado").length).toBeGreaterThanOrEqual(2);
+    const queue = await screen.findByRole("region", {
+      name: "Empresas na fila comercial",
+    });
+    const opportunity = within(queue).getByRole("article", {
+      name: "Empresa Horizonte Sintética",
+    });
+    expect(within(opportunity).getByText("Prioridade B")).toBeInTheDocument();
+    expect(within(opportunity).getByText("Revisão humana")).toBeInTheDocument();
+    expect(within(opportunity).getByText("Prospectar")).toBeInTheDocument();
+    expect(
+      within(opportunity).getByText("Estágio: Contatado"),
+    ).toBeInTheDocument();
   });
 
   it("shows a loading state while the current queue request is pending", () => {
@@ -427,7 +510,9 @@ describe("commercial work queue page", () => {
     expect(
       screen.getByRole("status", { name: "Carregando fila comercial" }),
     ).toBeInTheDocument();
-    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("region", { name: "Empresas na fila comercial" }),
+    ).not.toBeInTheDocument();
   });
 
   it("shows a confirmed empty state only when the API total is zero", async () => {
@@ -439,7 +524,9 @@ describe("commercial work queue page", () => {
         name: "Nenhuma empresa na fila comercial",
       }),
     ).toBeInTheDocument();
-    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("region", { name: "Empresas na fila comercial" }),
+    ).not.toBeInTheDocument();
   });
 
   it("shows producer unavailability without inventing a zero total or a final page", async () => {

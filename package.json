@@ -7,6 +7,7 @@
     "demo2": "node scripts/demo2.mjs",
     "demo2:k8s": "node scripts/deploy-demo2-k8s.mjs",
     "demo3:k8s": "node scripts/deploy-demo3-k8s.mjs",
+    "demo3:contact-v2:n8n": "node scripts/prepare-demo3-contact-v2-n8n.mjs",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",

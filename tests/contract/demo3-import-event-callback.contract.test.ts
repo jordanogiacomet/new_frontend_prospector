@@ -33,7 +33,16 @@ describe("Demo 3 legacy import close callback packaging", () => {
     const manifest = readRepositoryFile("k8s/prospecta-demo3.yaml");
 
     expect(deployScript).toContain(
-      'n8nImportEventSecret: required("N8N_IMPORT_EVENT_SECRET")',
+      'n8nImportEventSecret: readOptional("N8N_IMPORT_EVENT_SECRET")',
+    );
+    expect(deployScript).toContain(
+      "function readExistingImportEventSecret()",
+    );
+    expect(deployScript).toContain(
+      "function resolveImportEventSecret(configuration, namespaceExists)",
+    );
+    expect(deployScript).toContain(
+      "n8nImportEventSecret: resolveImportEventSecret(",
     );
     expect(deployScript).toMatch(
       /N8N_IMPORT_EVENT_SECRET:\s*configuration\.n8nImportEventSecret/,

@@ -9,6 +9,11 @@ import {
 import { useEffect, useState, type FormEvent } from "react";
 
 import {
+  ContactEnrichmentAction,
+  ContactEnrichmentProvider,
+} from "../../../components/contacts/contact-enrichment-action";
+
+import {
   UNAVAILABLE_LABEL,
   formatBrazilianDate,
   formatCnpj,
@@ -208,6 +213,7 @@ function isQueueItem(value: unknown): value is CommercialWorkQueueItem {
   const workspaceSource = value.sources.workspace;
 
   return (
+    isNullableString(value.companyDomain) &&
     isLeadSummary(value.producerLead) &&
     (workspace === null || isWorkspace(workspace)) &&
     isRecord(producerSource) &&
@@ -1027,154 +1033,200 @@ function QueueResults({
   readonly query: string;
 }) {
   return (
-    <section aria-label="Empresas na fila comercial">
-      <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-[oklch(82%_0.025_82)] pb-4">
-        <h2 className="font-serif text-2xl tracking-[-0.025em]">
-          Empresas para acompanhamento
-        </h2>
-        <p className="text-sm font-semibold text-[oklch(43%_0.03_252)]">
-          {formatTotal(meta.total)}
-        </p>
-      </div>
+    <ContactEnrichmentProvider>
+      <section aria-label="Empresas na fila comercial">
+        <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-[oklch(82%_0.025_82)] pb-4">
+          <h2 className="font-serif text-2xl tracking-[-0.025em]">
+            Empresas para acompanhamento
+          </h2>
+          <p className="text-sm font-semibold text-[oklch(43%_0.03_252)]">
+            {formatTotal(meta.total)}
+          </p>
+        </div>
 
-      <div className="mt-5 hidden overflow-x-auto lg:block">
-        <table
-          aria-label="Fila comercial"
-          className="w-full min-w-[82rem] border-collapse text-left"
-        >
-          <thead>
-            <tr className="border-b border-[oklch(72%_0.035_82)]">
-              {[
-                "Empresa",
-                "CNPJ",
-                "Localidade",
-                "Recomendação do produtor",
-                "Estado comercial",
-                "Próxima ação",
-                "Última análise",
-              ].map((column) => (
-                <th
-                  key={column}
-                  scope="col"
-                  className="px-3 py-4 text-xs font-bold tracking-[0.09em] text-[oklch(43%_0.03_252)] uppercase first:pl-0 last:pr-0"
-                >
-                  {column}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {items.map((item) => (
-              <tr
+        <div className="mt-6 grid gap-7">
+          {items.map((item, index) => {
+            const headingId = `queue-opportunity-${index}`;
+            return (
+              <article
                 key={item.producerLead.decision_id}
-                className="border-b border-[oklch(88%_0.02_82)] align-top transition-colors hover:bg-[oklch(95%_0.025_82)] motion-reduce:transition-none"
+                aria-labelledby={headingId}
+                className="overflow-hidden border border-[oklch(78%_0.03_82)] bg-[oklch(99%_0.006_82)]"
               >
-                <td className="max-w-60 py-5 pr-3">
-                  <p className="font-bold leading-5">
-                    {item.producerLead.companyName ?? UNAVAILABLE_LABEL}
-                  </p>
-                  <p className="mt-2 text-sm leading-5 text-[oklch(48%_0.025_252)]">
-                    {item.producerLead.sector ?? UNAVAILABLE_LABEL}
-                  </p>
-                </td>
-                <td className="px-3 py-5 text-sm whitespace-nowrap">
-                  {formatCnpj(item.producerLead.cnpj)}
-                </td>
-                <td className="max-w-44 px-3 py-5 text-sm leading-5">
-                  {formatLocation(item.producerLead.city, item.producerLead.uf)}
-                </td>
-                <td className="max-w-60 px-3 py-5">
-                  <ProducerFacts lead={item.producerLead} />
-                </td>
-                <td className="max-w-60 px-3 py-5">
-                  <CommercialFacts workspace={item.workspace} />
-                  <WorkspaceAction
-                    workspace={item.workspace}
-                    companyName={item.producerLead.companyName}
-                    cnpj={item.producerLead.cnpj}
-                    leadRunId={item.producerLead.lead_run_id}
-                  />
-                </td>
-                <td className="max-w-56 px-3 py-5">
-                  <NextAction workspace={item.workspace} />
-                </td>
-                <td className="py-5 pl-3 text-sm whitespace-nowrap last:pr-0">
-                  {formatBrazilianDate(item.producerLead.lastAnalysisAt)}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      <div
-        role="region"
-        aria-label="Cartões da fila comercial"
-        className="mt-5 grid gap-5 lg:hidden"
-      >
-        {items.map((item) => (
-          <article
-            key={item.producerLead.decision_id}
-            className="border border-[oklch(82%_0.025_82)] bg-[oklch(99%_0.006_82)] p-5"
-          >
-            <div className="flex flex-wrap items-start justify-between gap-4">
-              <div>
-                <p className="font-serif text-2xl tracking-[-0.025em]">
-                  {item.producerLead.companyName ?? UNAVAILABLE_LABEL}
-                </p>
-                <p className="mt-2 text-sm text-[oklch(43%_0.03_252)]">
-                  {formatCnpj(item.producerLead.cnpj)} · {" "}
-                  {formatLocation(item.producerLead.city, item.producerLead.uf)}
-                </p>
-              </div>
-              <p className="text-sm font-semibold text-[oklch(43%_0.03_252)]">
-                {formatBrazilianDate(item.producerLead.lastAnalysisAt)}
-              </p>
-            </div>
-
-            <div className="mt-5 grid gap-5 border-t border-[oklch(88%_0.02_82)] pt-5 sm:grid-cols-2">
-              <div>
-                <p className="text-xs font-bold tracking-[0.12em] text-[oklch(45%_0.105_174)] uppercase">
-                  Recomendação do produtor
-                </p>
-                <div className="mt-3">
-                  <ProducerFacts lead={item.producerLead} />
-                </div>
-              </div>
-              <div>
-                <p className="text-xs font-bold tracking-[0.12em] text-[oklch(45%_0.105_174)] uppercase">
-                  Acompanhamento comercial
-                </p>
-                <div className="mt-3">
-                  <CommercialFacts workspace={item.workspace} showHeading={false} />
-                  <div className="mt-4">
-                    <NextAction workspace={item.workspace} />
+                <header className="grid gap-6 px-5 py-6 sm:px-7 md:grid-cols-[minmax(0,1fr)_auto] md:items-start">
+                  <div className="min-w-0">
+                    <p className="text-xs font-bold tracking-[0.16em] text-[oklch(45%_0.105_174)] uppercase">
+                      Oportunidade {index + 1}
+                    </p>
+                    <h3
+                      id={headingId}
+                      className="mt-2 max-w-[32ch] font-serif text-[clamp(1.65rem,3vw,2.35rem)] leading-tight tracking-[-0.035em] text-balance"
+                    >
+                      {item.producerLead.companyName ?? UNAVAILABLE_LABEL}
+                    </h3>
+                    <p className="mt-2 max-w-2xl text-sm leading-6 text-[oklch(43%_0.03_252)]">
+                      {item.producerLead.sector ?? "Setor não informado"}
+                    </p>
                   </div>
-                  <WorkspaceAction
-                    workspace={item.workspace}
-                    companyName={item.producerLead.companyName}
-                    cnpj={item.producerLead.cnpj}
-                    leadRunId={item.producerLead.lead_run_id}
-                  />
-                </div>
-              </div>
-            </div>
-          </article>
-        ))}
-      </div>
 
-      <QueuePagination itemsOnPage={items.length} meta={meta} query={query} />
-    </section>
+                  <dl className="grid grid-cols-2 gap-x-8 gap-y-4 text-sm md:min-w-[25rem]">
+                    <div>
+                      <dt className="text-[0.68rem] font-bold tracking-[0.12em] text-[oklch(48%_0.025_252)] uppercase">
+                        CNPJ
+                      </dt>
+                      <dd className="mt-1 font-semibold tabular-nums">
+                        {formatCnpj(item.producerLead.cnpj)}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-[0.68rem] font-bold tracking-[0.12em] text-[oklch(48%_0.025_252)] uppercase">
+                        Localidade
+                      </dt>
+                      <dd className="mt-1 font-semibold">
+                        {formatLocation(
+                          item.producerLead.city,
+                          item.producerLead.uf,
+                        )}
+                      </dd>
+                    </div>
+                    <div className="col-span-2">
+                      <dt className="text-[0.68rem] font-bold tracking-[0.12em] text-[oklch(48%_0.025_252)] uppercase">
+                        Última análise
+                      </dt>
+                      <dd className="mt-1 font-semibold tabular-nums">
+                        {formatBrazilianDate(
+                          item.producerLead.lastAnalysisAt,
+                        )}
+                      </dd>
+                    </div>
+                  </dl>
+                </header>
+
+                <div className="grid border-t border-[oklch(84%_0.025_82)] md:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)_minmax(0,0.85fr)]">
+                  <section
+                    aria-labelledby={`${headingId}-producer`}
+                    className="p-5 sm:p-7"
+                  >
+                    <OpportunitySectionHeading
+                      id={`${headingId}-producer`}
+                      label="Recomendação do produtor"
+                    />
+                    <div className="mt-4">
+                      <ProducerFacts lead={item.producerLead} showHeading={false} />
+                    </div>
+                  </section>
+
+                  <section
+                    aria-labelledby={`${headingId}-commercial`}
+                    className="border-t border-[oklch(88%_0.02_82)] p-5 sm:p-7 md:border-t-0 md:border-l"
+                  >
+                    <OpportunitySectionHeading
+                      id={`${headingId}-commercial`}
+                      label="Acompanhamento comercial"
+                    />
+                    <div className="mt-4">
+                      <CommercialFacts
+                        workspace={item.workspace}
+                        showHeading={false}
+                      />
+                      <WorkspaceAction
+                        workspace={item.workspace}
+                        companyName={item.producerLead.companyName}
+                        cnpj={item.producerLead.cnpj}
+                        leadRunId={item.producerLead.lead_run_id}
+                      />
+                    </div>
+                  </section>
+
+                  <section
+                    aria-labelledby={`${headingId}-next-action`}
+                    className="border-t border-[oklch(88%_0.02_82)] p-5 sm:p-7 md:col-span-2 xl:col-span-1 xl:border-t-0 xl:border-l"
+                  >
+                    <OpportunitySectionHeading
+                      id={`${headingId}-next-action`}
+                      label="Próxima ação"
+                    />
+                    <div className="mt-4">
+                      <NextAction workspace={item.workspace} showHeading={false} />
+                    </div>
+                  </section>
+                </div>
+
+                <section
+                  aria-labelledby={`${headingId}-contacts`}
+                  className="border-t border-[oklch(72%_0.075_174)] bg-[oklch(97%_0.018_174)] px-5 py-6 sm:px-7"
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-4">
+                    <div>
+                      <OpportunitySectionHeading
+                        id={`${headingId}-contacts`}
+                        label="Contatos profissionais"
+                      />
+                      <p className="mt-2 max-w-2xl text-sm leading-6 text-[oklch(40%_0.035_174)]">
+                        Localize decisores, confira o contexto profissional e
+                        recupere somente os canais necessários.
+                      </p>
+                    </div>
+                  </div>
+                  <ContactEnrichmentAction
+                    attemptKey={item.producerLead.decision_id}
+                    companyName={item.producerLead.companyName}
+                    companyCity={item.producerLead.city}
+                    companyState={item.producerLead.uf}
+                    companySector={item.producerLead.sector}
+                    cnpj={item.producerLead.cnpj}
+                    initialDomain={item.companyDomain}
+                  />
+                </section>
+              </article>
+            );
+          })}
+        </div>
+
+        <QueuePagination itemsOnPage={items.length} meta={meta} query={query} />
+      </section>
+    </ContactEnrichmentProvider>
   );
 }
 
-function ProducerFacts({ lead }: { readonly lead: LeadSummary }) {
+function OpportunitySectionHeading({
+  id,
+  label,
+}: {
+  readonly id: string;
+  readonly label: string;
+}) {
+  return (
+    <h4
+      id={id}
+      className="text-xs font-bold tracking-[0.14em] text-[oklch(37%_0.095_174)] uppercase"
+    >
+      {label}
+    </h4>
+  );
+}
+
+function ProducerFacts({
+  lead,
+  showHeading = true,
+}: {
+  readonly lead: LeadSummary;
+  readonly showHeading?: boolean;
+}) {
   return (
     <div>
-      <p className="text-xs font-bold tracking-[0.12em] text-[oklch(48%_0.025_252)] uppercase">
-        Fatos do produtor
-      </p>
-      <p className="mt-2 text-sm text-[oklch(43%_0.03_252)]">
+      {showHeading ? (
+        <p className="text-xs font-bold tracking-[0.12em] text-[oklch(48%_0.025_252)] uppercase">
+          Fatos do produtor
+        </p>
+      ) : null}
+      <p
+        className={
+          showHeading
+            ? "mt-2 text-sm text-[oklch(43%_0.03_252)]"
+            : "text-sm text-[oklch(43%_0.03_252)]"
+        }
+      >
         Pontuação: {formatScore(lead.score)}
       </p>
       <div className="mt-3 flex flex-wrap gap-2">
@@ -1354,13 +1406,27 @@ function WorkspaceStartAction({
   );
 }
 
-function NextAction({ workspace }: { readonly workspace: LeadWorkspaceDto | null }) {
+function NextAction({
+  workspace,
+  showHeading = true,
+}: {
+  readonly workspace: LeadWorkspaceDto | null;
+  readonly showHeading?: boolean;
+}) {
   return (
     <div className="text-sm leading-5">
-      <p className="text-xs font-bold tracking-[0.12em] text-[oklch(48%_0.025_252)] uppercase">
-        Próxima ação comercial
-      </p>
-      <p className="mt-2 font-semibold text-[oklch(24%_0.035_252)]">
+      {showHeading ? (
+        <p className="text-xs font-bold tracking-[0.12em] text-[oklch(48%_0.025_252)] uppercase">
+          Próxima ação comercial
+        </p>
+      ) : null}
+      <p
+        className={
+          showHeading
+            ? "mt-2 font-semibold text-[oklch(24%_0.035_252)]"
+            : "font-semibold text-[oklch(24%_0.035_252)]"
+        }
+      >
         {workspace?.next_action ?? "Não definida"}
       </p>
       <p className="mt-2 text-[oklch(43%_0.03_252)]">

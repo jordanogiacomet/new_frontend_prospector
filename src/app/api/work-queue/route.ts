@@ -10,6 +10,7 @@ import {
 import { requirePermission } from "../../../server/auth/require-api-session";
 import { isDemoDataEnabled } from "../../../server/demo/mode";
 import { listDemoCommercialWorkQueue } from "../../../server/demo/prospecta-demo-data";
+import { resolveLeadReadVisibility } from "../../../server/leads/lead-read-visibility";
 import {
   listCommercialWorkQueue,
   type CommercialWorkQueueFilters,
@@ -93,13 +94,16 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
           filters: query.filters,
           sort: query.sort,
         })
-      : await listCommercialWorkQueue({
-          actor: { organizationId: authorization.actor.organizationId },
-          page: query.page,
-          pageSize: query.pageSize,
-          filters: query.filters,
-          sort: query.sort,
-        });
+      : await listCommercialWorkQueue(
+          {
+            actor: { organizationId: authorization.actor.organizationId },
+            page: query.page,
+            pageSize: query.pageSize,
+            filters: query.filters,
+            sort: query.sort,
+          },
+          await resolveLeadReadVisibility(authorization.actor),
+        );
 
     return NextResponse.json(
       paginatedSuccessResponse(result.items, {

@@ -137,6 +137,7 @@ export interface CommercialWorkQueueProducerSource {
 }
 
 export interface CommercialWorkQueueItem {
+  readonly companyDomain: string | null;
   readonly producerLead: LeadSummary;
   readonly workspace: LeadWorkspaceDto | null;
   readonly sources: {

@@ -38,6 +38,11 @@ BEGIN
     TO prospecta_app_rw;
 
     REVOKE DELETE ON ALL TABLES IN SCHEMA prospecting_app FROM prospecta_app_rw;
+    IF to_regclass('prospecting_app.contact_suppressions') IS NOT NULL THEN
+      -- Retention may purge only expired keyed suppression fingerprints.
+      GRANT DELETE ON TABLE prospecting_app.contact_suppressions
+      TO prospecta_app_rw;
+    END IF;
     REVOKE UPDATE, DELETE ON TABLE
       prospecting_app.import_submission_events,
       prospecting_app.lead_activities,

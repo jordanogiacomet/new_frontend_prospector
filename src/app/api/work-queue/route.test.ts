@@ -31,6 +31,7 @@ const mocks = vi.hoisted(() => ({
     vi.fn<(permission: "commercial:read") => Promise<ApiAuthorizationContext>>(),
   getServerEnv: vi.fn<() => CommercialFeatureEnvironment>(),
   isDemoDataEnabled: vi.fn<() => boolean>(),
+  resolveLeadReadVisibility: vi.fn(),
   listDemoCommercialWorkQueue:
     vi.fn<(input: DemoWorkQueueInput) => ListCommercialWorkQueueResult>(),
   listCommercialWorkQueue:
@@ -53,6 +54,9 @@ vi.mock("../../../server/demo/mode", () => ({
 }));
 vi.mock("../../../server/demo/prospecta-demo-data", () => ({
   listDemoCommercialWorkQueue: mocks.listDemoCommercialWorkQueue,
+}));
+vi.mock("../../../server/leads/lead-read-visibility", () => ({
+  resolveLeadReadVisibility: mocks.resolveLeadReadVisibility,
 }));
 vi.mock("../../../server/commercial/work-queue-repository", () => ({
   listCommercialWorkQueue: mocks.listCommercialWorkQueue,
@@ -83,6 +87,10 @@ function queueItem(
   overrides: Partial<CommercialWorkQueueItem> = {},
 ): CommercialWorkQueueItem {
   return {
+    companyDomain:
+      overrides.companyDomain === undefined
+        ? "empresa.example"
+        : overrides.companyDomain,
     producerLead: overrides.producerLead ?? {
       decision_id: "synthetic-decision-034",
       import_batch_id: "batch-synthetic-034",
@@ -181,6 +189,7 @@ beforeEach(() => {
     FEATURE_COMMERCIAL_ENABLED: true,
   });
   mocks.isDemoDataEnabled.mockReturnValue(false);
+  mocks.resolveLeadReadVisibility.mockResolvedValue({});
   mocks.listDemoCommercialWorkQueue.mockReturnValue(listedResult());
   mocks.listCommercialWorkQueue.mockResolvedValue(listedResult());
   vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
@@ -258,7 +267,7 @@ describe("GET /api/work-queue", () => {
     expectPrivateNoStore(response);
   });
 
-  it("checks permission, feature, and repository access in order", async () => {
+  it("checks permission, feature, visibility, and repository access in order", async () => {
     const events: string[] = [];
     mocks.requirePermission.mockImplementationOnce(async () => {
       events.push("permission");
@@ -268,6 +277,10 @@ describe("GET /api/work-queue", () => {
       events.push("feature");
       return { FEATURE_COMMERCIAL_ENABLED: true };
     });
+    mocks.resolveLeadReadVisibility.mockImplementationOnce(async () => {
+      events.push("visibility");
+      return {};
+    });
     mocks.listCommercialWorkQueue.mockImplementationOnce(async () => {
       events.push("repository");
       return listedResult();
@@ -276,7 +289,12 @@ describe("GET /api/work-queue", () => {
     const response = await get();
 
     expect(response.status).toBe(200);
-    expect(events).toEqual(["permission", "feature", "repository"]);
+    expect(events).toEqual([
+      "permission",
+      "feature",
+      "visibility",
+      "repository",
+    ]);
   });
 
   it("uses only synthetic queue data when the explicit demo profile is enabled", async () => {
@@ -294,6 +312,7 @@ describe("GET /api/work-queue", () => {
       sort: "last_analysis_desc",
     });
     expect(mocks.listCommercialWorkQueue).not.toHaveBeenCalled();
+    expect(mocks.resolveLeadReadVisibility).not.toHaveBeenCalled();
     expect(await response.json()).toEqual({
       data: result.items,
       meta: {
@@ -312,13 +331,16 @@ describe("GET /api/work-queue", () => {
 
     expect(response.status).toBe(200);
     expect(mocks.listCommercialWorkQueue).toHaveBeenCalledOnce();
-    expect(mocks.listCommercialWorkQueue).toHaveBeenCalledWith({
-      actor: { organizationId },
-      page: 1,
-      pageSize: 20,
-      filters: {},
-      sort: "last_analysis_desc",
-    });
+    expect(mocks.listCommercialWorkQueue).toHaveBeenCalledWith(
+      {
+        actor: { organizationId },
+        page: 1,
+        pageSize: 20,
+        filters: {},
+        sort: "last_analysis_desc",
+      },
+      {},
+    );
     expect(
       JSON.stringify(mocks.listCommercialWorkQueue.mock.calls[0]?.[0]),
     ).not.toContain(actorSubject);
@@ -328,13 +350,40 @@ describe("GET /api/work-queue", () => {
     const response = await get("?page=3&pageSize=50");
 
     expect(response.status).toBe(200);
-    expect(mocks.listCommercialWorkQueue).toHaveBeenCalledWith({
-      actor: { organizationId },
-      page: 3,
-      pageSize: 50,
-      filters: {},
-      sort: "last_analysis_desc",
-    });
+    expect(mocks.listCommercialWorkQueue).toHaveBeenCalledWith(
+      {
+        actor: { organizationId },
+        page: 3,
+        pageSize: 50,
+        filters: {},
+        sort: "last_analysis_desc",
+      },
+      {},
+    );
+  });
+
+  it("passes current-lead visibility resolved from the authenticated actor", async () => {
+    const visibility = {
+      includeTestRunsFromImportBatchIds: ["synthetic-correlated-batch"],
+    } as const;
+    mocks.resolveLeadReadVisibility.mockResolvedValueOnce(visibility);
+
+    const response = await get();
+
+    expect(response.status).toBe(200);
+    expect(mocks.resolveLeadReadVisibility).toHaveBeenCalledWith(
+      authorizationContext.actor,
+    );
+    expect(mocks.listCommercialWorkQueue).toHaveBeenCalledWith(
+      {
+        actor: { organizationId },
+        page: 1,
+        pageSize: 20,
+        filters: {},
+        sort: "last_analysis_desc",
+      },
+      visibility,
+    );
   });
 
   it.each([
@@ -396,19 +445,22 @@ describe("GET /api/work-queue", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(mocks.listCommercialWorkQueue).toHaveBeenCalledWith({
-      actor: { organizationId },
-      page: 1,
-      pageSize: 20,
-      filters: {
-        cnpj_normalizado: cnpj,
-        uf: "PE",
-        priority: "B",
-        commercial_stage: "CONTACTED",
-        responsible_subject: actorSubject,
+    expect(mocks.listCommercialWorkQueue).toHaveBeenCalledWith(
+      {
+        actor: { organizationId },
+        page: 1,
+        pageSize: 20,
+        filters: {
+          cnpj_normalizado: cnpj,
+          uf: "PE",
+          priority: "B",
+          commercial_stage: "CONTACTED",
+          responsible_subject: actorSubject,
+        },
+        sort: "last_analysis_desc",
       },
-      sort: "last_analysis_desc",
-    });
+      {},
+    );
   });
 
   it.each([
@@ -438,13 +490,16 @@ describe("GET /api/work-queue", () => {
     const response = await get("?sort=last_analysis_desc");
 
     expect(response.status).toBe(200);
-    expect(mocks.listCommercialWorkQueue).toHaveBeenCalledWith({
-      actor: { organizationId },
-      page: 1,
-      pageSize: 20,
-      filters: {},
-      sort: "last_analysis_desc",
-    });
+    expect(mocks.listCommercialWorkQueue).toHaveBeenCalledWith(
+      {
+        actor: { organizationId },
+        page: 1,
+        pageSize: 20,
+        filters: {},
+        sort: "last_analysis_desc",
+      },
+      {},
+    );
   });
 
   it("rejects invalid sort values before repository work", async () => {

@@ -10,10 +10,17 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import {
+  demo3ContactV2Actor,
+  demo3ContactV2IngressUrl,
+  deriveDemo3ContactV2Material,
+} from "./lib/demo3-contact-v2-material.mjs";
+
 const namespace = "prospecta-demo3";
 const environmentFile = ".env.demo3.local";
 const manifestFile = "k8s/prospecta-demo3.yaml";
 const nodePortUrl = "http://192.168.0.20:30100";
+const contactNodePortUrl = "https://192.168.0.20:30443";
 const gatewayUsername = "prospecta";
 const sourceSecretNamespace = "prospecta-demo";
 const sourceSecretName = "prospecta-demo-secrets";
@@ -21,6 +28,9 @@ const appMigrationFiles = [
   "db/app/006_import_acceptance_reconciliation_forward.sql",
   "db/app/007_legacy_workflow_close_report_forward.sql",
   "db/app/008_legacy_workflow_start_report_forward.sql",
+  "db/app/009_contact_enrichment_ledger_forward.sql",
+  "db/app/010_contact_data_governance_forward.sql",
+  "db/app/011_contact_company_resolution_forward.sql",
 ];
 const deploymentLockFile = join(
   tmpdir(),
@@ -89,6 +99,30 @@ function required(name) {
   return value;
 }
 
+function readOptional(name) {
+  const value = process.env[name];
+
+  if (value === undefined || value.trim() === "") {
+    return undefined;
+  }
+
+  if (value.includes("replace-with")) {
+    fail(`${name} still contains a placeholder`);
+  }
+
+  return value;
+}
+
+function optionalBoolean(name) {
+  const value = readOptional(name) ?? "false";
+
+  if (value !== "true" && value !== "false") {
+    fail(`${name} must be either true or false`);
+  }
+
+  return value === "true";
+}
+
 function command(commandName, args, options = {}) {
   const { capture = false, timeout = 15_000, ...commandOptions } = options;
 
@@ -151,6 +185,7 @@ function loadConfiguration() {
     fail(`requires ${environmentFile}; copy .env.demo3.example first`);
   }
 
+  const authSecret = required("AUTH_SECRET");
   const configuration = {
     context: required("DEMO3_EXPECTED_CONTEXT"),
     server: required("DEMO3_EXPECTED_SERVER"),
@@ -158,23 +193,52 @@ function loadConfiguration() {
     releaseId: required("DEMO3_RELEASE_ID"),
     postgresOwnerPassword: required("DEMO3_POSTGRES_OWNER_PASSWORD"),
     appDatabasePassword: required("DEMO3_APP_DATABASE_PASSWORD"),
-    authSecret: required("AUTH_SECRET"),
+    authSecret,
     oidcClientSecret: required("AUTH_OIDC_CLIENT_SECRET"),
-    n8nImportEventSecret: required("N8N_IMPORT_EVENT_SECRET"),
+    n8nImportEventSecret: readOptional("N8N_IMPORT_EVENT_SECRET"),
+    contactEnrichmentSecret: required("N8N_CONTACT_ENRICHMENT_SECRET"),
+    contactCallbackSecret: required("N8N_CONTACT_CALLBACK_SECRET"),
+    contactDataEnabled: optionalBoolean("FEATURE_CONTACT_DATA_ENABLED"),
+    ...deriveDemo3ContactV2Material(authSecret),
+    contactControllerLegalName: readOptional(
+      "CONTACT_CONTROLLER_LEGAL_NAME",
+    ),
+    contactControllerRegistration: readOptional(
+      "CONTACT_CONTROLLER_REGISTRATION",
+    ),
+    contactPrivacyContact: readOptional("CONTACT_PRIVACY_CONTACT"),
   };
 
   assertReleaseId(configuration.releaseId);
   if (Buffer.byteLength(configuration.authSecret, "utf8") < 32) {
     fail("AUTH_SECRET must contain at least 32 bytes");
   }
+  if (configuration.n8nImportEventSecret !== undefined) {
+    assertImportEventSecret(
+      configuration.n8nImportEventSecret,
+      configuration.authSecret,
+    );
+  }
+  for (const [name, value] of [
+    ["N8N_CONTACT_ENRICHMENT_SECRET", configuration.contactEnrichmentSecret],
+    ["N8N_CONTACT_CALLBACK_SECRET", configuration.contactCallbackSecret],
+  ]) {
+    if (Buffer.byteLength(value, "utf8") < 32) {
+      fail(`${name} must contain at least 32 bytes`);
+    }
+    if (
+      value === configuration.authSecret ||
+      value === configuration.n8nImportEventSecret
+    ) {
+      fail(`${name} must be distinct from existing application secrets`);
+    }
+  }
   if (
-    Buffer.byteLength(configuration.n8nImportEventSecret, "utf8") < 32
+    configuration.contactEnrichmentSecret === configuration.contactCallbackSecret
   ) {
-    fail("N8N_IMPORT_EVENT_SECRET must contain at least 32 bytes");
+    fail("contact enrichment and callback secrets must be distinct");
   }
-  if (configuration.n8nImportEventSecret === configuration.authSecret) {
-    fail("N8N_IMPORT_EVENT_SECRET must be distinct from AUTH_SECRET");
-  }
+  assertContactV2Configuration(configuration);
   if (Buffer.byteLength(configuration.postgresOwnerPassword, "utf8") < 32) {
     fail("DEMO3_POSTGRES_OWNER_PASSWORD must contain at least 32 bytes");
   }
@@ -191,6 +255,119 @@ function loadConfiguration() {
   return configuration;
 }
 
+function assertContactV2Configuration(configuration) {
+  if (!configuration.contactDataEnabled) {
+    return;
+  }
+
+  const requiredValues = [
+    ["N8N_CONTACT_ENRICHMENT_V2_URL", configuration.contactV2Url],
+    [
+      "N8N_CONTACT_ENRICHMENT_V2_SECRET",
+      configuration.contactV2IngressSecret,
+    ],
+    ["N8N_CONTACT_CALLBACK_V2_SECRET", configuration.contactV2CallbackSecret],
+    [
+      "CONTACT_DATA_ENCRYPTION_KEY_BASE64",
+      configuration.contactDataEncryptionKey,
+    ],
+    ["CONTACT_DATA_ENCRYPTION_KEY_ID", configuration.contactDataEncryptionKeyId],
+    ["CONTACT_SUPPRESSION_HMAC_KEY", configuration.contactSuppressionHmacKey],
+    ["CONTACT_DATA_READ_SUBJECTS", configuration.contactDataReadSubjects],
+    ["CONTACT_DATA_GOVERN_SUBJECTS", configuration.contactDataGovernSubjects],
+    ["CONTACT_CONTROLLER_LEGAL_NAME", configuration.contactControllerLegalName],
+    ["CONTACT_PRIVACY_CONTACT", configuration.contactPrivacyContact],
+  ];
+
+  for (const [name, value] of requiredValues) {
+    if (value === undefined) {
+      fail(`${name} must be set when contact data is enabled`);
+    }
+  }
+
+  if (configuration.contactV2Url !== demo3ContactV2IngressUrl) {
+    fail("N8N_CONTACT_ENRICHMENT_V2_URL must use the exact Demo 3 HTTPS edge");
+  }
+
+  const v2Secrets = [
+    configuration.contactV2IngressSecret,
+    configuration.contactV2CallbackSecret,
+    configuration.contactSuppressionHmacKey,
+  ];
+  for (const [index, value] of v2Secrets.entries()) {
+    if (Buffer.byteLength(value, "utf8") < 32) {
+      const names = [
+        "N8N_CONTACT_ENRICHMENT_V2_SECRET",
+        "N8N_CONTACT_CALLBACK_V2_SECRET",
+        "CONTACT_SUPPRESSION_HMAC_KEY",
+      ];
+      fail(`${names[index]} must contain at least 32 bytes`);
+    }
+  }
+
+  const protectedSecrets = [
+    configuration.authSecret,
+    configuration.n8nImportEventSecret,
+    configuration.contactEnrichmentSecret,
+    configuration.contactCallbackSecret,
+    ...v2Secrets,
+  ].filter((value) => value !== undefined);
+  if (new Set(protectedSecrets).size !== protectedSecrets.length) {
+    fail("contact v2 secrets must be distinct from all existing secrets");
+  }
+
+  const encryptionKey = Buffer.from(
+    configuration.contactDataEncryptionKey,
+    "base64",
+  );
+  if (
+    encryptionKey.byteLength !== 32 ||
+    encryptionKey.toString("base64") !==
+      configuration.contactDataEncryptionKey ||
+    encryptionKey.equals(Buffer.alloc(32))
+  ) {
+    fail("CONTACT_DATA_ENCRYPTION_KEY_BASE64 must be a nonzero canonical 32-byte key");
+  }
+  if (
+    !/^[A-Za-z0-9._-]{1,64}$/.test(
+      configuration.contactDataEncryptionKeyId,
+    )
+  ) {
+    fail("CONTACT_DATA_ENCRYPTION_KEY_ID must be an opaque key identifier");
+  }
+
+  for (const [name, value] of [
+    ["CONTACT_DATA_READ_SUBJECTS", configuration.contactDataReadSubjects],
+    ["CONTACT_DATA_GOVERN_SUBJECTS", configuration.contactDataGovernSubjects],
+  ]) {
+    const subjects = value.split(",");
+    if (
+      !subjects.includes(demo3ContactV2Actor) ||
+      subjects.some((subject) => subject === "" || subject.trim() !== subject)
+    ) {
+      fail(`${name} must contain the exact Demo 3 actor without whitespace`);
+    }
+  }
+
+  if (
+    configuration.contactControllerLegalName.length > 200 ||
+    /[\u0000-\u001f\u007f]/.test(configuration.contactControllerLegalName)
+  ) {
+    fail("CONTACT_CONTROLLER_LEGAL_NAME is invalid");
+  }
+  if (
+    configuration.contactControllerRegistration !== undefined &&
+    !/^[A-Za-z0-9 .\-\/]{3,64}$/.test(
+      configuration.contactControllerRegistration,
+    )
+  ) {
+    fail("CONTACT_CONTROLLER_REGISTRATION is invalid");
+  }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(configuration.contactPrivacyContact)) {
+    fail("CONTACT_PRIVACY_CONTACT must be a monitored email address in Demo 3");
+  }
+}
+
 function releaseNames(configuration) {
   return {
     appImage: `localhost:5000/prospecta/app:${configuration.releaseId}`,
@@ -204,16 +381,16 @@ function releaseNames(configuration) {
   };
 }
 
-function decodeSecretValue(data, name) {
+function decodeSecretValue(data, name, source) {
   const encoded = data[name];
 
   if (typeof encoded !== "string" || encoded === "") {
-    fail(`${sourceSecretNamespace}/${sourceSecretName} lacks ${name}`);
+    fail(`${source} lacks ${name}`);
   }
 
   const value = Buffer.from(encoded, "base64").toString("utf8");
   if (value.trim() === "") {
-    fail(`${sourceSecretNamespace}/${sourceSecretName} has an empty ${name}`);
+    fail(`${source} has an empty ${name}`);
   }
 
   return value;
@@ -246,13 +423,23 @@ function readPreproductionSource() {
     fail("the identified pre-production source Secret has no data");
   }
 
-  const databaseUrl = decodeSecretValue(data, "DATABASE_URL");
+  const source = `${sourceSecretNamespace}/${sourceSecretName}`;
+  const databaseUrl = decodeSecretValue(data, "DATABASE_URL", source);
   const producerDatabaseUrl = decodeSecretValue(
     data,
     "PRODUCER_DATABASE_URL",
+    source,
   );
-  const organizationId = decodeSecretValue(data, "AUTH_ALLOWED_ORG_ID");
-  const sensitiveUrlHosts = decodeSecretValue(data, "SENSITIVE_URL_HOSTS");
+  const organizationId = decodeSecretValue(
+    data,
+    "AUTH_ALLOWED_ORG_ID",
+    source,
+  );
+  const sensitiveUrlHosts = decodeSecretValue(
+    data,
+    "SENSITIVE_URL_HOSTS",
+    source,
+  );
 
   for (const [name, value, expectedUser] of [
     ["DATABASE_URL", databaseUrl, "rlb_readonly"],
@@ -304,6 +491,110 @@ function readPreproductionSource() {
     organizationId,
     sensitiveUrlHosts,
   };
+}
+
+function assertImportEventSecret(value, authSecret) {
+  if (Buffer.byteLength(value, "utf8") < 32) {
+    fail("N8N_IMPORT_EVENT_SECRET must contain at least 32 bytes");
+  }
+  if (value === authSecret) {
+    fail("N8N_IMPORT_EVENT_SECRET must be distinct from AUTH_SECRET");
+  }
+
+  return value;
+}
+
+function readExistingImportEventSecret() {
+  const deploymentSerialized = readKubectl(
+    [
+      "-n",
+      namespace,
+      "get",
+      "deployment",
+      "prospecta-demo3",
+      "--request-timeout=20s",
+      "-o",
+      "json",
+    ],
+    "read the active Demo 3 application deployment",
+  ).value;
+
+  let deployment;
+  try {
+    deployment = JSON.parse(deploymentSerialized);
+  } catch {
+    fail("the active Demo 3 application deployment is invalid");
+  }
+
+  const containers = deployment?.spec?.template?.spec?.containers;
+  if (!Array.isArray(containers)) {
+    fail("the active Demo 3 application deployment has no containers");
+  }
+
+  const application = containers.find(
+    (container) => container?.name === "prospecta",
+  );
+  const secretNames = Array.isArray(application?.envFrom)
+    ? application.envFrom
+        .map((entry) => entry?.secretRef?.name)
+        .filter((name) => typeof name === "string")
+    : [];
+
+  if (secretNames.length !== 1) {
+    fail("the active Demo 3 application deployment has no unique app Secret");
+  }
+
+  const [secretName] = secretNames;
+  const releaseId = secretName.slice("prospecta-demo3-app-secrets-".length);
+  if (
+    !secretName.startsWith("prospecta-demo3-app-secrets-") ||
+    !/^demo3-[a-z0-9][a-z0-9.-]{5,80}$/.test(releaseId)
+  ) {
+    fail("the active Demo 3 application Secret is not an immutable release Secret");
+  }
+
+  const serialized = readKubectl(
+    [
+      "-n",
+      namespace,
+      "get",
+      "secret",
+      secretName,
+      "--request-timeout=20s",
+      "-o",
+      "json",
+    ],
+    "read the active Demo 3 application Secret",
+  ).value;
+
+  let secret;
+  try {
+    secret = JSON.parse(serialized);
+  } catch {
+    fail("the active Demo 3 application Secret is invalid");
+  }
+
+  const data = secret?.data;
+  if (typeof data !== "object" || data === null || Array.isArray(data)) {
+    fail("the active Demo 3 application Secret has no data");
+  }
+
+  return decodeSecretValue(data, "N8N_IMPORT_EVENT_SECRET", secretName);
+}
+
+function resolveImportEventSecret(configuration, namespaceExists) {
+  if (configuration.n8nImportEventSecret !== undefined) {
+    return configuration.n8nImportEventSecret;
+  }
+
+  if (!namespaceExists) {
+    fail("N8N_IMPORT_EVENT_SECRET must be set for the first Demo 3 release");
+  }
+
+  return assertImportEventSecret(
+    readExistingImportEventSecret(),
+    configuration.authSecret,
+  );
 }
 
 function createGatewayMaterial(configuration) {
@@ -537,7 +828,11 @@ function renderManifest(configuration) {
     .replaceAll("__CONFIG_NAME__", names.configName)
     .replaceAll("__POSTGRES_SECRET_NAME__", names.postgresSecretName)
     .replaceAll("__APP_SECRET_NAME__", names.appSecretName)
-    .replaceAll("__GATEWAY_SECRET_NAME__", names.gatewaySecretName);
+    .replaceAll("__GATEWAY_SECRET_NAME__", names.gatewaySecretName)
+    .replaceAll(
+      "__FEATURE_CONTACT_DATA_ENABLED__",
+      String(configuration.contactDataEnabled),
+    );
 
   if (/__[A-Z0-9_]+__/.test(manifest)) {
     fail("rendered manifest still contains placeholders");
@@ -601,6 +896,28 @@ function secretManifest(
           AUTH_ALLOWED_ORG_ID: preproductionSource.organizationId,
           N8N_IMPORT_EVENT_SECRET:
             configuration.n8nImportEventSecret,
+          N8N_CONTACT_ENRICHMENT_SECRET: configuration.contactEnrichmentSecret,
+          N8N_CONTACT_CALLBACK_SECRET: configuration.contactCallbackSecret,
+          N8N_CONTACT_ENRICHMENT_V2_URL: configuration.contactV2Url,
+          N8N_CONTACT_ENRICHMENT_V2_SECRET:
+            configuration.contactV2IngressSecret,
+          N8N_CONTACT_CALLBACK_V2_SECRET:
+            configuration.contactV2CallbackSecret,
+          CONTACT_DATA_ENCRYPTION_KEY_BASE64:
+            configuration.contactDataEncryptionKey,
+          CONTACT_DATA_ENCRYPTION_KEY_ID:
+            configuration.contactDataEncryptionKeyId,
+          CONTACT_SUPPRESSION_HMAC_KEY:
+            configuration.contactSuppressionHmacKey,
+          CONTACT_DATA_READ_SUBJECTS:
+            configuration.contactDataReadSubjects,
+          CONTACT_DATA_GOVERN_SUBJECTS:
+            configuration.contactDataGovernSubjects,
+          CONTACT_CONTROLLER_LEGAL_NAME:
+            configuration.contactControllerLegalName,
+          CONTACT_CONTROLLER_REGISTRATION:
+            configuration.contactControllerRegistration,
+          CONTACT_PRIVACY_CONTACT: configuration.contactPrivacyContact,
           SENSITIVE_URL_HOSTS:
             preproductionSource.sensitiveUrlHosts,
         },
@@ -717,6 +1034,18 @@ function verifyExistingAppMigrations() {
         || count(*) FILTER (
           WHERE indexname = 'import_submission_events_one_workflow_start_uk'
         )::text
+        || '|'
+        || count(*) FILTER (
+          WHERE indexname = 'contact_enrichment_requests_org_idempotency_hash_uk'
+        )::text
+        || '|'
+        || count(*) FILTER (
+          WHERE indexname = 'contact_enrichment_v2_requests_org_idempotency_uk'
+        )::text
+        || '|'
+        || count(*) FILTER (
+          WHERE indexname = 'contact_company_search_requests_org_idempotency_uk'
+        )::text
       FROM pg_indexes
       WHERE schemaname = 'prospecting_app'`,
     ],
@@ -728,13 +1057,13 @@ function verifyExistingAppMigrations() {
 
   if (
     verification.status !== 0 ||
-    verification.stdout.trim() !== "0|1|1|1"
+    verification.stdout.trim() !== "0|1|1|1|1|1|1"
   ) {
     fail("app-owned migration verification failed");
   }
 }
 
-function smokeRequest(url, gatewayMaterial, authenticated) {
+function smokeRequest(url, gatewayMaterial, authenticated, caFile) {
   const args = [
     "--silent",
     "--show-error",
@@ -752,6 +1081,9 @@ function smokeRequest(url, gatewayMaterial, authenticated) {
       `${gatewayMaterial.username}:${gatewayMaterial.password}`,
     );
   }
+  if (caFile !== undefined) {
+    args.push("--cacert", caFile);
+  }
 
   args.push(url);
 
@@ -764,6 +1096,29 @@ function smokeRequest(url, gatewayMaterial, authenticated) {
 }
 
 async function smoke(gatewayMaterial) {
+  const caCertificate = readKubectl(
+    [
+      "-n",
+      namespace,
+      "get",
+      "configmap",
+      "prospecta-contact-v2-ca",
+      "--request-timeout=20s",
+      "-o",
+      "jsonpath={.data.ca\\.crt}",
+    ],
+    "read the Demo 3 contact CA",
+  ).value;
+  if (!caCertificate.includes("BEGIN CERTIFICATE")) {
+    fail("Demo 3 contact CA is invalid");
+  }
+  const caFile = join(
+    tmpdir(),
+    `prospecta-demo3-contact-ca-${process.pid}.crt`,
+  );
+  writeFileSync(caFile, caCertificate, { mode: 0o600 });
+
+  try {
   for (let attempt = 0; attempt < 60; attempt += 1) {
     const anonymous = smokeRequest(
       `${nodePortUrl}/api/leads`,
@@ -780,11 +1135,32 @@ async function smoke(gatewayMaterial) {
       gatewayMaterial,
       true,
     );
+    const secureAnonymous = smokeRequest(
+      `${contactNodePortUrl}/api/leads`,
+      gatewayMaterial,
+      false,
+      caFile,
+    );
+    const secureLogin = smokeRequest(
+      `${contactNodePortUrl}/login`,
+      gatewayMaterial,
+      true,
+      caFile,
+    );
+    const secureLeads = smokeRequest(
+      `${contactNodePortUrl}/api/leads`,
+      gatewayMaterial,
+      true,
+      caFile,
+    );
 
     if (
       anonymous === "401" &&
       (login === "200" || login === "307") &&
-      leads === "200"
+      leads === "200" &&
+      secureAnonymous === "401" &&
+      (secureLogin === "200" || secureLogin === "307") &&
+      secureLeads === "200"
     ) {
       return;
     }
@@ -793,6 +1169,9 @@ async function smoke(gatewayMaterial) {
   }
 
   fail("Demo 3 NodePort smoke check failed");
+  } finally {
+    rmSync(caFile, { force: true });
+  }
 }
 
 async function deploy(configuration) {
@@ -800,6 +1179,14 @@ async function deploy(configuration) {
   const reuseLocalImages = process.argv.includes("--reuse-local-images");
   const usePublishedImages = process.argv.includes("--published-images");
   const namespaceExists = assertTarget(configuration);
+  command(process.execPath, ["scripts/prepare-demo3-contact-v2-tls.mjs"]);
+  const deploymentConfiguration = {
+    ...configuration,
+    n8nImportEventSecret: resolveImportEventSecret(
+      configuration,
+      namespaceExists,
+    ),
+  };
   const preproductionSource = readPreproductionSource();
   const gatewayMaterial = createGatewayMaterial(configuration);
   if (usePublishedImages) {
@@ -835,12 +1222,12 @@ async function deploy(configuration) {
   }
 
   try {
-    const manifest = renderManifest(configuration);
+    const manifest = renderManifest(deploymentConfiguration);
     applyExistingAppMigrations(observedImages.postgres !== null);
     applyStdin(manifest);
     applyStdin(
       secretManifest(
-        configuration,
+        deploymentConfiguration,
         preproductionSource,
         gatewayMaterial,
       ),
@@ -916,6 +1303,7 @@ async function deploy(configuration) {
   }
 
   console.log(`Demo 3 is ready at ${nodePortUrl}`);
+  console.log(`Demo 3 contact-safe HTTPS is ready at ${contactNodePortUrl}`);
   console.log(
     `Retrieve the gateway password from secret/${names.gatewaySecretName}.`,
   );
@@ -941,7 +1329,9 @@ async function main() {
   }
 
   if (process.argv.includes("--preflight")) {
-    assertTarget(configuration);
+    const namespaceExists = assertTarget(configuration);
+    command(process.execPath, ["scripts/prepare-demo3-contact-v2-tls.mjs"]);
+    resolveImportEventSecret(configuration, namespaceExists);
     readPreproductionSource();
     const reuseLocalImages = process.argv.includes("--reuse-local-images");
     const usePublishedImages = process.argv.includes("--published-images");

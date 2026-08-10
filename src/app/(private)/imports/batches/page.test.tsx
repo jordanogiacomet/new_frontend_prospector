@@ -364,6 +364,19 @@ describe("batch list page", () => {
     expect(document.body).not.toHaveTextContent(submissionId);
   });
 
+  it("links the observation status to the app-owned batch detail", async () => {
+    render(<BatchListPage />);
+
+    const link = await screen.findByRole("link", {
+      name: "Ver observações da importação enviada em 08/07/2026",
+    });
+
+    expect(link).toHaveAttribute(
+      "href",
+      "/imports/batches/00000000-0000-4000-8000-000000000026",
+    );
+  });
+
   it("shows an empty state when no import batch is available", async () => {
     fetchMock.mockResolvedValue(
       apiResponse(batchListEnvelope([], { total: 0 })),

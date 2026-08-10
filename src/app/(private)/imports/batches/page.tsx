@@ -545,7 +545,7 @@ function BatchListTable({
                     value={formatBrazilianDate(batch.lastObservedAt)}
                   />
                   <p className="mt-1">
-                    <ObservationBadge status={batch.observationStatus} />
+                    <ObservationBadge batch={batch} />
                   </p>
                   {batch.observationBasis === null ? null : (
                     <p className="mt-2 leading-5 text-[oklch(48%_0.025_252)]">
@@ -686,19 +686,17 @@ function StatusBadge({ batch }: { readonly batch: BatchSummary }) {
   );
 }
 
-function ObservationBadge({
-  status,
-}: {
-  readonly status: BatchObservationStatus;
-}) {
+function ObservationBadge({ batch }: { readonly batch: BatchSummary }) {
   return (
-    <span
-      className={`inline-flex min-h-7 items-center border px-2.5 py-1 text-xs font-bold leading-4 ${observationBadgeClass(
-        status,
+    <Link
+      href={`/imports/batches/${encodeURIComponent(batch.submissionId)}`}
+      aria-label={`Ver observações da importação enviada em ${formatBrazilianDate(batch.submittedAt)}`}
+      className={`inline-flex min-h-7 cursor-pointer items-center border px-2.5 py-1 text-xs font-bold leading-4 transition-colors hover:border-[oklch(24%_0.035_252)] hover:text-[oklch(24%_0.035_252)] focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-[oklch(45%_0.105_174)] motion-reduce:transition-none ${observationBadgeClass(
+        batch.observationStatus,
       )}`}
     >
-      {observationStatusLabel(status)}
-    </span>
+      {observationStatusLabel(batch.observationStatus)}
+    </Link>
   );
 }
 

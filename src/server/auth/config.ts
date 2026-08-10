@@ -39,6 +39,9 @@ export function createAuthorizationPolicy(
     organizationId: environment.AUTH_ALLOWED_ORG_ID,
     costsReadEnabled: environment.FEATURE_COSTS_ENABLED,
     costsReadSubjects: environment.COSTS_READ_SUBJECTS,
+    contactDataEnabled: environment.FEATURE_CONTACT_DATA_ENABLED,
+    contactReadSubjects: environment.CONTACT_DATA_READ_SUBJECTS,
+    contactGovernSubjects: environment.CONTACT_DATA_GOVERN_SUBJECTS,
   };
 }
 

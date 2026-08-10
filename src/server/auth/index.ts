@@ -25,6 +25,10 @@ const developmentAuthorization = createDevelopmentAuthorization(
   environment.COSTS_READ_SUBJECTS,
   environment.DEMO2_K8S_RUNTIME_ENABLED,
   environment.DEMO3_LOCAL_RUNTIME_ENABLED,
+  environment.FEATURE_CONTACT_ENRICHMENT_ENABLED,
+  environment.FEATURE_CONTACT_DATA_ENABLED,
+  environment.CONTACT_DATA_READ_SUBJECTS,
+  environment.CONTACT_DATA_GOVERN_SUBJECTS,
 );
 const authentication = NextAuth(
   createAuthConfig(

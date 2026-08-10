@@ -1,9 +1,15 @@
 # State
 
-**Last Updated:** 2026-07-23
-**Current Work:** Demo 3 correlated test-run visibility, lifecycle callbacks
-and visible-page lead refresh are active on the authorized target; the
-separate n8n v1/producer-worker path remains deferred behind OPEN-01–OPEN-05
+**Last Updated:** 2026-08-06
+**Current Work:** Contact-enrichment v2 is active only on the governed Demo 3
+HTTPS profile. The commercial queue prefills one exact valid producer domain;
+when none exists, it now offers an explicit company-name lookup with an
+allowlisted firmographic preview and human confirmation before Decision Makers.
+The queue now uses one responsive opportunity sheet per company and gives
+contacts a dedicated full-width workspace. The rollout made no real Lusha
+request. A real-contact UAT still requires one selected queue company, relevant
+candidate and immediate suppression/erasure; production remains separately
+gated.
 
 ---
 
@@ -206,9 +212,50 @@ was published but never applied because replaying migration `007` after `008`
 temporarily narrowed the event constraint; commit `54ec775` made that replay
 forward-compatible and added a regression test before the successful rollout.
 
+### AD-014: Contact enrichment v2 is policy-gated and HTTPS-only (2026-07-31)
+
+**Decision:** Preserve PII-free v1 and implement v2 as separate preview and
+human-selected Reveal phases with independent permissions, encrypted app-owned
+storage, field/channel suppression, short retention and a separate inactive
+n8n artifact. Use legitimate interest only after a signed balance test; never
+treat Lusha availability or operator approval as contact consent.
+**Reason:** The owner authorized contact processing and asked the agent to
+define the policy, but the current Demo 3 HTTP edge, legal controller identity
+and production target remain objective facts that cannot be invented.
+**Trade-off:** The queue is connected in repository code, but the v2 feature is
+explicitly false in Demo 3 and real contacts remain unavailable until HTTPS
+and operational/privacy preflight pass.
+**Impact:** Migration 010 passed a disposable PostgreSQL 16 suite; the workflow
+remains `active:false`, no external endpoint was called, and production still
+requires individual OIDC plus remotely verified replay/rate-limit controls.
+
+### AD-015: Queue domain prefill uses one exact CRM history fact (2026-08-06)
+
+**Decision:** Prefill `companyDomain` only when an exact normalized CNPJ has
+one distinct value in `public.crm_company_history.website_domain` and that
+value passes the existing domain contract. Grant the Demo 3 producer reader
+column-level `SELECT` on only `cnpj` and `website_domain`; keep the field
+editable and require an explicit user submission.
+**Reason:** The producer already stores the company-domain fact, so reusing it
+avoids a second provider lookup and preserves the browser → Prospecta boundary.
+**Trade-off:** Missing, malformed or ambiguous producer values remain manual.
+A company with CRM history but no eligible current queue projection does not
+appear solely to demonstrate this feature.
+**Impact:** Immutable release
+`demo3-preprod-20260806-company-domain-prefill-001` passed read-only UAT. The
+current live queue had no correlated domain, and n8n retained zero v2 execution
+rows; no Lusha request was made.
+
 ---
 
 ## Active Blockers
+
+- **CONTACT-V2-UAT:** Select one current queue company and one professionally
+  relevant candidate for the authorized real-contact test, then suppress and
+  erase the result without recording contact values in evidence.
+- **CONTACT-V2-03:** Identify the production hostname/namespace, individual
+  OIDC and remotely verified HMAC timestamp/nonce/replay plus durable rate
+  limit before production import or rollout.
 
 - **OPEN-01:** Identify and authorize a separate non-production HTTPS v1 URL,
   workflow ID/version, and inspection source before any remote contract run.

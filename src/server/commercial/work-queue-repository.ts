@@ -8,7 +8,6 @@ import {
   organizationIdSchema,
   subjectSchema,
 } from "../../lib/validators/commercial";
-import { leadRunIdPattern } from "../../lib/validators/lead-query";
 import type {
   CommercialActorContext,
   CommercialStage,
@@ -31,16 +30,27 @@ import {
   mapLeadSummary,
   type LeadSummaryRow,
 } from "../mappers/lead-summary-mapper";
-import { buildProductionRunPredicate } from "../repositories/production-run-predicate";
+import { companyDomainSchema } from "../contact-enrichment-v2/contact-enrichment-v2-contract";
+import {
+  appendCorrelatedCurrentLeadBatchIds,
+  buildEligibleCurrentLeadsCte,
+  currentLeadBaseValues,
+  currentLeadDefaultOrderBy,
+  currentLeadSourceGuardStatement,
+  maximumCurrentLeadProjections,
+} from "../repositories/current-lead-query";
+import type { LeadRunVisibilityOptions } from "../repositories/production-run-predicate";
 
 const DEFAULT_PAGE = 1;
 const DEFAULT_PAGE_SIZE = 20;
 const MAX_PAGE = 10_000;
 const MAX_PAGE_SIZE = 100;
-const MAXIMUM_CURRENT_PROJECTIONS = 1_000;
-const SOURCE_GUARD_LIMIT = MAXIMUM_CURRENT_PROJECTIONS + 1;
 const PRODUCER_FACT_SOURCE = "producer_current_leads_v1";
 const WORKSPACE_FACT_SOURCE = "app_lead_workspaces_v1";
+
+interface CommercialWorkQueueRow extends LeadSummaryRow {
+  readonly company_domain: string | null;
+}
 
 const brazilianUfs = [
   "AC",
@@ -78,88 +88,6 @@ const approvedProducerPriorities = ["B", "C", "E", "R"] as const;
 
 type ProducerPriority = (typeof approvedProducerPriorities)[number];
 
-const sourceGuardStatement: ProducerSqlStatement = {
-  text: `SELECT company_validations.cnpj
-FROM public.company_validations AS company_validations
-LIMIT $1`,
-  values: [SOURCE_GUARD_LIMIT],
-};
-
-const eligibleCurrentCte = `WITH current_terminal_candidates AS (
-  SELECT
-    terminal.id::text AS decision_id,
-    terminal.import_batch_id,
-    terminal.lead_run_id,
-    terminal.source_row,
-    company_validations.source_hash,
-    company_validations.agent_version,
-    company_validations.cnpj_normalizado,
-    company_validations.nome_fantasia,
-    company_validations.razao_social,
-    company_validations.cidade,
-    company_validations.uf,
-    company_validations.cnae_descricao,
-    company_validations.trust_score,
-    company_validations.priority,
-    terminal.final_action,
-    company_validations.trust_status,
-    company_validations.validated_at,
-    company_validations.id AS projection_id,
-    COUNT(*) OVER (
-      PARTITION BY company_validations.id
-    ) AS terminal_count
-  FROM public.company_validations AS company_validations
-  INNER JOIN public.company_validation_runs AS terminal
-    ON terminal.lead_run_id = company_validations.last_lead_run_id
-  WHERE company_validations.integrity_status = $1
-    AND company_validations.cnpj_normalizado ~ $2
-    AND company_validations.cnpj::text = company_validations.cnpj_normalizado
-    AND BTRIM(company_validations.last_lead_run_id) <> $4
-    AND BTRIM(company_validations.agent_version) <> $4
-    AND company_validations.validated_at <= CURRENT_TIMESTAMP
-    AND terminal.integrity_status = $1
-    AND terminal.processing_result = $3
-    AND ${buildProductionRunPredicate("terminal")}
-    AND terminal.lead_run_id ~ $5
-    AND terminal.cnpj_normalizado = company_validations.cnpj_normalizado
-    AND terminal.import_batch_id IS NOT DISTINCT FROM company_validations.last_import_batch_id
-    AND terminal.source_row IS NOT DISTINCT FROM company_validations.last_source_row
-    AND BTRIM(terminal.final_action) <> $4
-    AND terminal.run_created_at <= CURRENT_TIMESTAMP
-),
-eligible_current AS (
-  SELECT
-    current_terminal_candidates.decision_id,
-    current_terminal_candidates.import_batch_id,
-    current_terminal_candidates.lead_run_id,
-    current_terminal_candidates.source_row,
-    current_terminal_candidates.source_hash,
-    current_terminal_candidates.agent_version,
-    current_terminal_candidates.cnpj_normalizado,
-    current_terminal_candidates.nome_fantasia,
-    current_terminal_candidates.razao_social,
-    current_terminal_candidates.cidade,
-    current_terminal_candidates.uf,
-    current_terminal_candidates.cnae_descricao,
-    current_terminal_candidates.trust_score,
-    current_terminal_candidates.priority,
-    current_terminal_candidates.final_action,
-    current_terminal_candidates.trust_status,
-    current_terminal_candidates.validated_at,
-    current_terminal_candidates.projection_id
-  FROM current_terminal_candidates
-  WHERE current_terminal_candidates.terminal_count = $6
-)`;
-
-const baseProducerValues: readonly unknown[] = [
-  "OK",
-  "^[0-9]{14}$",
-  "INSERIDO_VALIDATION",
-  "",
-  leadRunIdPattern.source,
-  1,
-];
-
 export interface CommercialWorkQueueFilters {
   readonly cnpj_normalizado?: string;
   readonly uf?: BrazilianUf;
@@ -184,6 +112,8 @@ export interface ListCommercialWorkQueueResult {
   readonly total: number | null;
   readonly provenance: CommercialWorkQueueProvenance;
 }
+
+export type CommercialWorkQueueOptions = LeadRunVisibilityOptions;
 
 export class CommercialWorkQueueRepositoryInputError extends Error {
   readonly code = "INVALID_COMMERCIAL_WORK_QUEUE_INPUT";
@@ -239,13 +169,14 @@ interface ProducerFilterStatements {
 }
 
 interface ProducerPage {
-  readonly rows: readonly LeadSummaryRow[];
+  readonly rows: readonly CommercialWorkQueueRow[];
   readonly total: number | null;
   readonly provenance: CommercialWorkQueueProvenance["producer"];
 }
 
 export async function listCommercialWorkQueue(
   input: ListCommercialWorkQueueInput,
+  options: CommercialWorkQueueOptions = {},
 ): Promise<ListCommercialWorkQueueResult> {
   const listInput = validateListInput(input);
   const workspaceFilterCnpjs = await readWorkspaceFilterCnpjs(listInput);
@@ -267,7 +198,11 @@ export async function listCommercialWorkQueue(
     };
   }
 
-  const producerPage = await readProducerPage(listInput, workspaceFilterCnpjs);
+  const producerPage = await readProducerPage(
+    listInput,
+    workspaceFilterCnpjs,
+    options,
+  );
 
   if (producerPage.provenance.availability !== "AVAILABLE") {
     return {
@@ -320,18 +255,21 @@ async function readWorkspaceFilterCnpjs(
 async function readProducerPage(
   input: ValidatedListInput,
   workspaceFilterCnpjs: readonly string[] | undefined,
+  options: CommercialWorkQueueOptions,
 ): Promise<ProducerPage> {
   try {
     const sourceRows =
-      await queryProducerDatabase<SourceGuardRow>(sourceGuardStatement);
+      await queryProducerDatabase<SourceGuardRow>(
+        currentLeadSourceGuardStatement,
+      );
 
-    if (sourceRows.length > MAXIMUM_CURRENT_PROJECTIONS) {
+    if (sourceRows.length > maximumCurrentLeadProjections) {
       return unavailableProducerPage("PRODUCER_SOURCE_GUARD_EXCEEDED");
     }
 
     const filters = buildProducerFilters(input.filters, workspaceFilterCnpjs);
     const [countRow] = await queryProducerDatabase<LeadCountRow>(
-      buildCountStatement(filters),
+      buildCountStatement(filters, options),
     );
     const total =
       countRow === undefined ? null : toSafeTotal(countRow.total);
@@ -340,8 +278,8 @@ async function readProducerPage(
       return unavailableProducerPage("PRODUCER_SOURCE_UNAVAILABLE");
     }
 
-    const rows = await queryProducerDatabase<LeadSummaryRow>(
-      buildDataStatement(filters, input),
+    const rows = await queryProducerDatabase<CommercialWorkQueueRow>(
+      buildDataStatement(filters, input, options),
     );
 
     return {
@@ -432,7 +370,7 @@ function buildProducerFilters(
   workspaceFilterCnpjs: readonly string[] | undefined,
 ): ProducerFilterStatements {
   const conditions: string[] = [];
-  const values: unknown[] = [...baseProducerValues];
+  const values: unknown[] = [...currentLeadBaseValues];
 
   if (filters.cnpj_normalizado !== undefined) {
     values.push(filters.cnpj_normalizado);
@@ -465,26 +403,41 @@ function buildProducerFilters(
 
 function buildCountStatement(
   filters: ProducerFilterStatements,
+  options: CommercialWorkQueueOptions,
 ): ProducerSqlStatement {
+  const values = [...filters.values];
+  const correlatedImportBatchIdsParameter =
+    appendCorrelatedCurrentLeadBatchIds(values, options);
+
   return {
-    text: `${eligibleCurrentCte}
+    text: `${buildEligibleCurrentLeadsCte(
+      options,
+      correlatedImportBatchIdsParameter,
+    )}
 SELECT COUNT(*)::integer AS total
 FROM eligible_current AS lead${filters.clause}`,
-    values: filters.values,
+    values,
   };
 }
 
 function buildDataStatement(
   filters: ProducerFilterStatements,
   input: Pick<ValidatedListInput, "page" | "pageSize" | "sort">,
+  options: CommercialWorkQueueOptions,
 ): ProducerSqlStatement {
-  const values = [...filters.values, input.pageSize];
+  const values = [...filters.values];
+  const correlatedImportBatchIdsParameter =
+    appendCorrelatedCurrentLeadBatchIds(values, options);
+  values.push(input.pageSize);
   const limitParameter = `$${values.length}`;
   values.push((input.page - 1) * input.pageSize);
   const offsetParameter = `$${values.length}`;
 
   return {
-    text: `${eligibleCurrentCte}
+    text: `${buildEligibleCurrentLeadsCte(
+      options,
+      correlatedImportBatchIdsParameter,
+    )}
 SELECT
   lead.decision_id,
   lead.import_batch_id,
@@ -498,6 +451,17 @@ SELECT
   lead.cidade,
   lead.uf,
   lead.cnae_descricao,
+  (
+    SELECT CASE
+      WHEN COUNT(DISTINCT LOWER(BTRIM(history.website_domain))) = 1
+        THEN MIN(LOWER(BTRIM(history.website_domain)))
+      ELSE NULL
+    END
+    FROM public.crm_company_history AS history
+    WHERE history.cnpj = lead.cnpj_normalizado
+      AND history.website_domain IS NOT NULL
+      AND BTRIM(history.website_domain) <> ''
+  ) AS company_domain,
   lead.trust_score,
   lead.priority,
   lead.final_action,
@@ -513,7 +477,7 @@ LIMIT ${limitParameter} OFFSET ${offsetParameter}`,
 function orderByClause(sort: CommercialWorkQueueSort): string {
   switch (sort) {
     case "last_analysis_desc":
-      return "lead.validated_at DESC, lead.projection_id DESC";
+      return currentLeadDefaultOrderBy;
   }
 }
 
@@ -720,10 +684,13 @@ function hasWorkspaceFilters(filters: CommercialWorkQueueFilters): boolean {
 }
 
 function mapQueueItem(
-  row: LeadSummaryRow,
+  row: CommercialWorkQueueRow,
   workspace: LeadWorkspaceDto | null,
 ): CommercialWorkQueueItem {
+  const companyDomain = companyDomainSchema.safeParse(row.company_domain);
+
   return {
+    companyDomain: companyDomain.success ? companyDomain.data : null,
     producerLead: mapLeadSummary(row),
     workspace,
     sources: {
@@ -798,7 +765,7 @@ function toSafeTotal(value: number | string): number | null {
   if (
     Number.isSafeInteger(total) &&
     total >= 0 &&
-    total <= MAXIMUM_CURRENT_PROJECTIONS
+    total <= maximumCurrentLeadProjections
   ) {
     return total;
   }

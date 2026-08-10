@@ -34,6 +34,24 @@ const legacyWorkflowStartReportSql = readSql(
 const legacyWorkflowStartReportRollbackSql = readSql(
   "008_legacy_workflow_start_report_rollback.sql",
 );
+const contactEnrichmentLedgerSql = readSql(
+  "009_contact_enrichment_ledger_forward.sql",
+);
+const contactEnrichmentLedgerRollbackSql = readSql(
+  "009_contact_enrichment_ledger_rollback.sql",
+);
+const contactDataGovernanceSql = readSql(
+  "010_contact_data_governance_forward.sql",
+);
+const contactDataGovernanceRollbackSql = readSql(
+  "010_contact_data_governance_rollback.sql",
+);
+const contactCompanyResolutionSql = readSql(
+  "011_contact_company_resolution_forward.sql",
+);
+const contactCompanyResolutionRollbackSql = readSql(
+  "011_contact_company_resolution_rollback.sql",
+);
 const disposableTargets = [
   {
     hostname: "localhost",
@@ -154,6 +172,38 @@ async function queryRows<Row extends QueryResultRow>(
 }
 
 async function resetDisposableDatabase(): Promise<void> {
+  await execute(
+    "DROP TABLE IF EXISTS prospecting_app.contact_governance_events",
+  );
+  await execute(
+    "DROP TABLE IF EXISTS prospecting_app.contact_rights_requests",
+  );
+  await execute(
+    "DROP TABLE IF EXISTS prospecting_app.contact_suppressions",
+  );
+  await execute("DROP TABLE IF EXISTS prospecting_app.contact_records");
+  await execute(
+    "DROP TABLE IF EXISTS prospecting_app.contact_reveal_requests",
+  );
+  await execute("DROP TABLE IF EXISTS prospecting_app.contact_candidates");
+  await execute(
+    "DROP TABLE IF EXISTS prospecting_app.contact_enrichment_v2_requests",
+  );
+  await execute(
+    "DROP TABLE IF EXISTS prospecting_app.contact_company_search_events",
+  );
+  await execute(
+    "DROP TABLE IF EXISTS prospecting_app.contact_company_matches",
+  );
+  await execute(
+    "DROP TABLE IF EXISTS prospecting_app.contact_company_search_requests",
+  );
+  await execute(
+    "DROP TABLE IF EXISTS prospecting_app.contact_enrichment_events",
+  );
+  await execute(
+    "DROP TABLE IF EXISTS prospecting_app.contact_enrichment_requests",
+  );
   await execute(rollbackSql);
   await execute(`DROP SCHEMA IF EXISTS ${producerLikeSchema} CASCADE`);
   await resetSyntheticRoles();
@@ -163,11 +213,46 @@ async function resetDisposableDatabase(): Promise<void> {
   await execute(importAcceptanceReconciliationSql);
   await execute(legacyWorkflowCloseReportSql);
   await execute(legacyWorkflowStartReportSql);
+  await execute(contactEnrichmentLedgerSql);
+  await execute(contactDataGovernanceSql);
+  await execute(contactCompanyResolutionSql);
   await execute(grantsSql);
   await createProducerLikeObjects();
 }
 
 async function cleanupDisposableDatabase(): Promise<void> {
+  await execute(
+    "DROP TABLE IF EXISTS prospecting_app.contact_governance_events",
+  );
+  await execute(
+    "DROP TABLE IF EXISTS prospecting_app.contact_rights_requests",
+  );
+  await execute(
+    "DROP TABLE IF EXISTS prospecting_app.contact_suppressions",
+  );
+  await execute("DROP TABLE IF EXISTS prospecting_app.contact_records");
+  await execute(
+    "DROP TABLE IF EXISTS prospecting_app.contact_reveal_requests",
+  );
+  await execute("DROP TABLE IF EXISTS prospecting_app.contact_candidates");
+  await execute(
+    "DROP TABLE IF EXISTS prospecting_app.contact_enrichment_v2_requests",
+  );
+  await execute(
+    "DROP TABLE IF EXISTS prospecting_app.contact_company_search_events",
+  );
+  await execute(
+    "DROP TABLE IF EXISTS prospecting_app.contact_company_matches",
+  );
+  await execute(
+    "DROP TABLE IF EXISTS prospecting_app.contact_company_search_requests",
+  );
+  await execute(
+    "DROP TABLE IF EXISTS prospecting_app.contact_enrichment_events",
+  );
+  await execute(
+    "DROP TABLE IF EXISTS prospecting_app.contact_enrichment_requests",
+  );
   await execute(rollbackSql);
   await execute(`DROP SCHEMA IF EXISTS ${producerLikeSchema} CASCADE`);
   await dropSyntheticRoles();
@@ -709,6 +794,18 @@ describe("Prospecta app-owned schema migration", () => {
 
     expect(tables.map((row) => row.table_name)).toEqual([
       "commercial_audit_events",
+      "contact_candidates",
+      "contact_company_matches",
+      "contact_company_search_events",
+      "contact_company_search_requests",
+      "contact_enrichment_events",
+      "contact_enrichment_requests",
+      "contact_enrichment_v2_requests",
+      "contact_governance_events",
+      "contact_records",
+      "contact_reveal_requests",
+      "contact_rights_requests",
+      "contact_suppressions",
       "import_submission_events",
       "import_submissions",
       "lead_activities",
@@ -718,6 +815,9 @@ describe("Prospecta app-owned schema migration", () => {
   });
 
   it("rolls back the app-owned schema without relying on producer objects", async () => {
+    await execute(contactCompanyResolutionRollbackSql);
+    await execute(contactDataGovernanceRollbackSql);
+    await execute(contactEnrichmentLedgerRollbackSql);
     await execute(rollbackSql);
 
     const rows = await queryRows<{ schema_exists: boolean }>(
@@ -943,6 +1043,20 @@ describe("Prospecta app-owned schema migration", () => {
       expect.arrayContaining([
         "commercial_audit_events_org_target_idx",
         "commercial_audit_events_org_workspace_occurred_idx",
+        "contact_enrichment_events_org_request_occurred_idx",
+        "contact_enrichment_requests_org_idempotency_hash_uk",
+        "contact_enrichment_requests_org_requested_idx",
+        "contact_candidates_org_request_position_idx",
+        "contact_company_matches_org_request_idx",
+        "contact_company_search_events_org_time_idx",
+        "contact_company_search_requests_org_idempotency_uk",
+        "contact_company_search_requests_org_requested_idx",
+        "contact_enrichment_v2_requests_org_idempotency_uk",
+        "contact_enrichment_v2_requests_org_requested_idx",
+        "contact_governance_events_org_time_idx",
+        "contact_records_org_contact_uk",
+        "contact_reveal_requests_org_idempotency_uk",
+        "contact_suppressions_lookup_idx",
         "import_submission_events_org_submission_occurred_idx",
         "import_submission_events_one_workflow_start_uk",
         "import_submissions_org_created_at_idx",
@@ -954,6 +1068,156 @@ describe("Prospecta app-owned schema migration", () => {
         "lead_workspaces_org_stage_idx",
       ]),
     );
+  });
+
+  it("keeps the contact ledger PII-free and its events append-only", async () => {
+    const columns = await queryRows<{
+      table_name: string;
+      column_name: string;
+    }>(
+      `
+        SELECT table_name, column_name
+        FROM information_schema.columns
+        WHERE table_schema = $1
+          AND table_name IN (
+            'contact_enrichment_requests',
+            'contact_enrichment_events'
+          )
+        ORDER BY table_name, ordinal_position
+      `,
+      [appSchema],
+    );
+    const columnNames = columns.map((column) => column.column_name);
+
+    expect(columnNames).not.toEqual(
+      expect.arrayContaining([
+        "cnpj_normalizado",
+        "company_domain",
+        "contact_count",
+        "provider_response",
+        "payload",
+        "metadata",
+      ]),
+    );
+
+    const contactRequestId = syntheticUuid(901);
+    const contactEventId = syntheticUuid(902);
+    await pool.query(
+      `
+        INSERT INTO prospecting_app.contact_enrichment_requests (
+          request_id,
+          organization_id,
+          actor_subject,
+          idempotency_key_sha256,
+          input_sha256
+        )
+        VALUES ($1, $2, $3, $4, $5)
+      `,
+      [
+        contactRequestId,
+        "org-synthetic-a",
+        "demo3-preproduction-user",
+        syntheticHash("d"),
+        syntheticHash("e"),
+      ],
+    );
+    await pool.query(
+      `
+        INSERT INTO prospecting_app.contact_enrichment_events (
+          event_id,
+          organization_id,
+          request_id,
+          actor_category,
+          event_type,
+          occurred_at
+        )
+        VALUES ($1, $2, $3, $4, 'REQUEST_RECORDED', now())
+      `,
+      [
+        contactEventId,
+        "org-synthetic-a",
+        contactRequestId,
+        "demo3-preproduction-user",
+      ],
+    );
+
+    await expect(
+      pool.query(
+        `UPDATE prospecting_app.contact_enrichment_events
+         SET occurred_at = now()
+         WHERE event_id = $1`,
+        [contactEventId],
+      ),
+    ).rejects.toThrow();
+    await expect(
+      pool.query(
+        `DELETE FROM prospecting_app.contact_enrichment_events
+         WHERE event_id = $1`,
+        [contactEventId],
+      ),
+    ).rejects.toThrow();
+  });
+
+  it("stores v2 contact data only as ciphertext or keyed fingerprints", async () => {
+    const columns = await queryRows<{
+      table_name: string;
+      column_name: string;
+    }>(
+      `
+        SELECT table_name, column_name
+        FROM information_schema.columns
+        WHERE table_schema = $1
+          AND table_name IN (
+            'contact_company_search_requests',
+            'contact_company_matches',
+            'contact_company_search_events',
+            'contact_candidates',
+            'contact_records',
+            'contact_suppressions',
+            'contact_governance_events'
+          )
+      `,
+      [appSchema],
+    );
+    const names = columns.map((column) => column.column_name);
+
+    expect(names).not.toEqual(
+      expect.arrayContaining([
+        "name",
+        "company_name",
+        "provider_company_id",
+        "full_name",
+        "email",
+        "phone",
+        "provider_payload",
+        "raw_response",
+        "metadata",
+      ]),
+    );
+    expect(names).toEqual(
+      expect.arrayContaining([
+        "profile_ciphertext",
+        "provider_ref_ciphertext",
+        "channel_data_ciphertext",
+        "identity_hmac",
+      ]),
+    );
+
+    const foreignTargets = await queryRows<{ foreign_schema: string }>(
+      `
+        SELECT target_ns.nspname AS foreign_schema
+        FROM pg_constraint constraint_row
+        JOIN pg_class source_table ON source_table.oid = constraint_row.conrelid
+        JOIN pg_namespace source_ns ON source_ns.oid = source_table.relnamespace
+        JOIN pg_class target_table ON target_table.oid = constraint_row.confrelid
+        JOIN pg_namespace target_ns ON target_ns.oid = target_table.relnamespace
+        WHERE constraint_row.contype = 'f'
+          AND source_ns.nspname = $1
+          AND source_table.relname LIKE 'contact_%'
+      `,
+      [appSchema],
+    );
+    expect(foreignTargets.every((row) => row.foreign_schema === appSchema)).toBe(true);
   });
 
   it("keeps import submission events append-only", async () => {
@@ -2259,7 +2523,9 @@ describe("Prospecta database role isolation", () => {
         "prospecting_app.commercial_audit_events:SELECT",
       ]),
     );
-    expect(appGrantKeys.some((key) => key.endsWith(":DELETE"))).toBe(false);
+    expect(appGrantKeys.filter((key) => key.endsWith(":DELETE"))).toEqual([
+      "prospecting_app.contact_suppressions:DELETE",
+    ]);
     expect(
       appGrantKeys.some((key) =>
         key.startsWith(`${producerLikeSchema}.${producerLikeTable}:`),
@@ -2360,6 +2626,74 @@ describe("Prospecta database role isolation", () => {
           },
         ]);
 
+        await expect(
+          appPool.query(
+            "DELETE FROM prospecting_app.import_submissions WHERE submission_id = $1",
+            [submissionId],
+          ),
+        ).rejects.toMatchObject({
+          code: "42501",
+          message: expect.stringContaining("permission denied"),
+        });
+      },
+    );
+  });
+
+  it("allows the app role to purge only expired contact suppressions", async () => {
+    await withRolePool(
+      appRuntimeRole,
+      appRuntimePassword,
+      "prospecta-t010-app-suppression-purge",
+      async (appPool) => {
+        const suppressionId = syntheticUuid(903);
+        const submissionId = syntheticUuid(904);
+
+        await appPool.query(
+          `
+            INSERT INTO prospecting_app.contact_suppressions (
+              suppression_id,
+              organization_id,
+              identity_kind,
+              identity_hmac,
+              channel_scope,
+              reason,
+              source,
+              actor_category,
+              created_at,
+              expires_at
+            )
+            VALUES ($1, $2, 'email', $3, 'email', 'DATA_SUBJECT_OPT_OUT',
+              'PROSPECTA', $4, $5, $6)
+          `,
+          [
+            suppressionId,
+            "org-synthetic-a",
+            syntheticHash("9"),
+            "system:contact-retention-v2",
+            "2025-01-01T00:00:00.000Z",
+            "2025-01-02T00:00:00.000Z",
+          ],
+        );
+
+        const purged = await appPool.query<{ suppression_id: string }>(
+          `
+            DELETE FROM prospecting_app.contact_suppressions
+            WHERE organization_id = $1 AND expires_at <= $2
+            RETURNING suppression_id
+          `,
+          ["org-synthetic-a", "2025-01-03T00:00:00.000Z"],
+        );
+
+        expect(purged.rows).toEqual([{ suppression_id: suppressionId }]);
+
+        await insertImportSubmission(
+          {
+            submissionId,
+            idempotencyKey: "app-role-delete-denied-after-suppression-purge",
+            fileSha256: syntheticHash("8"),
+          },
+          appPool,
+        );
         await expect(
           appPool.query(
             "DELETE FROM prospecting_app.import_submissions WHERE submission_id = $1",

@@ -1,0 +1,104 @@
+{
+  "contractVersion": "prospecta-contact-enrichment-v1",
+  "workflowName": "Prospecta - Contact Enrichment v1",
+  "workflowState": "INACTIVE_REFERENCE_ONLY",
+  "ingress": {
+    "method": "POST",
+    "webhookPath": "prospecta/lusha/decision-makers",
+    "authentication": {
+      "nodeAuthentication": "headerAuth",
+      "credentialType": "httpHeaderAuth",
+      "artifactCredentialBinding": "MANUAL_AFTER_APPROVAL"
+    },
+    "requestExactFields": [
+      "contract_version",
+      "request_id",
+      "idempotency_key",
+      "cnpj_normalizado",
+      "company_domain"
+    ],
+    "requestValidation": {
+      "contract_version": "prospecta-contact-enrichment-v1",
+      "request_id": "UUID",
+      "idempotency_key": "TRIMMED_TEXT_1_TO_128",
+      "cnpj_normalizado": "ASCII_14_DIGITS",
+      "company_domain": "LOWERCASE_HOSTNAME"
+    }
+  },
+  "initialResponse": {
+    "statusCode": 202,
+    "exactFields": [
+      "contract_version",
+      "request_id",
+      "status"
+    ],
+    "status": "ENRICHMENT_DISPATCHED"
+  },
+  "provider": {
+    "operation": "LUSHA_DECISION_MAKERS",
+    "url": "https://api.lusha.com/v3/contacts/decision-makers",
+    "authentication": {
+      "type": "genericCredentialType",
+      "genericAuthType": "httpHeaderAuth",
+      "artifactCredentialBinding": "MANUAL_AFTER_APPROVAL"
+    },
+    "requestFields": [
+      "domain",
+      "clientReferenceId"
+    ],
+    "prohibitedOperations": [
+      "LUSHA_CONTACT_REVEAL",
+      "LUSHA_CONTACT_ENRICH"
+    ],
+    "timeoutOutcome": "PROVIDER_OUTCOME_UNKNOWN",
+    "automaticRetry": false
+  },
+  "callback": {
+    "url": "http://192.168.0.20:30100/api/contact-enrichment/callback",
+    "authentication": {
+      "type": "genericCredentialType",
+      "genericAuthType": "httpHeaderAuth",
+      "artifactCredentialBinding": "MANUAL_AFTER_APPROVAL"
+    },
+    "exactFields": [
+      "contract_version",
+      "request_id",
+      "status",
+      "occurred_at",
+      "contact_count"
+    ],
+    "statuses": [
+      "COMPLETED_WITHHELD",
+      "PROVIDER_OUTCOME_UNKNOWN"
+    ],
+    "contactCount": null,
+    "rejectConditions": [
+      "UNAUTHENTICATED",
+      "EXTRA_OR_MISSING_FIELD",
+      "UNKNOWN_ORGANIZATION_REQUEST",
+      "REPLAY_CONFLICT"
+    ]
+  },
+  "idempotency": {
+    "owner": "prospecta_app_owned_ledger",
+    "n8nProvidesIdempotency": false,
+    "sameInputBehavior": "RETURN_ORIGINAL_SAFE_APP_RESULT_WITHOUT_N8N_CALL",
+    "changedInputBehavior": "REJECT_409_BEFORE_N8N_CALL",
+    "timeoutBehavior": "PERSIST_PROVIDER_OUTCOME_UNKNOWN_WITHOUT_RETRY"
+  },
+  "pii": {
+    "forbiddenOutputFields": [
+      "contact_name",
+      "email",
+      "phone",
+      "contact_id",
+      "profile_url",
+      "job_title",
+      "provider_response",
+      "provider_billing",
+      "cnpj_normalizado",
+      "idempotency_key"
+    ],
+    "executionDataRetention": "DISABLED"
+  }
+}

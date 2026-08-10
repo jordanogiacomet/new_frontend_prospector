@@ -78,6 +78,7 @@ function producerRow(
     cidade: string | null;
     uf: string | null;
     cnae_descricao: string | null;
+    company_domain: string | null;
     trust_score: number | null;
     priority: string | null;
     final_action: string | null;
@@ -110,6 +111,9 @@ function producerRow(
     cnae_descricao: Object.hasOwn(overrides, "cnae_descricao")
       ? (overrides.cnae_descricao ?? null)
       : "Servicos sinteticos",
+    company_domain: Object.hasOwn(overrides, "company_domain")
+      ? (overrides.company_domain ?? null)
+      : "empresa.example",
     trust_score: Object.hasOwn(overrides, "trust_score")
       ? (overrides.trust_score ?? null)
       : 82,
@@ -312,6 +316,7 @@ describe("listCommercialWorkQueue", () => {
 
     expect(result.items).toEqual([
       expect.objectContaining({
+        companyDomain: "empresa.example",
         producerLead: expect.objectContaining({
           cnpj,
           score: 82,
@@ -334,6 +339,38 @@ describe("listCommercialWorkQueue", () => {
         },
       }),
     ]);
+  });
+
+  it("withholds an invalid producer company domain", async () => {
+    mocks.producerQuery
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ total: 1 }])
+      .mockResolvedValueOnce([
+        producerRow({ company_domain: "https://empresa.example/path" }),
+      ]);
+    mocks.appQuery.mockResolvedValueOnce([]);
+
+    const result = await listCommercialWorkQueue({ actor: actor() });
+
+    expect(result.items[0]?.companyDomain).toBeNull();
+  });
+
+  it("selects only the exact company-domain producer columns and fails ambiguous matches closed", async () => {
+    mocks.producerQuery
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ total: 0 }])
+      .mockResolvedValueOnce([]);
+
+    await listCommercialWorkQueue({ actor: actor() });
+
+    const statement = producerStatements()[2]?.text ?? "";
+    expect(statement).toContain("public.crm_company_history");
+    expect(statement).toMatch(/history\.cnpj = lead\.cnpj_normalizado/i);
+    expect(statement).toMatch(/COUNT\(DISTINCT/i);
+    expect(statement).toMatch(/AS company_domain/i);
+    expect(statement).not.toMatch(
+      /contact_name|contact_email|contact_phone|latest_status|suppression_level/i,
+    );
   });
 
   it("scopes workspace association by organization_id", async () => {
@@ -406,6 +443,43 @@ describe("listCommercialWorkQueue", () => {
       /ORDER BY lead\.validated_at DESC, lead\.projection_id DESC/i,
     );
     expect(dataStatement?.text).not.toContain("last_analysis_desc");
+  });
+
+  it("uses the same bound correlated-batch visibility as the current lead list", async () => {
+    const correlatedBatchIds = [
+      "synthetic-correlated-batch",
+      "batch'); SELECT pg_sleep(1); --",
+    ];
+    mocks.producerQuery
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ total: 0 }])
+      .mockResolvedValueOnce([]);
+
+    await listCommercialWorkQueue(
+      {
+        actor: actor(),
+        page: 3,
+        pageSize: 7,
+      },
+      { includeTestRunsFromImportBatchIds: correlatedBatchIds },
+    );
+
+    const [, countStatement, dataStatement] = producerStatements();
+    expect(countStatement?.text).toContain(
+      "terminal.import_batch_id = ANY($7::text[])",
+    );
+    expect(dataStatement?.text).toContain(
+      "terminal.import_batch_id = ANY($7::text[])",
+    );
+    expect(dataStatement?.text).toMatch(/LIMIT \$8 OFFSET \$9/i);
+    expect(countStatement?.values[6]).toEqual(correlatedBatchIds);
+    expect(dataStatement?.values.slice(-3)).toEqual([
+      correlatedBatchIds,
+      7,
+      14,
+    ]);
+    expect(countStatement?.text).not.toContain(correlatedBatchIds[0]);
+    expect(countStatement?.text).not.toContain(correlatedBatchIds[1]);
   });
 
   it("applies producer filters as bound SQL parameters", async () => {

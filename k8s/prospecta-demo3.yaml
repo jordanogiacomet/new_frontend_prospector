@@ -25,12 +25,16 @@ data:
   DEMO2_K8S_RUNTIME_ENABLED: "false"
   DEMO3_LOCAL_RUNTIME_ENABLED: "true"
   N8N_IMPORT_URL: http://192.168.0.20:30098/webhook/empresaqui/import
+  N8N_CONTACT_ENRICHMENT_URL: http://192.168.0.20:30098/webhook/prospecta/lusha/decision-makers
   IMPORT_MAX_BYTES: "10485760"
   IMPORT_PRODUCER_TIMEOUT_MS: "15000"
+  CONTACT_ENRICHMENT_TIMEOUT_MS: "15000"
   FEATURE_IMPORTS_ENABLED: "true"
   FEATURE_BATCH_OBSERVATION_ENABLED: "true"
   FEATURE_COMMERCIAL_ENABLED: "true"
   FEATURE_SENSITIVE_CONTENT_ENABLED: "true"
+  FEATURE_CONTACT_ENRICHMENT_ENABLED: "true"
+  FEATURE_CONTACT_DATA_ENABLED: "__FEATURE_CONTACT_DATA_ENABLED__"
   FEATURE_DEMO_DATA_ENABLED: "false"
   FEATURE_COSTS_ENABLED: "true"
   COSTS_READ_SUBJECTS: demo3-preproduction-user
@@ -109,7 +113,9 @@ spec:
                   psql -v ON_ERROR_STOP=1 -U prospecta_demo3_owner
                   -d prospecta_demo3 -Atqc
                   "select has_table_privilege('prospecta_app_rw',
-                  'prospecting_app.lead_workspaces', 'SELECT')" |
+                  'prospecting_app.lead_workspaces', 'SELECT') and
+                  has_table_privilege('prospecta_app_rw',
+                  'prospecting_app.contact_enrichment_requests', 'SELECT')" |
                   grep -qx t
             initialDelaySeconds: 5
             periodSeconds: 5
@@ -209,6 +215,9 @@ spec:
                 name: __CONFIG_NAME__
             - secretRef:
                 name: __APP_SECRET_NAME__
+          env:
+            - name: NODE_EXTRA_CA_CERTS
+              value: /etc/prospecta/contact-v2-ca/ca.crt
           readinessProbe:
             httpGet:
               path: /login
@@ -240,12 +249,17 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            - name: contact-v2-ca
+              mountPath: /etc/prospecta/contact-v2-ca
+              readOnly: true
         - name: request-edge
           image: __EDGE_IMAGE__
           imagePullPolicy: Always
           ports:
             - name: edge
               containerPort: 8080
+            - name: contact-edge
+              containerPort: 8443
           readinessProbe:
             httpGet:
               path: /healthz
@@ -282,6 +296,9 @@ spec:
             - name: gateway-auth
               mountPath: /etc/nginx/auth
               readOnly: true
+            - name: contact-v2-tls
+              mountPath: /etc/nginx/contact-v2-tls
+              readOnly: true
         - name: postgres-loopback-proxy
           image: __PROXY_IMAGE__
           imagePullPolicy: Always
@@ -315,6 +332,20 @@ spec:
             items:
               - key: htpasswd
                 path: htpasswd
+        - name: contact-v2-ca
+          configMap:
+            name: prospecta-contact-v2-ca
+            items:
+              - key: ca.crt
+                path: ca.crt
+        - name: contact-v2-tls
+          secret:
+            secretName: prospecta-contact-v2-tls
+            items:
+              - key: tls.crt
+                path: tls.crt
+              - key: tls.key
+                path: tls.key
 ---
 apiVersion: v1
 kind: Service
@@ -334,6 +365,10 @@ spec:
       port: 80
       targetPort: edge
       nodePort: 30100
+    - name: contact-https
+      port: 443
+      targetPort: contact-edge
+      nodePort: 30443
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -382,3 +417,15 @@ spec:
       ports:
         - protocol: TCP
           port: 30098
+        - protocol: TCP
+          port: 30443
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: n8n
+          podSelector:
+            matchLabels:
+              app: n8n
+      ports:
+        - protocol: TCP
+          port: 5678

@@ -1,0 +1,287 @@
+{
+  "id": "PCEv1Demo3a7K2mQ",
+  "name": "Prospecta - Contact Enrichment v1",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "prospecta/lusha/decision-makers",
+        "authentication": "headerAuth",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "4b72a638-5c8c-4a2c-a6e0-4b4a50a3419f",
+      "name": "Webhook Contact Enrichment v1",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "f14d8c06-9af8-4d43-84d4-d9dd5af0df3e"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const body = $json.body && typeof $json.body === 'object' && !Array.isArray($json.body) ? $json.body : $json;\nconst invalid = () => ({ json: { valid: false } });\nconst expectedFields = ['cnpj_normalizado', 'company_domain', 'contract_version', 'idempotency_key', 'request_id'];\nconst actualFields = Object.keys(body).sort();\nif (actualFields.length !== expectedFields.length || actualFields.some((field, index) => field !== expectedFields[index])) return invalid();\nconst requestId = body.request_id;\nconst idempotencyKey = body.idempotency_key;\nconst cnpj = body.cnpj_normalizado;\nconst domain = body.company_domain;\nif (body.contract_version !== 'prospecta-contact-enrichment-v1') return invalid();\nif (typeof requestId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(requestId)) return invalid();\nif (typeof idempotencyKey !== 'string' || idempotencyKey.trim() !== idempotencyKey || idempotencyKey.length < 1 || idempotencyKey.length > 128) return invalid();\nif (typeof cnpj !== 'string' || !/^[0-9]{14}$/.test(cnpj)) return invalid();\nif (typeof domain !== 'string' || domain !== domain.toLowerCase() || !/^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$/.test(domain)) return invalid();\nreturn { json: { valid: true, contract_version: 'prospecta-contact-enrichment-v1', request_id: requestId, company_domain: domain } };"
+      },
+      "id": "b918a9f7-b013-49e0-a3ff-49b5369022de",
+      "name": "Validate Contact Enrichment Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "57efcb46-1a2f-4738-8356-20bc4f6d6ae1",
+              "leftValue": "={{ $json.valid }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "cdf1e632-51c6-4e47-b334-2272a90dc805",
+      "name": "IF Valid Contact Enrichment Request",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        480,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { contract_version: 'prospecta-contact-enrichment-v1', request_id: $json.request_id, status: 'ENRICHMENT_DISPATCHED' } }}",
+        "options": {
+          "responseCode": 202
+        }
+      },
+      "id": "8e7aa81f-b0f2-4a36-bc1a-e33d8b4ffb3d",
+      "name": "Respond Contact Enrichment Dispatch",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        720,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { error: { code: 'INVALID_ENRICHMENT_REQUEST', message: 'Invalid contact enrichment request.' } } }}",
+        "options": {
+          "responseCode": 400
+        }
+      },
+      "id": "bed41169-bfda-4661-a8be-e76205264102",
+      "name": "Respond Invalid Contact Enrichment Request",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        720,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const request = $('Validate Contact Enrichment Request').first().json;\nreturn { json: { request_id: request.request_id, lusha_request_body: { companies: [{ domain: request.company_domain, clientReferenceId: request.request_id }], pagination: { page: 1, size: 1 } } } };"
+      },
+      "id": "a31f4654-23d2-4da2-a0fb-cf92d11a0199",
+      "name": "Prepare Lusha Decision Makers",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        960,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.lusha.com/v3/contacts/decision-makers",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.lusha_request_body) }}",
+        "options": {
+          "timeout": 30000,
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "5f6aa771-5775-4266-bd39-6d0debf945e4",
+      "name": "Lusha Decision Makers",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1200,
+        -80
+      ],
+      "retryOnFail": false,
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const request = $('Validate Contact Enrichment Request').first().json;\nconst providerError = typeof $json === 'object' && $json !== null && ('error' in $json || ('statusCode' in $json && (typeof $json.statusCode !== 'number' || $json.statusCode < 200 || $json.statusCode >= 300)));\nreturn { json: { contract_version: 'prospecta-contact-enrichment-v1', request_id: request.request_id, status: providerError ? 'PROVIDER_OUTCOME_UNKNOWN' : 'COMPLETED_WITHHELD', occurred_at: new Date().toISOString(), contact_count: null } };"
+      },
+      "id": "ef74c816-229b-4a4f-91d0-d6b543bbb3ac",
+      "name": "Prepare Withheld Callback",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1440,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://192.168.0.20:30100/api/contact-enrichment/callback",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "timeout": 30000,
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "d01d03b6-4094-4d8a-8a56-650ad93295ed",
+      "name": "Callback Prospecta Contact Enrichment",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1680,
+        -80
+      ],
+      "retryOnFail": false,
+      "continueOnFail": true
+    }
+  ],
+  "connections": {
+    "Webhook Contact Enrichment v1": {
+      "main": [
+        [
+          {
+            "node": "Validate Contact Enrichment Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Contact Enrichment Request": {
+      "main": [
+        [
+          {
+            "node": "IF Valid Contact Enrichment Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Valid Contact Enrichment Request": {
+      "main": [
+        [
+          {
+            "node": "Respond Contact Enrichment Dispatch",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond Invalid Contact Enrichment Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond Contact Enrichment Dispatch": {
+      "main": [
+        [
+          {
+            "node": "Prepare Lusha Decision Makers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Lusha Decision Makers": {
+      "main": [
+        [
+          {
+            "node": "Lusha Decision Makers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lusha Decision Makers": {
+      "main": [
+        [
+          {
+            "node": "Prepare Withheld Callback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Withheld Callback": {
+      "main": [
+        [
+          {
+            "node": "Callback Prospecta Contact Enrichment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataSuccessExecution": "none",
+    "saveDataErrorExecution": "none",
+    "saveManualExecutions": false
+  },
+  "pinData": {}
+}

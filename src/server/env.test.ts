@@ -25,8 +25,31 @@ const validEnvironment = {
   N8N_HMAC_SECRET: "replace-with-a-random-hmac-secret-of-at-least-32-bytes",
   N8N_IMPORT_EVENT_SECRET:
     "replace-with-a-random-event-secret-of-at-least-32-bytes",
+  N8N_CONTACT_ENRICHMENT_URL:
+    "https://automation.example.com/webhook/prospecta/lusha/decision-makers",
+  N8N_CONTACT_ENRICHMENT_SECRET:
+    "replace-with-a-contact-ingress-secret-of-at-least-32-bytes",
+  N8N_CONTACT_CALLBACK_SECRET:
+    "replace-with-a-contact-callback-secret-of-at-least-32-bytes",
+  N8N_CONTACT_ENRICHMENT_V2_URL:
+    "https://automation.example.com/webhook/prospecta/lusha/contact-enrichment-v2",
+  N8N_CONTACT_ENRICHMENT_V2_SECRET:
+    "synthetic-v2-ingress-secret-value-at-least-32-bytes",
+  N8N_CONTACT_CALLBACK_V2_SECRET:
+    "synthetic-v2-callback-secret-value-at-least-32-bytes",
+  CONTACT_DATA_ENCRYPTION_KEY_BASE64:
+    "BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=",
+  CONTACT_DATA_ENCRYPTION_KEY_ID: "synthetic-contact-key-v1",
+  CONTACT_SUPPRESSION_HMAC_KEY:
+    "synthetic-suppression-secret-value-at-least-32-bytes",
+  CONTACT_DATA_READ_SUBJECTS: "",
+  CONTACT_DATA_GOVERN_SUBJECTS: "",
+  CONTACT_CONTROLLER_LEGAL_NAME: "Controlador Sintético Ltda.",
+  CONTACT_CONTROLLER_REGISTRATION: "00.000.000/0001-00",
+  CONTACT_PRIVACY_CONTACT: "privacidade@example.test",
   IMPORT_MAX_BYTES: "10485760",
   IMPORT_PRODUCER_TIMEOUT_MS: "15000",
+  CONTACT_ENRICHMENT_TIMEOUT_MS: "15000",
   SENSITIVE_URL_HOSTS: "evidence.example.com, reports.example.com",
   FEATURE_IMPORTS_ENABLED: "false",
   FEATURE_BATCH_OBSERVATION_ENABLED: "false",
@@ -34,6 +57,8 @@ const validEnvironment = {
   FEATURE_SENSITIVE_CONTENT_ENABLED: "false",
   FEATURE_DEMO_DATA_ENABLED: "false",
   FEATURE_COSTS_ENABLED: "false",
+  FEATURE_CONTACT_ENRICHMENT_ENABLED: "false",
+  FEATURE_CONTACT_DATA_ENABLED: "false",
   COSTS_READ_SUBJECTS: "",
   DEMO2_FULL_ACCESS_ENABLED: "false",
   DEMO2_K8S_RUNTIME_ENABLED: "false",
@@ -169,6 +194,101 @@ describe("server environment", () => {
         N8N_IMPORT_EVENT_SECRET: "too-short",
       }),
     ).toThrow(/N8N_IMPORT_EVENT_SECRET/);
+  });
+
+  it("requires complete, distinct contact integration settings when enabled", () => {
+    const enabled = {
+      ...validEnvironment,
+      FEATURE_CONTACT_ENRICHMENT_ENABLED: "true",
+    };
+
+    expect(environment.parseServerEnv(enabled)).toMatchObject({
+      FEATURE_CONTACT_ENRICHMENT_ENABLED: true,
+      N8N_CONTACT_ENRICHMENT_URL:
+        "https://automation.example.com/webhook/prospecta/lusha/decision-makers",
+      CONTACT_ENRICHMENT_TIMEOUT_MS: 15_000,
+    });
+
+    for (const key of [
+      "N8N_CONTACT_ENRICHMENT_URL",
+      "N8N_CONTACT_ENRICHMENT_SECRET",
+      "N8N_CONTACT_CALLBACK_SECRET",
+    ] as const) {
+      const incomplete: Record<string, string | undefined> = { ...enabled };
+      delete incomplete[key];
+
+      expect(() => environment.parseServerEnv(incomplete)).toThrow(
+        new RegExp(key),
+      );
+    }
+  });
+
+  it.each([
+    "http://automation.example.com/webhook/prospecta/lusha/decision-makers",
+    "http://192.168.0.20:30098/webhook/prospecta/lusha/decision-makers/",
+    "http://192.168.0.20:30099/webhook/prospecta/lusha/decision-makers",
+    "http://192.168.0.20:30098/webhook/prospecta/lusha/other",
+    "https://user:password@automation.example.com/webhook/prospecta/lusha/decision-makers",
+    "https://automation.example.com/webhook/prospecta/lusha/decision-makers?secret=value",
+  ])("rejects an unsafe contact-enrichment URL: %s", (url) => {
+    expect(() =>
+      environment.parseServerEnv({
+        ...validEnvironment,
+        FEATURE_CONTACT_ENRICHMENT_ENABLED: "true",
+        N8N_CONTACT_ENRICHMENT_URL: url,
+      }),
+    ).toThrow(/N8N_CONTACT_ENRICHMENT_URL/);
+  });
+
+  it("accepts the exact internal contact URL only in the Demo 3 profile", () => {
+    const exactUrl =
+      "http://192.168.0.20:30098/webhook/prospecta/lusha/decision-makers";
+
+    expect(
+      environment.parseServerEnv({
+        ...validEnvironment,
+        NODE_ENV: "production",
+        AUTH_DEV_BYPASS_ENABLED: "true",
+        FEATURE_COMMERCIAL_ENABLED: "true",
+        FEATURE_CONTACT_ENRICHMENT_ENABLED: "true",
+        DEMO3_LOCAL_RUNTIME_ENABLED: "true",
+        N8N_CONTACT_ENRICHMENT_URL: exactUrl,
+      }).N8N_CONTACT_ENRICHMENT_URL,
+    ).toBe(exactUrl);
+
+    expect(() =>
+      environment.parseServerEnv({
+        ...validEnvironment,
+        FEATURE_CONTACT_ENRICHMENT_ENABLED: "true",
+        N8N_CONTACT_ENRICHMENT_URL: exactUrl,
+      }),
+    ).toThrow(/N8N_CONTACT_ENRICHMENT_URL/);
+  });
+
+  it("rejects short, reused, or publicly exposed contact secrets", () => {
+    for (const input of [
+      { N8N_CONTACT_ENRICHMENT_SECRET: "too-short" },
+      { N8N_CONTACT_CALLBACK_SECRET: "too-short" },
+      {
+        N8N_CONTACT_CALLBACK_SECRET:
+          validEnvironment.N8N_CONTACT_ENRICHMENT_SECRET,
+      },
+      {
+        N8N_CONTACT_ENRICHMENT_SECRET: validEnvironment.AUTH_SECRET,
+      },
+      {
+        NEXT_PUBLIC_N8N_CONTACT_CALLBACK_SECRET:
+          "public-value-that-must-never-be-echoed",
+      },
+    ]) {
+      expect(() =>
+        environment.parseServerEnv({
+          ...validEnvironment,
+          FEATURE_CONTACT_ENRICHMENT_ENABLED: "true",
+          ...input,
+        }),
+      ).toThrow();
+    }
   });
 
   it("starts without deferred role settings", () => {
@@ -315,7 +435,11 @@ describe("server environment", () => {
 
     expect(environment.parseServerEnv(withoutCostControls)).toMatchObject({
       FEATURE_COSTS_ENABLED: false,
+      FEATURE_CONTACT_ENRICHMENT_ENABLED: false,
+      FEATURE_CONTACT_DATA_ENABLED: false,
       COSTS_READ_SUBJECTS: [],
+      CONTACT_DATA_READ_SUBJECTS: [],
+      CONTACT_DATA_GOVERN_SUBJECTS: [],
     });
   });
 
@@ -515,11 +639,16 @@ describe("server environment", () => {
       FEATURE_SENSITIVE_CONTENT_ENABLED: false,
       FEATURE_DEMO_DATA_ENABLED: false,
       FEATURE_COSTS_ENABLED: false,
+      FEATURE_CONTACT_ENRICHMENT_ENABLED: false,
+      FEATURE_CONTACT_DATA_ENABLED: false,
       COSTS_READ_SUBJECTS: [],
+      CONTACT_DATA_READ_SUBJECTS: [],
+      CONTACT_DATA_GOVERN_SUBJECTS: [],
       AUTH_DEV_BYPASS_ENABLED: false,
       DEMO2_FULL_ACCESS_ENABLED: false,
       DEMO2_K8S_RUNTIME_ENABLED: false,
       DEMO3_LOCAL_RUNTIME_ENABLED: false,
+      CONTACT_ENRICHMENT_TIMEOUT_MS: 15_000,
     });
   });
 
@@ -556,6 +685,46 @@ describe("server environment", () => {
     }
   });
 
+  it("enables contact data only with the complete HTTPS governance profile", () => {
+    const parsed = environment.parseServerEnv({
+      ...validEnvironment,
+      FEATURE_CONTACT_ENRICHMENT_ENABLED: "true",
+      FEATURE_CONTACT_DATA_ENABLED: "true",
+      CONTACT_DATA_READ_SUBJECTS: "demo3-preproduction-user",
+      CONTACT_DATA_GOVERN_SUBJECTS: "demo3-preproduction-user",
+    });
+
+    expect(parsed.FEATURE_CONTACT_DATA_ENABLED).toBe(true);
+    expect(parsed.N8N_CONTACT_ENRICHMENT_V2_URL).toBe(
+      validEnvironment.N8N_CONTACT_ENRICHMENT_V2_URL,
+    );
+    expect(parsed.CONTACT_DATA_READ_SUBJECTS).toEqual([
+      "demo3-preproduction-user",
+    ]);
+  });
+
+  it("rejects plain HTTP and missing transparency for contact data", () => {
+    expect(() =>
+      environment.parseServerEnv({
+        ...validEnvironment,
+        FEATURE_CONTACT_ENRICHMENT_ENABLED: "true",
+        FEATURE_CONTACT_DATA_ENABLED: "true",
+        N8N_CONTACT_ENRICHMENT_V2_URL:
+          "http://192.168.0.20:30098/webhook/prospecta/lusha/contact-enrichment-v2",
+      }),
+    ).toThrow(/N8N_CONTACT_ENRICHMENT_V2_URL/);
+
+    expect(() =>
+      environment.parseServerEnv({
+        ...validEnvironment,
+        FEATURE_CONTACT_ENRICHMENT_ENABLED: "true",
+        FEATURE_CONTACT_DATA_ENABLED: "true",
+        CONTACT_CONTROLLER_LEGAL_NAME: "",
+        CONTACT_PRIVACY_CONTACT: "",
+      }),
+    ).toThrow(/CONTACT_CONTROLLER_LEGAL_NAME[\s\S]*CONTACT_PRIVACY_CONTACT/);
+  });
+
   it("keeps integration settings out of client environment exports", () => {
     const parsed = environment.parseServerEnv(validEnvironment);
     const source = readFileSync(
@@ -574,6 +743,12 @@ describe("server environment", () => {
     );
     expect(parsed.N8N_IMPORT_EVENT_SECRET).toBe(
       validEnvironment.N8N_IMPORT_EVENT_SECRET,
+    );
+    expect(parsed.N8N_CONTACT_ENRICHMENT_SECRET).toBe(
+      validEnvironment.N8N_CONTACT_ENRICHMENT_SECRET,
+    );
+    expect(parsed.N8N_CONTACT_CALLBACK_SECRET).toBe(
+      validEnvironment.N8N_CONTACT_CALLBACK_SECRET,
     );
     expect(environment).not.toHaveProperty("clientEnv");
   });
@@ -607,6 +782,15 @@ describe("server environment", () => {
     );
     expect(valuesByKey.get("N8N_HMAC_SECRET")).toContain("replace-");
     expect(valuesByKey.get("N8N_IMPORT_EVENT_SECRET")).toContain(
+      "replace-",
+    );
+    expect(valuesByKey.get("N8N_CONTACT_ENRICHMENT_URL")).toBe(
+      '"https://replace-n8n.example.com/webhook/prospecta/lusha/decision-makers"',
+    );
+    expect(valuesByKey.get("N8N_CONTACT_ENRICHMENT_SECRET")).toContain(
+      "replace-",
+    );
+    expect(valuesByKey.get("N8N_CONTACT_CALLBACK_SECRET")).toContain(
       "replace-",
     );
     expect(example).toContain(

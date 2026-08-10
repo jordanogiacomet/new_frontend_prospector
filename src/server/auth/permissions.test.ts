@@ -18,6 +18,10 @@ describe("permission policy", () => {
       "commercial:read",
       "commercial:write",
       "commercial:assign",
+      "contacts:enrich",
+      "contacts:read",
+      "contacts:reveal",
+      "contacts:govern",
       "sensitive:read",
       "audit:read",
       "costs:read",
@@ -89,11 +93,33 @@ describe("permission policy", () => {
     expect(PERMISSION_BUNDLES.sensitive).toEqual(["sensitive:read"]);
   });
 
+  it("defines contact enrichment as an independent overlay", () => {
+    expect(PERMISSION_BUNDLES.contactEnrichment).toEqual([
+      "contacts:enrich",
+    ]);
+  });
+
+  it("defines contact data access and governance as independent overlays", () => {
+    expect(PERMISSION_BUNDLES.contactDataOperator).toEqual([
+      "contacts:enrich",
+      "contacts:read",
+      "contacts:reveal",
+    ]);
+    expect(PERMISSION_BUNDLES.contactDataGovernor).toEqual([
+      "contacts:govern",
+    ]);
+    expect(PERMISSION_BUNDLES.sensitive).not.toContain("contacts:read");
+  });
+
   it.each(["reader", "seller", "manager", "auditor"] as const)(
     "does not grant sensitive or cost access through the %s bundle",
     (bundle) => {
       expect(PERMISSION_BUNDLES[bundle]).not.toContain("sensitive:read");
       expect(PERMISSION_BUNDLES[bundle]).not.toContain("costs:read");
+      expect(PERMISSION_BUNDLES[bundle]).not.toContain("contacts:enrich");
+      expect(PERMISSION_BUNDLES[bundle]).not.toContain("contacts:read");
+      expect(PERMISSION_BUNDLES[bundle]).not.toContain("contacts:reveal");
+      expect(PERMISSION_BUNDLES[bundle]).not.toContain("contacts:govern");
     },
   );
 

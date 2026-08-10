@@ -12,6 +12,9 @@ export interface ServerEnv {
   AUTH_DEV_BYPASS_ENABLED: boolean;
   FEATURE_COSTS_ENABLED: boolean;
   COSTS_READ_SUBJECTS: readonly string[];
+  FEATURE_CONTACT_DATA_ENABLED: boolean;
+  CONTACT_DATA_READ_SUBJECTS: readonly string[];
+  CONTACT_DATA_GOVERN_SUBJECTS: readonly string[];
   DEMO2_FULL_ACCESS_ENABLED: boolean;
   DEMO2_K8S_RUNTIME_ENABLED: boolean;
   DEMO3_LOCAL_RUNTIME_ENABLED: boolean;
@@ -24,13 +27,27 @@ export interface ProspectaServerEnv {
   N8N_HMAC_KEY_ID: string | undefined;
   N8N_HMAC_SECRET: string | undefined;
   N8N_IMPORT_EVENT_SECRET: string | undefined;
+  N8N_CONTACT_ENRICHMENT_URL: string | undefined;
+  N8N_CONTACT_ENRICHMENT_SECRET: string | undefined;
+  N8N_CONTACT_CALLBACK_SECRET: string | undefined;
+  N8N_CONTACT_ENRICHMENT_V2_URL: string | undefined;
+  N8N_CONTACT_ENRICHMENT_V2_SECRET: string | undefined;
+  N8N_CONTACT_CALLBACK_V2_SECRET: string | undefined;
+  CONTACT_DATA_ENCRYPTION_KEY_BASE64: string | undefined;
+  CONTACT_DATA_ENCRYPTION_KEY_ID: string | undefined;
+  CONTACT_SUPPRESSION_HMAC_KEY: string | undefined;
+  CONTACT_CONTROLLER_LEGAL_NAME: string | undefined;
+  CONTACT_CONTROLLER_REGISTRATION: string | undefined;
+  CONTACT_PRIVACY_CONTACT: string | undefined;
   IMPORT_MAX_BYTES: number;
   IMPORT_PRODUCER_TIMEOUT_MS: number;
+  CONTACT_ENRICHMENT_TIMEOUT_MS: number;
   SENSITIVE_URL_HOSTS: readonly string[];
   FEATURE_IMPORTS_ENABLED: boolean;
   FEATURE_BATCH_OBSERVATION_ENABLED: boolean;
   FEATURE_COMMERCIAL_ENABLED: boolean;
   FEATURE_SENSITIVE_CONTENT_ENABLED: boolean;
+  FEATURE_CONTACT_ENRICHMENT_ENABLED: boolean;
   FEATURE_DEMO_DATA_ENABLED: boolean;
 }
 
@@ -47,6 +64,12 @@ const N8N_IMPORT_PATHS = new Set([
 ]);
 const N8N_INTERNAL_HTTP_ORIGIN = "http://192.168.0.20:30098";
 const N8N_INTERNAL_HTTP_PATH = "/webhook/empresaqui/import";
+const N8N_CONTACT_ENRICHMENT_PATH =
+  "/webhook/prospecta/lusha/decision-makers";
+const N8N_CONTACT_INTERNAL_HTTP_URL =
+  `${N8N_INTERNAL_HTTP_ORIGIN}${N8N_CONTACT_ENRICHMENT_PATH}`;
+const N8N_CONTACT_ENRICHMENT_V2_PATH =
+  "/webhook/prospecta/lusha/contact-enrichment-v2";
 
 const serverOnlyNames = [
   "DATABASE_URL",
@@ -69,13 +92,30 @@ const serverOnlyNames = [
   "N8N_HMAC_KEY_ID",
   "N8N_HMAC_SECRET",
   "N8N_IMPORT_EVENT_SECRET",
+  "N8N_CONTACT_ENRICHMENT_URL",
+  "N8N_CONTACT_ENRICHMENT_SECRET",
+  "N8N_CONTACT_CALLBACK_SECRET",
+  "N8N_CONTACT_ENRICHMENT_V2_URL",
+  "N8N_CONTACT_ENRICHMENT_V2_SECRET",
+  "N8N_CONTACT_CALLBACK_V2_SECRET",
+  "CONTACT_DATA_ENCRYPTION_KEY_BASE64",
+  "CONTACT_DATA_ENCRYPTION_KEY_ID",
+  "CONTACT_SUPPRESSION_HMAC_KEY",
+  "CONTACT_DATA_READ_SUBJECTS",
+  "CONTACT_DATA_GOVERN_SUBJECTS",
+  "CONTACT_CONTROLLER_LEGAL_NAME",
+  "CONTACT_CONTROLLER_REGISTRATION",
+  "CONTACT_PRIVACY_CONTACT",
   "IMPORT_MAX_BYTES",
   "IMPORT_PRODUCER_TIMEOUT_MS",
+  "CONTACT_ENRICHMENT_TIMEOUT_MS",
   "SENSITIVE_URL_HOSTS",
   "FEATURE_IMPORTS_ENABLED",
   "FEATURE_BATCH_OBSERVATION_ENABLED",
   "FEATURE_COMMERCIAL_ENABLED",
   "FEATURE_SENSITIVE_CONTENT_ENABLED",
+  "FEATURE_CONTACT_ENRICHMENT_ENABLED",
+  "FEATURE_CONTACT_DATA_ENABLED",
   "FEATURE_DEMO_DATA_ENABLED",
 ] as const;
 
@@ -181,6 +221,65 @@ function validateN8nImportUrl(value: string, errors: string[]): void {
   }
 }
 
+function validateN8nContactEnrichmentUrl(
+  value: string,
+  demo3LocalRuntimeEnabled: boolean,
+  errors: string[],
+): void {
+  try {
+    const url = new URL(value);
+    const isApprovedHttps =
+      url.protocol === "https:" &&
+      url.pathname === N8N_CONTACT_ENRICHMENT_PATH;
+    const isApprovedDemo3Http =
+      demo3LocalRuntimeEnabled && value === N8N_CONTACT_INTERNAL_HTTP_URL;
+
+    if (
+      (!isApprovedHttps && !isApprovedDemo3Http) ||
+      !url.hostname ||
+      url.username ||
+      url.password ||
+      url.search ||
+      url.hash
+    ) {
+      errors.push(
+        "N8N_CONTACT_ENRICHMENT_URL must be the approved HTTPS path or exact Demo 3 target",
+      );
+    }
+  } catch {
+    errors.push(
+      "N8N_CONTACT_ENRICHMENT_URL must be the approved HTTPS path or exact Demo 3 target",
+    );
+  }
+}
+
+function validateN8nContactEnrichmentV2Url(
+  value: string,
+  errors: string[],
+): void {
+  try {
+    const url = new URL(value);
+
+    if (
+      url.protocol !== "https:" ||
+      url.pathname !== N8N_CONTACT_ENRICHMENT_V2_PATH ||
+      !url.hostname ||
+      url.username ||
+      url.password ||
+      url.search ||
+      url.hash
+    ) {
+      errors.push(
+        "N8N_CONTACT_ENRICHMENT_V2_URL must be the approved HTTPS v2 path",
+      );
+    }
+  } catch {
+    errors.push(
+      "N8N_CONTACT_ENRICHMENT_V2_URL must be the approved HTTPS v2 path",
+    );
+  }
+}
+
 function parsePositiveInteger(
   name: string,
   value: string,
@@ -226,7 +325,8 @@ function parseOptionalBoolean(
   return value === undefined ? false : parseBoolean(name, value, errors);
 }
 
-function parseCostsReadSubjects(
+function parseExactSubjects(
+  name: string,
   value: string | undefined,
   errors: string[],
 ): readonly string[] {
@@ -242,12 +342,38 @@ function parseCostsReadSubjects(
     )
   ) {
     errors.push(
-      "COSTS_READ_SUBJECTS must contain only exact non-empty subjects",
+      `${name} must contain only exact non-empty subjects`,
     );
     return [];
   }
 
   return [...new Set(subjects)];
+}
+
+function validateContactPrivacyContact(
+  value: string,
+  errors: string[],
+): void {
+  const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+  let isHttpsUrl = false;
+
+  try {
+    const url = new URL(value);
+    isHttpsUrl =
+      url.protocol === "https:" &&
+      Boolean(url.hostname) &&
+      !url.username &&
+      !url.password &&
+      !url.hash;
+  } catch {
+    // A plain email address remains a supported privacy contact.
+  }
+
+  if (!isEmail && !isHttpsUrl) {
+    errors.push(
+      "CONTACT_PRIVACY_CONTACT must be an email address or approved HTTPS URL",
+    );
+  }
 }
 
 function normalizeHostname(value: string): string | null {
@@ -355,11 +481,71 @@ export function parseServerEnv(input: EnvironmentInput): ParsedServerEnv {
       input,
       "N8N_IMPORT_EVENT_SECRET",
     ),
+    N8N_CONTACT_ENRICHMENT_URL: readOptional(
+      input,
+      "N8N_CONTACT_ENRICHMENT_URL",
+    ),
+    N8N_CONTACT_ENRICHMENT_SECRET: readOptional(
+      input,
+      "N8N_CONTACT_ENRICHMENT_SECRET",
+    ),
+    N8N_CONTACT_CALLBACK_SECRET: readOptional(
+      input,
+      "N8N_CONTACT_CALLBACK_SECRET",
+    ),
+    N8N_CONTACT_ENRICHMENT_V2_URL: readOptional(
+      input,
+      "N8N_CONTACT_ENRICHMENT_V2_URL",
+    ),
+    N8N_CONTACT_ENRICHMENT_V2_SECRET: readOptional(
+      input,
+      "N8N_CONTACT_ENRICHMENT_V2_SECRET",
+    ),
+    N8N_CONTACT_CALLBACK_V2_SECRET: readOptional(
+      input,
+      "N8N_CONTACT_CALLBACK_V2_SECRET",
+    ),
+    CONTACT_DATA_ENCRYPTION_KEY_BASE64: readOptional(
+      input,
+      "CONTACT_DATA_ENCRYPTION_KEY_BASE64",
+    ),
+    CONTACT_DATA_ENCRYPTION_KEY_ID: readOptional(
+      input,
+      "CONTACT_DATA_ENCRYPTION_KEY_ID",
+    ),
+    CONTACT_SUPPRESSION_HMAC_KEY: readOptional(
+      input,
+      "CONTACT_SUPPRESSION_HMAC_KEY",
+    ),
+    CONTACT_DATA_READ_SUBJECTS: readOptional(
+      input,
+      "CONTACT_DATA_READ_SUBJECTS",
+    ),
+    CONTACT_DATA_GOVERN_SUBJECTS: readOptional(
+      input,
+      "CONTACT_DATA_GOVERN_SUBJECTS",
+    ),
+    CONTACT_CONTROLLER_LEGAL_NAME: readOptional(
+      input,
+      "CONTACT_CONTROLLER_LEGAL_NAME",
+    ),
+    CONTACT_CONTROLLER_REGISTRATION: readOptional(
+      input,
+      "CONTACT_CONTROLLER_REGISTRATION",
+    ),
+    CONTACT_PRIVACY_CONTACT: readOptional(
+      input,
+      "CONTACT_PRIVACY_CONTACT",
+    ),
     IMPORT_MAX_BYTES: readRequired(input, "IMPORT_MAX_BYTES", errors),
     IMPORT_PRODUCER_TIMEOUT_MS: readRequired(
       input,
       "IMPORT_PRODUCER_TIMEOUT_MS",
       errors,
+    ),
+    CONTACT_ENRICHMENT_TIMEOUT_MS: readOptional(
+      input,
+      "CONTACT_ENRICHMENT_TIMEOUT_MS",
     ),
     SENSITIVE_URL_HOSTS: readOptional(input, "SENSITIVE_URL_HOSTS"),
     FEATURE_IMPORTS_ENABLED: readRequired(
@@ -381,6 +567,14 @@ export function parseServerEnv(input: EnvironmentInput): ParsedServerEnv {
       input,
       "FEATURE_SENSITIVE_CONTENT_ENABLED",
       errors,
+    ),
+    FEATURE_CONTACT_ENRICHMENT_ENABLED: readOptional(
+      input,
+      "FEATURE_CONTACT_ENRICHMENT_ENABLED",
+    ),
+    FEATURE_CONTACT_DATA_ENABLED: readOptional(
+      input,
+      "FEATURE_CONTACT_DATA_ENABLED",
     ),
     FEATURE_DEMO_DATA_ENABLED: readOptional(
       input,
@@ -425,6 +619,27 @@ export function parseServerEnv(input: EnvironmentInput): ParsedServerEnv {
   const commercialEnabled = parseBoolean(
     "FEATURE_COMMERCIAL_ENABLED",
     raw.FEATURE_COMMERCIAL_ENABLED,
+    errors,
+  );
+
+  const contactEnrichmentEnabled = parseOptionalBoolean(
+    "FEATURE_CONTACT_ENRICHMENT_ENABLED",
+    raw.FEATURE_CONTACT_ENRICHMENT_ENABLED,
+    errors,
+  );
+  const contactDataEnabled = parseOptionalBoolean(
+    "FEATURE_CONTACT_DATA_ENABLED",
+    raw.FEATURE_CONTACT_DATA_ENABLED,
+    errors,
+  );
+  const contactDataReadSubjects = parseExactSubjects(
+    "CONTACT_DATA_READ_SUBJECTS",
+    raw.CONTACT_DATA_READ_SUBJECTS,
+    errors,
+  );
+  const contactDataGovernSubjects = parseExactSubjects(
+    "CONTACT_DATA_GOVERN_SUBJECTS",
+    raw.CONTACT_DATA_GOVERN_SUBJECTS,
     errors,
   );
 
@@ -500,6 +715,77 @@ export function parseServerEnv(input: EnvironmentInput): ParsedServerEnv {
     validateN8nImportUrl(raw.N8N_IMPORT_URL, errors);
   }
 
+  if (raw.N8N_CONTACT_ENRICHMENT_URL) {
+    validateN8nContactEnrichmentUrl(
+      raw.N8N_CONTACT_ENRICHMENT_URL,
+      demo3LocalRuntimeEnabled,
+      errors,
+    );
+  }
+
+  if (raw.N8N_CONTACT_ENRICHMENT_V2_URL) {
+    validateN8nContactEnrichmentV2Url(
+      raw.N8N_CONTACT_ENRICHMENT_V2_URL,
+      errors,
+    );
+  }
+
+  if (contactEnrichmentEnabled) {
+    for (const name of [
+      "N8N_CONTACT_ENRICHMENT_URL",
+      "N8N_CONTACT_ENRICHMENT_SECRET",
+      "N8N_CONTACT_CALLBACK_SECRET",
+    ] as const) {
+      if (raw[name] === undefined) {
+        errors.push(`${name} is required when contact enrichment is enabled`);
+      }
+    }
+  }
+
+  if (contactDataEnabled) {
+    if (!contactEnrichmentEnabled) {
+      errors.push(
+        "FEATURE_CONTACT_DATA_ENABLED requires FEATURE_CONTACT_ENRICHMENT_ENABLED",
+      );
+    }
+
+    for (const name of [
+      "N8N_CONTACT_ENRICHMENT_V2_URL",
+      "N8N_CONTACT_ENRICHMENT_V2_SECRET",
+      "N8N_CONTACT_CALLBACK_V2_SECRET",
+      "CONTACT_DATA_ENCRYPTION_KEY_BASE64",
+      "CONTACT_DATA_ENCRYPTION_KEY_ID",
+      "CONTACT_SUPPRESSION_HMAC_KEY",
+      "CONTACT_CONTROLLER_LEGAL_NAME",
+      "CONTACT_PRIVACY_CONTACT",
+    ] as const) {
+      if (raw[name] === undefined) {
+        errors.push(`${name} is required when contact data is enabled`);
+      }
+    }
+
+    if (contactDataReadSubjects.length === 0) {
+      errors.push(
+        "CONTACT_DATA_READ_SUBJECTS requires at least one exact subject when contact data is enabled",
+      );
+    }
+    if (contactDataGovernSubjects.length === 0) {
+      errors.push(
+        "CONTACT_DATA_GOVERN_SUBJECTS requires at least one exact subject when contact data is enabled",
+      );
+    }
+
+    for (const name of [
+      "N8N_CONTACT_ENRICHMENT_V2_SECRET",
+      "N8N_CONTACT_CALLBACK_V2_SECRET",
+      "CONTACT_SUPPRESSION_HMAC_KEY",
+    ] as const) {
+      if (raw[name]?.toLowerCase().includes("replace-")) {
+        errors.push(`${name} must not use a placeholder value`);
+      }
+    }
+  }
+
   if (
     raw.N8N_HMAC_KEY_ID &&
     !/^[A-Za-z0-9._-]{1,128}$/.test(raw.N8N_HMAC_KEY_ID)
@@ -521,6 +807,105 @@ export function parseServerEnv(input: EnvironmentInput): ParsedServerEnv {
     errors.push("N8N_IMPORT_EVENT_SECRET must contain at least 32 bytes");
   }
 
+  for (const name of [
+    "N8N_CONTACT_ENRICHMENT_SECRET",
+    "N8N_CONTACT_CALLBACK_SECRET",
+  ] as const) {
+    const value = raw[name];
+
+    if (value && Buffer.byteLength(value, "utf8") < 32) {
+      errors.push(`${name} must contain at least 32 bytes`);
+    }
+  }
+
+  for (const name of [
+    "N8N_CONTACT_ENRICHMENT_V2_SECRET",
+    "N8N_CONTACT_CALLBACK_V2_SECRET",
+    "CONTACT_SUPPRESSION_HMAC_KEY",
+  ] as const) {
+    const value = raw[name];
+
+    if (value && Buffer.byteLength(value, "utf8") < 32) {
+      errors.push(`${name} must contain at least 32 bytes`);
+    }
+  }
+
+  if (raw.CONTACT_DATA_ENCRYPTION_KEY_BASE64) {
+    const key = Buffer.from(raw.CONTACT_DATA_ENCRYPTION_KEY_BASE64, "base64");
+    const canonical = key.toString("base64");
+
+    if (
+      key.byteLength !== 32 ||
+      canonical !== raw.CONTACT_DATA_ENCRYPTION_KEY_BASE64 ||
+      (contactDataEnabled && key.equals(Buffer.alloc(32)))
+    ) {
+      errors.push(
+        "CONTACT_DATA_ENCRYPTION_KEY_BASE64 must be canonical base64 for exactly 32 bytes",
+      );
+    }
+  }
+
+  if (
+    raw.CONTACT_DATA_ENCRYPTION_KEY_ID &&
+    !/^[A-Za-z0-9._-]{1,64}$/.test(raw.CONTACT_DATA_ENCRYPTION_KEY_ID)
+  ) {
+    errors.push("CONTACT_DATA_ENCRYPTION_KEY_ID must be an opaque key identifier");
+  }
+
+  if (
+    raw.CONTACT_CONTROLLER_LEGAL_NAME &&
+    (raw.CONTACT_CONTROLLER_LEGAL_NAME.length > 200 ||
+      /[\u0000-\u001f\u007f]/.test(raw.CONTACT_CONTROLLER_LEGAL_NAME))
+  ) {
+    errors.push("CONTACT_CONTROLLER_LEGAL_NAME is invalid");
+  }
+
+  if (
+    raw.CONTACT_CONTROLLER_REGISTRATION &&
+    !/^[A-Za-z0-9 .\-\/]{3,64}$/.test(raw.CONTACT_CONTROLLER_REGISTRATION)
+  ) {
+    errors.push("CONTACT_CONTROLLER_REGISTRATION is invalid");
+  }
+
+  if (raw.CONTACT_PRIVACY_CONTACT) {
+    validateContactPrivacyContact(raw.CONTACT_PRIVACY_CONTACT, errors);
+  }
+
+  if (
+    raw.N8N_CONTACT_ENRICHMENT_SECRET &&
+    (raw.N8N_CONTACT_ENRICHMENT_SECRET === raw.AUTH_SECRET ||
+      raw.N8N_CONTACT_ENRICHMENT_SECRET === raw.N8N_IMPORT_EVENT_SECRET)
+  ) {
+    errors.push("N8N_CONTACT_ENRICHMENT_SECRET must be distinct");
+  }
+
+  if (
+    raw.N8N_CONTACT_CALLBACK_SECRET &&
+    (raw.N8N_CONTACT_CALLBACK_SECRET === raw.AUTH_SECRET ||
+      raw.N8N_CONTACT_CALLBACK_SECRET === raw.N8N_IMPORT_EVENT_SECRET ||
+      raw.N8N_CONTACT_CALLBACK_SECRET ===
+        raw.N8N_CONTACT_ENRICHMENT_SECRET)
+  ) {
+    errors.push("N8N_CONTACT_CALLBACK_SECRET must be distinct");
+  }
+
+  const contactV2Secrets = [
+    raw.N8N_CONTACT_ENRICHMENT_V2_SECRET,
+    raw.N8N_CONTACT_CALLBACK_V2_SECRET,
+    raw.CONTACT_SUPPRESSION_HMAC_KEY,
+  ].filter((value): value is string => value !== undefined);
+  const protectedSecrets = [
+    raw.AUTH_SECRET,
+    raw.N8N_IMPORT_EVENT_SECRET,
+    raw.N8N_CONTACT_ENRICHMENT_SECRET,
+    raw.N8N_CONTACT_CALLBACK_SECRET,
+    ...contactV2Secrets,
+  ].filter((value): value is string => value !== undefined);
+
+  if (new Set(protectedSecrets).size !== protectedSecrets.length) {
+    errors.push("Contact v2 secrets must be distinct from all other secrets");
+  }
+
   const environment: ParsedServerEnv = {
     DATABASE_URL: raw.DATABASE_URL,
     PRODUCER_DATABASE_URL: raw.PRODUCER_DATABASE_URL,
@@ -532,7 +917,8 @@ export function parseServerEnv(input: EnvironmentInput): ParsedServerEnv {
     AUTH_ALLOWED_ORG_ID: raw.AUTH_ALLOWED_ORG_ID,
     AUTH_DEV_BYPASS_ENABLED: authDevelopmentBypassEnabled,
     FEATURE_COSTS_ENABLED: costsEnabled,
-    COSTS_READ_SUBJECTS: parseCostsReadSubjects(
+    COSTS_READ_SUBJECTS: parseExactSubjects(
+      "COSTS_READ_SUBJECTS",
       raw.COSTS_READ_SUBJECTS,
       errors,
     ),
@@ -543,6 +929,28 @@ export function parseServerEnv(input: EnvironmentInput): ParsedServerEnv {
     N8N_HMAC_KEY_ID: raw.N8N_HMAC_KEY_ID,
     N8N_HMAC_SECRET: raw.N8N_HMAC_SECRET,
     N8N_IMPORT_EVENT_SECRET: raw.N8N_IMPORT_EVENT_SECRET,
+    N8N_CONTACT_ENRICHMENT_URL: raw.N8N_CONTACT_ENRICHMENT_URL,
+    N8N_CONTACT_ENRICHMENT_SECRET: raw.N8N_CONTACT_ENRICHMENT_SECRET,
+    N8N_CONTACT_CALLBACK_SECRET: raw.N8N_CONTACT_CALLBACK_SECRET,
+    N8N_CONTACT_ENRICHMENT_V2_URL:
+      raw.N8N_CONTACT_ENRICHMENT_V2_URL,
+    N8N_CONTACT_ENRICHMENT_V2_SECRET:
+      raw.N8N_CONTACT_ENRICHMENT_V2_SECRET,
+    N8N_CONTACT_CALLBACK_V2_SECRET:
+      raw.N8N_CONTACT_CALLBACK_V2_SECRET,
+    CONTACT_DATA_ENCRYPTION_KEY_BASE64:
+      raw.CONTACT_DATA_ENCRYPTION_KEY_BASE64,
+    CONTACT_DATA_ENCRYPTION_KEY_ID:
+      raw.CONTACT_DATA_ENCRYPTION_KEY_ID,
+    CONTACT_SUPPRESSION_HMAC_KEY:
+      raw.CONTACT_SUPPRESSION_HMAC_KEY,
+    CONTACT_DATA_READ_SUBJECTS: contactDataReadSubjects,
+    CONTACT_DATA_GOVERN_SUBJECTS: contactDataGovernSubjects,
+    CONTACT_CONTROLLER_LEGAL_NAME:
+      raw.CONTACT_CONTROLLER_LEGAL_NAME,
+    CONTACT_CONTROLLER_REGISTRATION:
+      raw.CONTACT_CONTROLLER_REGISTRATION,
+    CONTACT_PRIVACY_CONTACT: raw.CONTACT_PRIVACY_CONTACT,
     IMPORT_MAX_BYTES: parsePositiveInteger(
       "IMPORT_MAX_BYTES",
       raw.IMPORT_MAX_BYTES,
@@ -552,6 +960,11 @@ export function parseServerEnv(input: EnvironmentInput): ParsedServerEnv {
     IMPORT_PRODUCER_TIMEOUT_MS: parsePositiveInteger(
       "IMPORT_PRODUCER_TIMEOUT_MS",
       raw.IMPORT_PRODUCER_TIMEOUT_MS,
+      errors,
+    ),
+    CONTACT_ENRICHMENT_TIMEOUT_MS: parsePositiveInteger(
+      "CONTACT_ENRICHMENT_TIMEOUT_MS",
+      raw.CONTACT_ENRICHMENT_TIMEOUT_MS ?? "15000",
       errors,
     ),
     SENSITIVE_URL_HOSTS: parseSensitiveUrlHosts(
@@ -574,6 +987,8 @@ export function parseServerEnv(input: EnvironmentInput): ParsedServerEnv {
       raw.FEATURE_SENSITIVE_CONTENT_ENABLED,
       errors,
     ),
+    FEATURE_CONTACT_ENRICHMENT_ENABLED: contactEnrichmentEnabled,
+    FEATURE_CONTACT_DATA_ENABLED: contactDataEnabled,
     FEATURE_DEMO_DATA_ENABLED: demoDataEnabled,
   };
 

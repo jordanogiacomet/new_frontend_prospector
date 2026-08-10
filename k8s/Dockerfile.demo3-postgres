@@ -6,6 +6,9 @@ COPY db/app/005_commercial_audit_request_context_forward.sql /docker-entrypoint-
 COPY db/app/006_import_acceptance_reconciliation_forward.sql /docker-entrypoint-initdb.d/035-import-acceptance-reconciliation.sql
 COPY db/app/007_legacy_workflow_close_report_forward.sql /docker-entrypoint-initdb.d/037-legacy-workflow-close-report.sql
 COPY db/app/008_legacy_workflow_start_report_forward.sql /docker-entrypoint-initdb.d/038-legacy-workflow-start-report.sql
+COPY db/app/009_contact_enrichment_ledger_forward.sql /docker-entrypoint-initdb.d/045-contact-enrichment-ledger.sql
+COPY db/app/010_contact_data_governance_forward.sql /docker-entrypoint-initdb.d/047-contact-data-governance.sql
+COPY db/app/011_contact_company_resolution_forward.sql /docker-entrypoint-initdb.d/048-contact-company-resolution.sql
 COPY k8s/demo3-init-app-role.sh /docker-entrypoint-initdb.d/040-app-role.sh
 COPY db/app/003_app_schema_grants.sql /docker-entrypoint-initdb.d/050-app-grants.sql
 

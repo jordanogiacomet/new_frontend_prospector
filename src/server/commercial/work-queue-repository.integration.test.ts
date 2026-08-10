@@ -47,8 +47,10 @@ const producerOwnerPool = new Pool({
 });
 
 type WorkQueueRepository = typeof import("./work-queue-repository");
+type LeadListRepository = typeof import("../repositories/lead-list-repository");
 
 let workQueueRepository: WorkQueueRepository | null = null;
+let leadListRepository: LeadListRepository | null = null;
 
 const organizationId = "org-synthetic-a";
 const otherOrganizationId = "org-synthetic-b";
@@ -212,6 +214,15 @@ async function loadWorkQueueRepository(): Promise<WorkQueueRepository> {
   return workQueueRepository;
 }
 
+async function loadLeadListRepository(): Promise<LeadListRepository> {
+  if (leadListRepository === null) {
+    configureRepositoryEnvironment();
+    leadListRepository = await import("../repositories/lead-list-repository");
+  }
+
+  return leadListRepository;
+}
+
 async function executeApp(sql: string): Promise<void> {
   await appPool.query(sql);
 }
@@ -250,6 +261,7 @@ async function resetAppDatabase(): Promise<void> {
 async function resetProducerRows(): Promise<void> {
   await executeProducer(`
     TRUNCATE
+      public.crm_company_history,
       public.company_validation_runs,
       public.company_validations
     RESTART IDENTITY
@@ -302,12 +314,23 @@ async function createProducerFixtures(): Promise<void> {
       run_created_at timestamptz NOT NULL,
       test_case_id text
     );
+
+    CREATE TABLE public.crm_company_history (
+      cnpj varchar(14),
+      website_domain text,
+      latest_contact_email text,
+      website_status text
+    );
+
+    CREATE INDEX crm_company_history_cnpj_synthetic_idx
+      ON public.crm_company_history (cnpj);
   `);
 }
 
 async function dropProducerFixtures(): Promise<void> {
   await executeProducer(`
     DROP VIEW IF EXISTS public.prospecta_import_batch_observations_v1;
+    DROP TABLE IF EXISTS public.crm_company_history;
     DROP TABLE IF EXISTS public.company_validation_runs;
     DROP TABLE IF EXISTS public.company_validations;
   `);
@@ -340,6 +363,9 @@ async function grantProducerReadAccess(): Promise<void> {
       public.company_validations,
       public.company_validation_runs
     TO ${quoteIdentifier(producerReadRole)};
+    GRANT SELECT (cnpj, website_domain)
+      ON public.crm_company_history
+      TO ${quoteIdentifier(producerReadRole)};
   `);
 }
 
@@ -349,6 +375,9 @@ async function revokeProducerReadAccess(): Promise<void> {
       public.company_validations,
       public.company_validation_runs
     FROM ${quoteIdentifier(producerReadRole)};
+    REVOKE SELECT (cnpj, website_domain)
+      ON public.crm_company_history
+      FROM ${quoteIdentifier(producerReadRole)};
   `);
 }
 
@@ -401,6 +430,7 @@ async function insertProducerLead(input: {
   readonly final_action?: string;
   readonly trust_status?: string | null;
   readonly validated_at?: string;
+  readonly test_case_id?: string | null;
 } = {}): Promise<void> {
   const projectionId = input.projectionId ?? 1;
   const runId = input.runId ?? projectionId;
@@ -486,8 +516,23 @@ async function insertProducerLead(input: {
       cnpjNormalizado,
       input.final_action ?? "PROSPECTAR",
       input.validated_at ?? "2026-07-08T12:00:00Z",
-      `SR_${sourceRow}`,
+      Object.hasOwn(input, "test_case_id")
+        ? (input.test_case_id ?? null)
+        : `SR_${sourceRow}`,
     ],
+  );
+}
+
+async function insertCompanyDomain(
+  cnpjNormalizado: string,
+  companyDomain: string,
+): Promise<void> {
+  await executeProducer(
+    `
+      INSERT INTO public.crm_company_history (cnpj, website_domain)
+      VALUES ($1, $2)
+    `,
+    [cnpjNormalizado, companyDomain],
   );
 }
 
@@ -567,6 +612,104 @@ afterAll(async () => {
 });
 
 describe("commercial work queue repository integration", () => {
+  it("keeps the unfiltered queue in exact parity with current leads", async () => {
+    const queueRepository = await loadWorkQueueRepository();
+    const leadsRepository = await loadLeadListRepository();
+    const correlatedBatchId = "batch-synthetic-correlated";
+    const visibility = {
+      includeTestRunsFromImportBatchIds: [correlatedBatchId],
+    } as const;
+    await insertProducerLead({
+      projectionId: 1,
+      cnpj_normalizado: cnpj,
+      lead_run_id: leadRunId,
+      validated_at: "2026-07-08T12:00:00Z",
+    });
+    await insertProducerLead({
+      projectionId: 2,
+      cnpj_normalizado: otherCnpj,
+      lead_run_id: otherLeadRunId,
+      import_batch_id: correlatedBatchId,
+      test_case_id: "DEMO3_SYNTHETIC_CONTROLLED",
+      validated_at: "2026-07-08T13:00:00Z",
+    });
+
+    const leads = await leadsRepository.listLeads(
+      { page: 1, pageSize: 100 },
+      visibility,
+    );
+    const queue = await queueRepository.listCommercialWorkQueue(
+      {
+        actor: { organizationId },
+        page: 1,
+        pageSize: 100,
+        sort: "last_analysis_desc",
+      },
+      visibility,
+    );
+
+    expect(queue.total).toBe(leads.total);
+    expect(queue.items.map((item) => item.producerLead.cnpj)).toEqual(
+      leads.leads.map((lead) => lead.cnpj),
+    );
+  });
+
+  it("grants only the two approved company-domain columns", async () => {
+    const [privileges] = await queryProducerRows<{
+      readonly cnpj_select: boolean;
+      readonly domain_select: boolean;
+      readonly contact_select: boolean;
+      readonly status_select: boolean;
+      readonly table_select: boolean;
+    }>(
+      `
+        SELECT
+          has_column_privilege($1, 'public.crm_company_history', 'cnpj', 'SELECT')
+            AS cnpj_select,
+          has_column_privilege($1, 'public.crm_company_history', 'website_domain', 'SELECT')
+            AS domain_select,
+          has_column_privilege($1, 'public.crm_company_history', 'latest_contact_email', 'SELECT')
+            AS contact_select,
+          has_column_privilege($1, 'public.crm_company_history', 'website_status', 'SELECT')
+            AS status_select,
+          has_table_privilege($1, 'public.crm_company_history', 'SELECT')
+            AS table_select
+      `,
+      [producerReadRole],
+    );
+
+    expect(privileges).toEqual({
+      cnpj_select: true,
+      domain_select: true,
+      contact_select: false,
+      status_select: false,
+      table_select: false,
+    });
+  });
+
+  it("returns one normalized company domain and withholds ambiguous matches", async () => {
+    const repository = await loadWorkQueueRepository();
+    await insertProducerLead({ cnpj_normalizado: cnpj });
+    await insertProducerLead({
+      projectionId: 2,
+      cnpj_normalizado: otherCnpj,
+      lead_run_id: otherLeadRunId,
+    });
+    await insertCompanyDomain(cnpj, " EMPRESA.EXAMPLE ");
+    await insertCompanyDomain(otherCnpj, "primeiro.example");
+    await insertCompanyDomain(otherCnpj, "segundo.example");
+
+    const result = await repository.listCommercialWorkQueue({
+      actor: { organizationId },
+    });
+    const byCnpj = new Map(
+      result.items.map((item) => [item.producerLead.cnpj, item]),
+    );
+
+    expect(byCnpj.get(cnpj)?.companyDomain).toBe("empresa.example");
+    expect(byCnpj.get(otherCnpj)?.companyDomain).toBeNull();
+  });
+
   it("lists producer lead facts with an organization-scoped app workspace", async () => {
     const repository = await loadWorkQueueRepository();
     await insertProducerLead({

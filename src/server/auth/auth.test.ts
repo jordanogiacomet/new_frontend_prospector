@@ -28,6 +28,9 @@ const environment: ServerEnv = {
   AUTH_DEV_BYPASS_ENABLED: false,
   FEATURE_COSTS_ENABLED: false,
   COSTS_READ_SUBJECTS: [],
+  FEATURE_CONTACT_DATA_ENABLED: false,
+  CONTACT_DATA_READ_SUBJECTS: [],
+  CONTACT_DATA_GOVERN_SUBJECTS: [],
   DEMO2_FULL_ACCESS_ENABLED: false,
   DEMO2_K8S_RUNTIME_ENABLED: false,
   DEMO3_LOCAL_RUNTIME_ENABLED: false,
@@ -38,6 +41,9 @@ const policy = {
   organizationId: environment.AUTH_ALLOWED_ORG_ID,
   costsReadEnabled: environment.FEATURE_COSTS_ENABLED,
   costsReadSubjects: environment.COSTS_READ_SUBJECTS,
+  contactDataEnabled: environment.FEATURE_CONTACT_DATA_ENABLED,
+  contactReadSubjects: environment.CONTACT_DATA_READ_SUBJECTS,
+  contactGovernSubjects: environment.CONTACT_DATA_GOVERN_SUBJECTS,
 };
 
 const validClaims = {
@@ -229,6 +235,125 @@ describe("server authentication and authorization", () => {
       ),
     ).toMatchObject({
       actor: { permissions: ["leads:read", "commercial:read"] },
+    });
+  });
+
+  it("grants contact enrichment only to the exact feature-gated Demo 3 actor", () => {
+    expect(
+      createDevelopmentAuthorization(
+        true,
+        "production",
+        "synthetic-organization",
+        false,
+        false,
+        true,
+        false,
+        [],
+        false,
+        true,
+        true,
+      ),
+    ).toMatchObject({
+      actor: {
+        subject: "demo3-preproduction-user",
+        permissions: expect.arrayContaining(["contacts:enrich"]),
+      },
+    });
+
+    expect(
+      createDevelopmentAuthorization(
+        true,
+        "production",
+        "synthetic-organization",
+        false,
+        false,
+        true,
+        false,
+        [],
+        false,
+        true,
+        false,
+      ),
+    ).toMatchObject({
+      actor: {
+        permissions: expect.not.arrayContaining(["contacts:enrich"]),
+      },
+    });
+
+    expect(
+      createDevelopmentAuthorization(
+        true,
+        "development",
+        "synthetic-organization",
+        false,
+        true,
+        true,
+        false,
+        [],
+        false,
+        false,
+        true,
+      ),
+    ).toMatchObject({
+      actor: {
+        permissions: expect.not.arrayContaining(["contacts:enrich"]),
+      },
+    });
+  });
+
+  it("grants contact read, reveal, and governance only through exact Demo 3 subject allowlists", () => {
+    expect(
+      createDevelopmentAuthorization(
+        true,
+        "production",
+        "synthetic-organization",
+        false,
+        false,
+        true,
+        false,
+        [],
+        false,
+        true,
+        true,
+        true,
+        ["demo3-preproduction-user"],
+        ["demo3-preproduction-user"],
+      ),
+    ).toMatchObject({
+      actor: {
+        permissions: expect.arrayContaining([
+          "contacts:read",
+          "contacts:reveal",
+          "contacts:govern",
+        ]),
+      },
+    });
+
+    expect(
+      createDevelopmentAuthorization(
+        true,
+        "production",
+        "synthetic-organization",
+        false,
+        false,
+        true,
+        false,
+        [],
+        false,
+        true,
+        true,
+        true,
+        ["another-subject"],
+        ["demo3-preproduction-user"],
+      ),
+    ).toMatchObject({
+      actor: {
+        permissions: expect.not.arrayContaining([
+          "contacts:read",
+          "contacts:reveal",
+          "contacts:govern",
+        ]),
+      },
     });
   });
 
@@ -446,6 +571,34 @@ describe("server authentication and authorization", () => {
       status: "authorized",
       actor: authorizedActor,
     });
+  });
+
+  it("grants contact permissions only from the server-side individual subject allowlists", () => {
+    const contactPolicy = {
+      ...policy,
+      contactDataEnabled: true,
+      contactReadSubjects: [validClaims.sub],
+      contactGovernSubjects: [validClaims.sub],
+    };
+
+    expect(authorizeIdentityClaims(validClaims, contactPolicy)).toEqual({
+      status: "authorized",
+      actor: {
+        ...authorizedActor,
+        permissions: [
+          "contacts:enrich",
+          "contacts:read",
+          "contacts:reveal",
+          "contacts:govern",
+        ],
+      },
+    });
+    expect(
+      authorizeIdentityClaims(
+        { ...validClaims, permissions: ["contacts:read"] },
+        policy,
+      ),
+    ).toEqual({ status: "authorized", actor: authorizedActor });
   });
 
   it("distinguishes an absent session", () => {

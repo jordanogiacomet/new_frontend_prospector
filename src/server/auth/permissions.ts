@@ -5,6 +5,10 @@ export const APPROVED_PERMISSIONS = [
   "commercial:read",
   "commercial:write",
   "commercial:assign",
+  "contacts:enrich",
+  "contacts:read",
+  "contacts:reveal",
+  "contacts:govern",
   "sensitive:read",
   "audit:read",
   "costs:read",
@@ -35,6 +39,13 @@ export const PERMISSION_BUNDLES = {
     "audit:read",
   ],
   sensitive: ["sensitive:read"],
+  contactEnrichment: ["contacts:enrich"],
+  contactDataOperator: [
+    "contacts:enrich",
+    "contacts:read",
+    "contacts:reveal",
+  ],
+  contactDataGovernor: ["contacts:govern"],
 } as const satisfies Readonly<Record<string, readonly Permission[]>>;
 
 export type PermissionBundle = keyof typeof PERMISSION_BUNDLES;
