@@ -35,6 +35,49 @@ export const commercialActivityTypes = [
 export type CommercialActivityType =
   (typeof commercialActivityTypes)[number];
 
+export const qualificationCadenceStatuses = [
+  "NOT_STARTED",
+  "ACTIVE",
+  "QUALIFIED",
+  "STOPPED",
+  "EXHAUSTED",
+] as const;
+
+export type QualificationCadenceStatus =
+  (typeof qualificationCadenceStatuses)[number];
+
+export const qualificationContactStates = [
+  "PENDING",
+  "COMPLETED",
+  "CANCELLED",
+] as const;
+
+export type QualificationContactState =
+  (typeof qualificationContactStates)[number];
+
+export const qualificationContactChannels = [
+  "CALL",
+  "EMAIL",
+  "WHATSAPP",
+  "OTHER",
+] as const;
+
+export type QualificationContactChannel =
+  (typeof qualificationContactChannels)[number];
+
+export const qualificationContactOutcomes = [
+  "NO_RESPONSE",
+  "RESPONDED",
+  "FOLLOW_UP_LATER",
+  "QUALIFIED",
+  "NOT_INTERESTED",
+  "WRONG_CONTACT",
+  "OTHER_RESPONSE",
+] as const;
+
+export type QualificationContactOutcome =
+  (typeof qualificationContactOutcomes)[number];
+
 export const commercialAuditActions = [
   "WORKSPACE_CREATED",
   "WORKSPACE_UPDATED",
@@ -104,6 +147,28 @@ export interface LeadWorkspaceDto {
   readonly archived_by_subject: string | null;
 }
 
+export interface QualificationContactDto {
+  readonly qualification_contact_id: string;
+  readonly contact_number: 1 | 2 | 3 | 4;
+  readonly scheduled_at: string;
+  readonly state: QualificationContactState;
+  readonly outcome: QualificationContactOutcome | null;
+  readonly channel: QualificationContactChannel | null;
+  readonly summary: string | null;
+  readonly completed_at: string | null;
+}
+
+export interface QualificationCadenceDto {
+  readonly status: QualificationCadenceStatus;
+  readonly current_contact_number: 1 | 2 | 3 | 4 | null;
+  readonly contacts: readonly QualificationContactDto[];
+}
+
+export interface QualificationPipelineActionDto {
+  readonly kind: "automatic" | "recommendation" | "unchanged";
+  readonly commercial_stage: CommercialStage | null;
+}
+
 export interface LeadActivityDto {
   readonly activity_id: string;
   readonly organization_id: string;
@@ -137,6 +202,13 @@ export interface CommercialWorkQueueProducerSource {
 }
 
 export interface CommercialWorkQueueItem {
+  readonly approachDraft:
+    | { readonly status: "ready"; readonly message: string }
+    | {
+        readonly status: "preparing" | "unavailable" | "missing";
+        readonly message: null;
+      }
+    | null;
   readonly companyDomain: string | null;
   readonly producerLead: LeadSummary;
   readonly workspace: LeadWorkspaceDto | null;
@@ -229,3 +301,23 @@ export interface CreateLeadActivityRequest {
 export interface CreateLeadNoteRequest {
   readonly body: string;
 }
+
+export interface StartQualificationCadenceRequest {
+  readonly action: "start";
+  readonly start_at: string;
+  readonly interval_days: number;
+}
+
+export interface RecordQualificationContactRequest {
+  readonly action: "record_contact";
+  readonly contact_number: 1 | 2 | 3 | 4;
+  readonly occurred_at: string;
+  readonly channel: QualificationContactChannel;
+  readonly outcome: QualificationContactOutcome;
+  readonly summary?: string | null;
+  readonly next_contact_at?: string;
+}
+
+export type QualificationCadenceMutationRequest =
+  | StartQualificationCadenceRequest
+  | RecordQualificationContactRequest;

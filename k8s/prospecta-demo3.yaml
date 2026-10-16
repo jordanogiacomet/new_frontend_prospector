@@ -29,12 +29,20 @@ data:
   IMPORT_MAX_BYTES: "10485760"
   IMPORT_PRODUCER_TIMEOUT_MS: "15000"
   CONTACT_ENRICHMENT_TIMEOUT_MS: "15000"
+  OPENAI_APPROACH_TIMEOUT_MS: "20000"
+  COMPANY_REGISTRY_API_BASE_URL: https://brasilapi.com.br/api/cnpj/v1
+  LEAD_GEOCODING_API_URL: https://nominatim.openstreetmap.org/search
+  LEAD_POSTAL_CODE_API_BASE_URL: https://brasilapi.com.br/api/cep/v2
+  LEAD_LOCATION_LOOKUP_TIMEOUT_MS: "4000"
   FEATURE_IMPORTS_ENABLED: "true"
   FEATURE_BATCH_OBSERVATION_ENABLED: "true"
   FEATURE_COMMERCIAL_ENABLED: "true"
   FEATURE_SENSITIVE_CONTENT_ENABLED: "true"
   FEATURE_CONTACT_ENRICHMENT_ENABLED: "true"
   FEATURE_CONTACT_DATA_ENABLED: "__FEATURE_CONTACT_DATA_ENABLED__"
+  FEATURE_REGISTERED_ADDRESS_MAP_ENABLED: "true"
+  FEATURE_AI_APPROACH_ENABLED: "__FEATURE_AI_APPROACH_ENABLED__"
+  FEATURE_AI_APPROACH_AUTO_QUEUE_ENABLED: "__FEATURE_AI_APPROACH_AUTO_QUEUE_ENABLED__"
   FEATURE_DEMO_DATA_ENABLED: "false"
   FEATURE_COSTS_ENABLED: "true"
   COSTS_READ_SUBJECTS: demo3-preproduction-user
@@ -115,7 +123,30 @@ spec:
                   "select has_table_privilege('prospecta_app_rw',
                   'prospecting_app.lead_workspaces', 'SELECT') and
                   has_table_privilege('prospecta_app_rw',
-                  'prospecting_app.contact_enrichment_requests', 'SELECT')" |
+                  'prospecting_app.contact_enrichment_requests', 'SELECT') and
+                  has_table_privilege('prospecta_app_rw',
+                  'prospecting_app.import_received_companies', 'SELECT') and
+                  has_table_privilege('prospecta_app_rw',
+                  'prospecting_app.import_received_companies', 'INSERT') and not
+                  has_table_privilege('prospecta_app_rw',
+                  'prospecting_app.import_received_companies', 'UPDATE') and not
+                  has_table_privilege('prospecta_app_rw',
+                  'prospecting_app.import_received_companies', 'DELETE') and not
+                  has_table_privilege('prospecta_app_rw',
+                  'prospecting_app.import_received_companies', 'TRUNCATE') and
+                  exists (select 1 from pg_trigger where
+                  tgrelid = 'prospecting_app.import_received_companies'::regclass and
+                  tgname = 'import_received_companies_append_only' and tgenabled = 'O' and
+                  tgfoid = 'prospecting_app.reject_append_only_mutation()'::regprocedure) and
+                  prospecting_app.contact_search_diagnostics_are_valid(
+                  jsonb_build_array(
+                  jsonb_build_object('provider', 'LUSHA', 'stage', 'CONTACT_PREVIEW', 'code', 'NO_RELEVANT_MATCHES'),
+                  jsonb_build_object('provider', 'APOLLO', 'stage', 'CONTACT_PREVIEW', 'code', 'NO_RELEVANT_MATCHES')),
+                  false) and not prospecting_app.contact_search_diagnostics_are_valid(
+                  jsonb_build_array(jsonb_build_object('provider', 'APOLLO', 'stage', 'COMPANY_MATCH', 'code', 'NO_RELEVANT_MATCHES')),
+                  false) and not prospecting_app.contact_search_diagnostics_are_valid(
+                  jsonb_build_array(jsonb_build_object('provider', 'LUSHA', 'stage', 'COMPANY_SEARCH', 'code', 'NO_RELEVANT_MATCHES')),
+                  true)" |
                   grep -qx t
             initialDelaySeconds: 5
             periodSeconds: 5
@@ -429,3 +460,21 @@ spec:
       ports:
         - protocol: TCP
           port: 5678
+    # Demo 3 only: public HTTPS is required for hostname-pinned map providers
+    # and, when explicitly enabled, api.openai.com. Standard NetworkPolicy
+    # cannot filter DNS hostnames, so private, loopback, link-local and multicast
+    # address ranges remain excluded here.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 100.64.0.0/10
+              - 127.0.0.0/8
+              - 169.254.0.0/16
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 224.0.0.0/4
+      ports:
+        - protocol: TCP
+          port: 443

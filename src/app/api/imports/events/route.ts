@@ -121,6 +121,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         organizationId: environment.AUTH_ALLOWED_ORG_ID,
         importBatchId: parsed.data.import_batch_id,
         occurredAt: new Date(parsed.data.occurred_at),
+        sourceRow: parsed.data.source_row,
       });
 
       return startResultResponse(result);

@@ -11,6 +11,7 @@ import {
   type ContactPreviewCallback,
   type ContactRevealCallback,
 } from "./contact-enrichment-v2-contract";
+import type { ContactProviderSource } from "./contact-provider-reference";
 
 export const CONTACT_PREVIEW_RETENTION_DAYS = 30 as const;
 export const CONTACT_REVEAL_RETENTION_DAYS = 90 as const;
@@ -34,6 +35,7 @@ export interface NormalizedContactProfile {
 
 export interface NormalizedContactCandidate extends NormalizedContactProfile {
   readonly providerContactId: string;
+  readonly providerSource: ContactProviderSource;
 }
 
 export interface NormalizedRevealedChannels {
@@ -50,6 +52,30 @@ export interface NormalizedRevealedChannels {
   readonly doNotCallPhones: readonly string[];
 }
 
+export interface NormalizedContactProfileUpdate {
+  readonly fullName: string;
+  readonly linkedinUrl: string | null;
+}
+
+export interface NormalizedCompanyPhoneFallback {
+  readonly value: string;
+  readonly source: "APOLLO";
+  readonly contactability: "UNKNOWN";
+}
+
+export function normalizeCompanyPhoneFallback(
+  callback: ContactPreviewCallback,
+): NormalizedCompanyPhoneFallback | null {
+  const phone = callback.company_phone ?? null;
+  if (phone === null) return null;
+
+  return {
+    value: phone.number,
+    source: phone.provider_source,
+    contactability: phone.contactability,
+  };
+}
+
 export function normalizeContactCandidates(
   callback: ContactPreviewCallback,
 ): readonly NormalizedContactCandidate[] {
@@ -58,6 +84,7 @@ export function normalizeContactCandidates(
 
     return {
       providerContactId: parsed.provider_contact_id,
+      providerSource: parsed.provider_source,
       fullName: parsed.full_name,
       jobTitle: parsed.job_title,
       departments: [...new Set(parsed.departments)],
@@ -103,6 +130,18 @@ export function normalizeRevealedChannels(
   };
 }
 
+export function normalizeContactProfileUpdate(
+  callback: ContactRevealCallback,
+): NormalizedContactProfileUpdate | null {
+  const parsed = contactRevealCallbackSchema.parse(callback);
+  if (parsed.profile_update === null) return null;
+
+  return {
+    fullName: parsed.profile_update.full_name,
+    linkedinUrl: approvedLinkedinUrl(parsed.profile_update.linkedin_url),
+  };
+}
+
 export function contactTransparency(
   environment: ParsedServerEnv,
 ): NonNullable<ContactPreviewRequestDto["transparency"]> | null {
@@ -121,7 +160,7 @@ export function contactTransparency(
     purpose:
       "Contato profissional individual e relevante com decisores de empresas qualificadas na fila comercial.",
     legalBasis: "LEGITIMATE_INTEREST",
-    source: "LUSHA",
+    source: "LUSHA_AND_APOLLO",
     previewRetentionDays: CONTACT_PREVIEW_RETENTION_DAYS,
     revealedRetentionDays: CONTACT_REVEAL_RETENTION_DAYS,
     privacyContact: environment.CONTACT_PRIVACY_CONTACT,
@@ -136,6 +175,7 @@ export function candidateToDto(input: {
   readonly now: Date;
   readonly suppressed: boolean;
   readonly channels: ContactCandidateDto["channels"];
+  readonly source: ContactProviderSource;
 }): ContactCandidateDto {
   const expired = input.expiresAt.getTime() <= input.now.getTime();
   const unavailable = input.suppressed || expired;
@@ -154,7 +194,7 @@ export function candidateToDto(input: {
       !unavailable && input.candidate.canRevealWorkEmail,
     canRevealBusinessPhone:
       !unavailable && input.candidate.canRevealBusinessPhone,
-    source: "LUSHA",
+    source: input.source,
     obtainedAt: input.obtainedAt.toISOString(),
     expiresAt: input.expiresAt.toISOString(),
     channels: unavailable ? null : input.channels,

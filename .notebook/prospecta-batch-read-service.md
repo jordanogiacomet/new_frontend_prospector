@@ -22,4 +22,31 @@ Flow: verified org input -> app submission reads -> one optional producer batch 
 Tests: `src/server/imports/batch-read-service.test.ts`,
 `src/server/repositories/imports/producer-batch-observations-repository.test.ts`
 
-Updated: 2026-07-22
+Presentation (2026-10-13):
+- `src/lib/import-batch-presentation.ts:hasConfirmedBatchCounts()` distinguishes
+  all-null results from partial/explicit-zero facts, without changing the DTO.
+- `src/components/imports/batch-results.tsx:BatchResults()` renders the same
+  summary in list/detail. Unconfirmed metrics remain in collapsed details;
+  reported row counts use the separate “Linhas informadas” label.
+- A correlated observation clock alone is “Atualização registrada”, not a
+  promise of confirmed counts. Legacy observations and operational start/close
+  callbacks must not be promoted to acceptance or completion.
+- Source-outage copy in the detail preserves known accepted-row counts; an
+  unavailable or inconsistent observation source does not erase independently
+  confirmed acceptance. Regression: imports/batches/[id]/page.test.tsx.
+- Verification and local release: `docs/prospecta-batch-results-fix.md`.
+
+Additional local verification (2026-10-13, isolated source copy):
+- `pnpm lint` and `pnpm typecheck`: passed.
+- Focused import UI/service/status tests: 135 passed.
+- `pnpm test`: 2,608 tests in 139 files passed.
+- `pnpm test:contract`: 78 passed; 57 remote cases skipped without a test target.
+- `pnpm build --webpack`: passed with synthetic configuration. The default
+  Turbopack build rejected the temporary dependency symlink outside its root;
+  repository build configuration was unchanged.
+- Browser UAT: 208 synthetic checks passed in 1366/1440/375/390px using a
+  separate Webpack preview. Zero external calls, unexpected mutations,
+  runtime errors or overflow. The owned preview server was stopped. API mocks
+  verify presentation, not PostgreSQL persistence or n8n execution.
+
+Updated: 2026-10-13

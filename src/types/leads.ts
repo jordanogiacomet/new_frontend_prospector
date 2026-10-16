@@ -156,6 +156,25 @@ export interface LeadDetail extends LeadSummary {
   dataQuality: DataQualityNotice[];
 }
 
+export interface AvailableLeadMapLocation {
+  readonly status: "available";
+  readonly precision:
+    | "registered_address"
+    | "registered_postal_code"
+    | "municipality_center";
+  readonly latitude: number;
+  readonly longitude: number;
+  readonly boundingBox: readonly [number, number, number, number];
+}
+
+export interface UnavailableLeadMapLocation {
+  readonly status: "unavailable";
+}
+
+export type LeadMapLocation =
+  | AvailableLeadMapLocation
+  | UnavailableLeadMapLocation;
+
 export interface LeadHistoryItem {
   decision_id: string;
   import_batch_id: Nullable<string>;

@@ -40,6 +40,11 @@ import {
   maximumCurrentLeadProjections,
 } from "../repositories/current-lead-query";
 import type { LeadRunVisibilityOptions } from "../repositories/production-run-predicate";
+import {
+  listLeadApproachDraftStates,
+  type ListedLeadApproachDraftState,
+} from "../lead-approach/lead-approach-draft-repository";
+import { LEAD_APPROACH_GENERATOR_VERSION } from "../lead-approach/generate-lead-approach";
 
 const DEFAULT_PAGE = 1;
 const DEFAULT_PAGE_SIZE = 20;
@@ -84,7 +89,7 @@ const brazilianUfs = [
 
 type BrazilianUf = (typeof brazilianUfs)[number];
 
-const approvedProducerPriorities = ["B", "C", "E", "R"] as const;
+const approvedProducerPriorities = ["B", "C", "D", "E", "R"] as const;
 
 type ProducerPriority = (typeof approvedProducerPriorities)[number];
 
@@ -114,6 +119,11 @@ export interface ListCommercialWorkQueueResult {
 }
 
 export type CommercialWorkQueueOptions = LeadRunVisibilityOptions;
+
+export interface CommercialWorkQueuePresentationOptions {
+  readonly includeApproachDrafts?: boolean;
+  readonly now?: Date;
+}
 
 export class CommercialWorkQueueRepositoryInputError extends Error {
   readonly code = "INVALID_COMMERCIAL_WORK_QUEUE_INPUT";
@@ -177,6 +187,7 @@ interface ProducerPage {
 export async function listCommercialWorkQueue(
   input: ListCommercialWorkQueueInput,
   options: CommercialWorkQueueOptions = {},
+  presentationOptions: CommercialWorkQueuePresentationOptions = {},
 ): Promise<ListCommercialWorkQueueResult> {
   const listInput = validateListInput(input);
   const workspaceFilterCnpjs = await readWorkspaceFilterCnpjs(listInput);
@@ -222,11 +233,23 @@ export async function listCommercialWorkQueue(
     organizationId: listInput.organizationId,
     cnpjs: producerPage.rows.map((row) => row.cnpj_normalizado),
   });
+  const approachDraftsByLead = await readApproachDraftsByLead({
+    organizationId: listInput.organizationId,
+    rows: producerPage.rows,
+    options: presentationOptions,
+  });
 
   return {
     kind: "listed",
     items: producerPage.rows.map((row) =>
-      mapQueueItem(row, workspacesByCnpj.get(row.cnpj_normalizado) ?? null),
+      mapQueueItem(
+        row,
+        workspacesByCnpj.get(row.cnpj_normalizado) ?? null,
+        approachDraftsByLead.get(
+          approachDraftKey(row.cnpj_normalizado, row.lead_run_id),
+        ) ?? null,
+        presentationOptions.includeApproachDrafts === true,
+      ),
     ),
     page: listInput.page,
     pageSize: listInput.pageSize,
@@ -236,6 +259,38 @@ export async function listCommercialWorkQueue(
       workspace: workspaceProvenance(),
     },
   };
+}
+
+async function readApproachDraftsByLead(input: {
+  readonly organizationId: string;
+  readonly rows: readonly CommercialWorkQueueRow[];
+  readonly options: CommercialWorkQueuePresentationOptions;
+}): Promise<ReadonlyMap<string, ListedLeadApproachDraftState>> {
+  if (input.options.includeApproachDrafts !== true) {
+    return new Map();
+  }
+
+  const now = input.options.now ?? new Date();
+  if (!Number.isFinite(now.getTime())) {
+    throw new CommercialWorkQueueRepositoryInputError();
+  }
+
+  const states = await listLeadApproachDraftStates({
+    organizationId: input.organizationId,
+    generatorVersion: LEAD_APPROACH_GENERATOR_VERSION,
+    identities: input.rows.map((row) => ({
+      cnpjNormalizado: row.cnpj_normalizado,
+      observedLeadRunId: row.lead_run_id,
+    })),
+    now,
+  });
+
+  return new Map(
+    states.map((state) => [
+      approachDraftKey(state.cnpjNormalizado, state.observedLeadRunId),
+      state,
+    ]),
+  );
 }
 
 async function readWorkspaceFilterCnpjs(
@@ -686,10 +741,17 @@ function hasWorkspaceFilters(filters: CommercialWorkQueueFilters): boolean {
 function mapQueueItem(
   row: CommercialWorkQueueRow,
   workspace: LeadWorkspaceDto | null,
+  approachDraft: ListedLeadApproachDraftState | null,
+  includeApproachDrafts: boolean,
 ): CommercialWorkQueueItem {
   const companyDomain = companyDomainSchema.safeParse(row.company_domain);
 
   return {
+    approachDraft: mapQueueApproachDraft(
+      approachDraft,
+      includeApproachDrafts,
+      isAutomaticApproachPriority(row.priority),
+    ),
     companyDomain: companyDomain.success ? companyDomain.data : null,
     producerLead: mapLeadSummary(row),
     workspace,
@@ -703,6 +765,40 @@ function mapQueueItem(
       },
     },
   };
+}
+
+function mapQueueApproachDraft(
+  draft: ListedLeadApproachDraftState | null,
+  includeApproachDrafts: boolean,
+  isAutomaticPriority: boolean,
+): CommercialWorkQueueItem["approachDraft"] {
+  if (!includeApproachDrafts) {
+    return null;
+  }
+  if (draft !== null) {
+    return mapApproachDraft(draft);
+  }
+  return isAutomaticPriority ? mapApproachDraft(null) : null;
+}
+
+function mapApproachDraft(
+  draft: ListedLeadApproachDraftState | null,
+): CommercialWorkQueueItem["approachDraft"] {
+  if (draft === null) {
+    return { status: "missing", message: null };
+  }
+  if (draft.status === "ready") {
+    return { status: "ready", message: draft.message };
+  }
+  return { status: draft.status, message: null };
+}
+
+function isAutomaticApproachPriority(value: string | null): boolean {
+  return value === "B" || value === "C";
+}
+
+function approachDraftKey(cnpj: string, leadRunId: string): string {
+  return `${cnpj}:${leadRunId}`;
 }
 
 function mapWorkspaceRow(row: LeadWorkspaceRow): LeadWorkspaceDto {

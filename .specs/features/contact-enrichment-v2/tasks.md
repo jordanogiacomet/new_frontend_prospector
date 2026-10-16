@@ -23,6 +23,24 @@
 | T19 | R2, R3, R9, R10, AC7 | Version company search with queue city/UF/BR filters, Lusha Prospecting Companies and visual lead-reference comparison | Unit, component and synthetic workflow contract tests | Done |
 | T20 | AC1–AC9 | Run release gates, replace only the inactive/approved Demo 3 workflow copy and roll out without a provider request | Preflight, zero-execution assertion and authenticated smoke | Done |
 | T21 | R2, R3, R8, AC7 | Correct the Lusha Prospecting Companies provider adapter to use the documented minimum page size and country field | RED/GREEN workflow contract, full gates and guarded same-ID n8n replacement | Done |
+| T22 | R2, R3, R8, R10, AC7 | Broaden the single company-name query to Brazil, prioritize local matches and preserve the provider's first result as fallback | Executable workflow contract, component copy test, full gates and guarded same-ID replacement | Done |
+| T23 | R2, R3, R8, R10, AC7, AC10 | Version `priority-profile-search-v1`, its exact-company/title-filter contract, billing disclosure and no-fallback semantics | Spec/design/contract traceability review | Done |
+| T24 | R2, R3, R8, R9, AC1, AC10 | Replace the generic Decision Makers preview branch with one strict Contacts Prospecting priority-profile request | RED/GREEN executable workflow contract and safe callback tests | Done |
+| T25 | R10, AC7, AC10 | Share the title-alias taxonomy with the workflow contract and correct the query/billing/empty-result UI copy | Unit and component tests | Done |
+| T26 | AC1–AC10 | Run full gates and replace only the approved Demo 3 v2 copy without a real provider request | Preflight, zero-execution assertion and authenticated smoke | Done |
+| T27 | R2, R3, R10, AC10 | Record the Demo 3 Contacts Prospecting `403` and approve a one-call Decision Makers compatibility fallback | Synthetic no-PII probe and contract review | Done |
+| T28 | R2, R3, R8, R9, AC1, AC10 | Request one exact-company sample of up to 100 Decision Makers and locally retain at most 10 shared priority-title matches | RED/GREEN executable workflow contract | Done |
+| T29 | R10, AC7, AC10 | Replace search-credit copy with honest free-sample and non-exhaustive-result copy | Component RED/GREEN tests | Done |
+| T30 | AC1–AC10 | Run gates and replace only the approved Demo 3 v2 workflow with rollback protection | Preflight, synthetic probe and zero-execution assertion | Done |
+| T31 | R2, R3, R10, AC10 | Version exact, adjacent and generic Decision Makers fallback tiers while keeping exact-only commercial scoring | Spec and contract traceability review | Done |
+| T32 | R2, R3, R8, R9, AC1, AC10 | Rank exact and adjacent candidates, then use first valid generic candidates only when no relevant tier exists | RED/GREEN executable workflow contract | Done |
+| T33 | R10, AC7, AC10 | Explain fallback tiers and exact-only scoring in the queue UI | Component RED/GREEN tests | Done |
+| T34 | AC1–AC10 | Run full gates and replace only the approved Demo 3 v2 workflow with rollback protection | Preflight, synthetic probe and zero-execution assertion | Done |
+| T35 | R2, R3, R6–R10, AC11 | Version the exact-domain corporate-phone last fallback and its display-only policy | Spec and contract traceability review | Done |
+| T36 | R2, R6–R9, AC1, AC2, AC11 | Add migration 012 and encrypted request-scoped phone persistence with suppression check and retention erasure | Unit, migration and role-isolation tests | Done |
+| T37 | R2, R3, R8, R9, AC1, AC11 | Carry one sanitized Apollo organization phone only through an empty Apollo People result | RED/GREEN executable workflow contract | Done |
+| T38 | R3, R10, AC7, AC11 | Present the phone separately with unknown contactability, no dial link and no score action | Component RED/GREEN tests | Done |
+| T39 | AC1–AC11 | Run full gates and guarded Demo 3 app/workflow rollout without a provider request | Preflight, migration, readiness and zero-call assertion | Done |
 
 No task commits independently because the worktree already contains uncommitted
 owner changes. Atomic task boundaries are recorded here instead.

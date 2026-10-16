@@ -20,6 +20,13 @@ BEGIN
       prospecting_app.import_submission_events
     TO prospecta_app_rw;
 
+    IF to_regclass('prospecting_app.import_received_companies') IS NOT NULL THEN
+      REVOKE ALL ON TABLE prospecting_app.import_received_companies
+      FROM prospecta_app_rw;
+      GRANT SELECT, INSERT ON TABLE prospecting_app.import_received_companies
+      TO prospecta_app_rw;
+    END IF;
+
     GRANT SELECT, INSERT ON TABLE
       prospecting_app.lead_activities
     TO prospecta_app_rw;
@@ -37,11 +44,34 @@ BEGIN
       prospecting_app.jsonb_has_only_keys(jsonb, text[])
     TO prospecta_app_rw;
 
+    IF to_regprocedure('prospecting_app.contact_search_diagnostics_are_valid(jsonb,boolean)') IS NOT NULL THEN
+      GRANT EXECUTE ON FUNCTION
+        prospecting_app.contact_search_diagnostics_are_valid(jsonb, boolean)
+      TO prospecta_app_rw;
+    END IF;
+
     REVOKE DELETE ON ALL TABLES IN SCHEMA prospecting_app FROM prospecta_app_rw;
     IF to_regclass('prospecting_app.contact_suppressions') IS NOT NULL THEN
       -- Retention may purge only expired keyed suppression fingerprints.
       GRANT DELETE ON TABLE prospecting_app.contact_suppressions
       TO prospecta_app_rw;
+    END IF;
+    IF to_regclass('prospecting_app.lead_qualification_contacts') IS NOT NULL THEN
+      GRANT SELECT, INSERT ON TABLE
+        prospecting_app.lead_qualification_contacts
+      TO prospecta_app_rw;
+      GRANT UPDATE (
+        scheduled_at,
+        state,
+        outcome,
+        completed_activity_id,
+        updated_by_subject,
+        updated_at
+      ) ON prospecting_app.lead_qualification_contacts
+      TO prospecta_app_rw;
+      REVOKE DELETE ON TABLE
+        prospecting_app.lead_qualification_contacts
+      FROM prospecta_app_rw;
     END IF;
     REVOKE UPDATE, DELETE ON TABLE
       prospecting_app.import_submission_events,

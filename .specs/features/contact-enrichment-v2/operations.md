@@ -3,30 +3,63 @@
 ## Current state
 
 - Repository implementation and synthetic verification: complete.
-- Migrations 009 through 011: applied only to the isolated Demo 3 app-owned
+- Migrations 009 through 012: applied only to the isolated Demo 3 app-owned
   PostgreSQL database after the exact Kubernetes preflight.
 - v2 workflow artifact: remains inactive and credential-free in the repository;
-  the exact Demo 3 copy `PCEv2Demo3b8L3nR` is published with three native n8n
-  credential bindings.
-- Demo 3 release: `demo3-preprod-20260806-company-location-search-001` is
+  the exact Demo 3 copy `PCEv2Demo3b8L3nR` is published as the guarded 29-node
+  derivative with four native n8n credential bindings. Postflight found one
+  webhook and zero saved or active executions.
+- Demo 3 release: `demo3-preprod-20260811-company-phone-fallback-001` is
   enabled at `https://192.168.0.20:30443`; the browser still requires gateway
   authentication and the operator must trust the local public CA.
 - A queue item prefills one valid domain only when the exact CNPJ has one
   distinct value in `public.crm_company_history.website_domain`. It remains
   editable and requires explicit confirmation; missing, invalid and ambiguous
   values may use either manual domain entry or an explicit company-name search.
-  That search sends the known company name, available city/UF and fixed country
-  `BR` through Prospecta to Lusha Prospecting Companies, returns at most five
-  allowlisted matches and never retries automatically. The producer activity
-  text is displayed only as a comparison reference because it is not a Lusha
-  industry taxonomy ID. Results never expose a provider confidence score and
-  require `Usar esta empresa` before Decision Makers. The producer role can
-  read only `cnpj` and `website_domain` from that table.
+  That search sends the known company name and fixed country `BR` through
+  Prospecta to Lusha Prospecting Companies. City/UF prioritize local results
+  without excluding other Brazilian matches; when none matches, the first
+  provider result remains the fallback. At most five allowlisted matches are
+  returned and there is no automatic retry. The producer activity text is
+  displayed only as a comparison reference because it is not a Lusha industry
+  taxonomy ID. Results never expose a provider confidence score and require
+  `Usar esta empresa` before the priority-profile Decision Makers sample.
+  The producer role can read only `cnpj` and `website_domain` from that table.
 - The n8n provider adapter maps app country `BR` to Lusha location country
   `Brazil` and requests page size 10, the provider minimum, while the callback
-  mapper continues to expose at most five matches.
-- Real contact test: authorized for one controlled company/candidate but no
-  company or candidate has been selected and no real Lusha call has occurred.
+  mapper prioritizes local matches and continues to expose at most five.
+- The approved Demo 3 credential returns `403` for Contacts Prospecting but
+  continues to support other approved V3 operations. The confirmed-company
+  contact preview therefore makes one Decision Makers request for a free ranked
+  sample of up to 100. The 2026-10-13 repository refinement selects at most 10
+  unique candidates: fixed-asset/patrimony roles, accounting/control/finance,
+  then explicit inventory/stock or physical-asset operations. Generic unrelated
+  roles are excluded. A non-relevant sample does not invoke Apollo fallback.
+  Only exact priority profiles affect `contact-commercial-score-v1`. It writes
+  no provider table, requests no second page and has no retry. A structurally
+  valid empty sample may run one Apollo exact-domain Organization Enrichment,
+  followed on an exact
+  `primary_domain` match by one free People Search using that organization ID.
+  If the People Search is also structurally empty, the workflow may reuse one
+  sanitized corporate phone already present in that organization response. It
+  makes no third provider call; the app stores it encrypted for 30 days and the
+  UI labels contactability unknown without a dial link.
+
+- The targeting refinement and migration 018 require their own verified
+  release before use on the remote Demo 3 profile. No remote activation or
+  migration was performed by the 2026-10-13 local implementation. LinkedIn-first
+  calls remain pending the API identification in
+  `../contact-linkedin-first-v1/spec.md`.
+- One controlled live preview returned two allowlisted Lusha profiles. No
+  channel was revealed and no contact value is recorded in repository
+  evidence. Apollo correctly did not run because the Lusha sample was not
+  empty, so Apollo runtime access remains unverified.
+- A later explicit company-name search reached
+  `PROVIDER_OUTCOME_UNKNOWN` after approximately 30 seconds. Repeated
+  **Ver empresa localizada** actions only read the durable request and did not
+  redispatch the provider. The current release makes pending/unknown states
+  visible and offers a separately disclosed manual restart; there is still no
+  automatic retry.
 - Production: preparation authorized; no target is identified, so no production
   mutation is possible.
 
@@ -67,10 +100,20 @@ All boxes must be recorded without including contact values:
       Demo 3 HTTPS edge with its verified IP-SAN certificate.
 - [x] The imported v2 copy has three distinct native n8n credentials: ingress,
       Lusha `api_key`, and callback.
+- [x] A fourth native credential named `Apollo API Demo3` has header
+      `x-api-key`, is restricted to `api.apollo.io`, and its secret is absent
+      from Git, shell history and application configuration. The operator
+      reported the header/domain configuration; rollout inspected only safe
+      n8n credential metadata and never decrypted the value.
+- [ ] A controlled provider call remotely confirms the Apollo key has
+      `organizations_enrich`,
+      `mixed_people_api_search` and `people_match`; the accountable operator
+      accepts one organization credit per matched fallback company and the
+      selected reveal's documented credit usage.
 - [x] n8n save-data settings are `none`; a synthetic authenticated invalid
       execution remained invisible in execution history and its temporary
       metadata/payload rows were hard-pruned within one minute.
-- [x] Migrations 009 through 011 completed in the isolated app-owned database;
+- [x] Migrations 009 through 012 completed in the isolated app-owned database;
       producer role remains SELECT-only and producer row counts are unchanged.
 - [x] `CONTACT_DATA_ENCRYPTION_KEY_BASE64` is a generated 32-byte key in the
       secret manager, with a nonsecret key ID.
@@ -93,7 +136,9 @@ If any box is false, use synthetic callbacks only.
 2. Enable v2 only for the single Demo 3 actor.
 3. Submit one company domain from the queue, or explicitly search by company
    name and confirm one allowlisted firmographic match. A name search may use a
-   Lusha search credit and is never retried automatically.
+   Lusha search credit and is never retried automatically. If Lusha returns an
+   empty sample, verify one exact-domain Apollo organization result before the
+   organization-ID People Search runs.
 4. Confirm a PII-free 202 and one app-owned request.
 5. Explicitly open the preview, select one relevant professional candidate and
    request only the necessary channel class.
@@ -120,7 +165,7 @@ Production additionally requires:
   credentials with owner and rotation dates;
 - remotely tested HMAC exact-byte canonicalization, timestamp, nonce, durable
   replay ledger and durable per-actor/per-organization rate limit;
-- reviewed backup/restore and migrations 009 through 011 execution plan;
+- reviewed backup/restore and migrations 009 through 012 execution plan;
 - accountable migration owner, release owner, privacy owner and incident path;
 - canary cohort and success/error/latency/suppression metrics without PII;
 - ANPD incident-response procedure and processor/subprocessor review.

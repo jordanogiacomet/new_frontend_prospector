@@ -11,7 +11,7 @@ vi.mock("../db/app-client", () => ({
 }));
 
 import type { AppDatabaseTransaction } from "../db/app-client";
-import { recordCompanySearchIntent } from "./contact-company-search-repository";
+import { recordCompanySearchIntent, recordCompanySearchResult } from "./contact-company-search-repository";
 
 const requestedAt = new Date("2026-08-06T12:00:00.000Z");
 
@@ -42,6 +42,24 @@ beforeEach(() => {
 });
 
 describe("contact company search repository", () => {
+  it("commits the company-search diagnostic with its result under organization scope", async () => {
+    const occurredAt = new Date("2026-10-06T12:00:02.000Z");
+    const searchDiagnostics = [{ provider: "LUSHA", stage: "COMPANY_SEARCH", code: "NO_MATCHES" }] as const;
+    mocks.client.query.mockResolvedValueOnce([searchRow()])
+      .mockResolvedValueOnce([{ ...searchRow(), status: "SEARCH_EMPTY", result_sha256: "e".repeat(64),
+        provider_occurred_at: occurredAt, search_diagnostics: searchDiagnostics }])
+      .mockResolvedValueOnce([]);
+    await expect(recordCompanySearchResult({
+      organizationId: "org-synthetic-contact-v2", searchRequestId: searchRow().search_request_id,
+      status: "SEARCH_EMPTY", resultSha256: "e".repeat(64), occurredAt,
+      expiresAt: null, matches: [], searchDiagnostics,
+    })).resolves.toMatchObject({ kind: "recorded", request: { searchDiagnostics } });
+    const update = mocks.client.query.mock.calls[1]?.[0];
+    expect(update.text).toContain("WHERE organization_id = $1 AND search_request_id = $2");
+    expect(update.values[6]).toBe(JSON.stringify(searchDiagnostics));
+    expect(JSON.stringify(mocks.client.query.mock.calls[2]?.[0])).not.toContain("NO_MATCHES");
+  });
+
   it("returns the original request for the same organization key and input", async () => {
     mocks.client.query
       .mockResolvedValueOnce([])

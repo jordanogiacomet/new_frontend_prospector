@@ -2,8 +2,10 @@
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
+import { usePrivateCapabilities } from "../../../../components/auth/private-capabilities";
+import { PrivateReadAccessState } from "../../../../components/auth/private-read-access-state";
 import { LeadViewNavigation } from "../../../../components/leads/lead-view-navigation";
 import { OutsideAnalysisTable } from "../../../../components/leads/outside-analysis-table";
 import type { OutsideAnalysisCompany } from "../../../../types/leads";
@@ -29,10 +31,15 @@ type RequestState =
       query: string;
       status: "success";
       response: OutsideAnalysisEnvelope;
+      refreshFailed?: boolean;
     }
   | {
       query: string;
       status: "error";
+    }
+  | {
+      query: string;
+      status: "auth_required" | "access_denied";
     };
 
 const refreshIntervalMilliseconds = 5_000;
@@ -49,6 +56,19 @@ function isPositiveInteger(value: unknown): value is number {
   return Number.isInteger(value) && Number(value) >= 1;
 }
 
+function isOutsideAnalysisCompany(value: unknown): value is OutsideAnalysisCompany {
+  return (
+    isRecord(value) &&
+    typeof value.cnpj === "string" &&
+    /^[0-9]{14}$/.test(value.cnpj) &&
+    ["import_batch_id", "companyName", "city", "uf", "sector", "decidedAction", "decisionReason"].every(
+      (field) => value[field] === null || typeof value[field] === "string",
+    ) &&
+    (value.source_row === null || Number.isSafeInteger(value.source_row)) &&
+    typeof value.decidedAt === "string"
+  );
+}
+
 function isOutsideAnalysisEnvelope(
   value: unknown,
 ): value is OutsideAnalysisEnvelope {
@@ -63,11 +83,14 @@ function isOutsideAnalysisEnvelope(
     isPositiveInteger(meta.page) &&
     isPositiveInteger(meta.pageSize) &&
     isNonNegativeInteger(meta.total) &&
-    isNonNegativeInteger(meta.totalPages)
+    isNonNegativeInteger(meta.totalPages) &&
+    value.data.every(isOutsideAnalysisCompany)
   );
 }
 
 export default function OutsideAnalysisPage() {
+  const { hasPermission } = usePrivateCapabilities();
+  const canReadLeads = hasPermission("leads:read");
   const searchParams = useSearchParams();
   const query = searchParams.toString();
   const [requestState, setRequestState] = useState<RequestState>(() => ({
@@ -78,13 +101,20 @@ export default function OutsideAnalysisPage() {
     requestState.query === query
       ? requestState
       : { query, status: "loading" };
+  const refreshRef = useRef<(() => Promise<void>) | null>(null);
+  const manualRefreshInFlight = useRef(false);
+  const [manualRefreshQuery, setManualRefreshQuery] = useState<string | null>(null);
+  const isRefreshing = manualRefreshQuery === query;
 
   useEffect(() => {
+    if (!canReadLeads) return;
+
     const abortController = new AbortController();
     let requestInFlight = false;
+    let accessStopped = false;
 
     async function loadCompanies(): Promise<void> {
-      if (requestInFlight) {
+      if (requestInFlight || accessStopped) {
         return;
       }
 
@@ -104,12 +134,20 @@ export default function OutsideAnalysisPage() {
         });
 
         if (!response.ok) {
+          if (response.status === 401 || response.status === 403) {
+            accessStopped = true;
+            window.clearInterval(refreshIntervalId);
+            if (!abortController.signal.aborted) {
+              setRequestState({ query, status: response.status === 401 ? "auth_required" : "access_denied" });
+            }
+            return;
+          }
           throw new Error("Outside-analysis request failed.");
         }
 
         const payload: unknown = await response.json();
 
-        if (!isOutsideAnalysisEnvelope(payload)) {
+        if (response.status !== 200 || !isOutsideAnalysisEnvelope(payload)) {
           throw new Error("Outside-analysis response is invalid.");
         }
 
@@ -122,13 +160,18 @@ export default function OutsideAnalysisPage() {
         }
       } catch {
         if (!abortController.signal.aborted) {
-          setRequestState({ query, status: "error" });
+          setRequestState((previous) =>
+            previous.query === query && previous.status === "success"
+              ? { ...previous, refreshFailed: true }
+              : { query, status: "error" },
+          );
         }
       } finally {
         requestInFlight = false;
       }
     }
 
+    refreshRef.current = loadCompanies;
     void loadCompanies();
     const refreshIntervalId = window.setInterval(() => {
       if (document.visibilityState === "visible") {
@@ -139,8 +182,25 @@ export default function OutsideAnalysisPage() {
     return () => {
       window.clearInterval(refreshIntervalId);
       abortController.abort();
+      refreshRef.current = null;
     };
-  }, [query]);
+  }, [query, canReadLeads]);
+
+  function refreshCompanies(): void {
+    const refresh = refreshRef.current;
+    if (refresh === null || manualRefreshInFlight.current) return;
+    manualRefreshInFlight.current = true;
+    setManualRefreshQuery(query);
+    void refresh().finally(() => {
+      manualRefreshInFlight.current = false;
+      setManualRefreshQuery((pendingQuery) => pendingQuery === query ? null : pendingQuery);
+    });
+  }
+
+  if (!canReadLeads) return <PrivateReadAccessState status="access_denied" />;
+  if (currentState.status === "auth_required" || currentState.status === "access_denied") {
+    return <PrivateReadAccessState status={currentState.status} />;
+  }
 
   return (
     <div className="mx-auto w-full max-w-[96rem]">
@@ -148,7 +208,7 @@ export default function OutsideAnalysisPage() {
         <p className="text-xs font-bold tracking-[0.2em] text-[oklch(45%_0.105_174)] uppercase">
           Decisões pelo CRM
         </p>
-        <h1 className="mt-4 max-w-[14ch] font-serif text-[clamp(2.8rem,7vw,5.5rem)] leading-[0.96] tracking-[-0.05em] text-balance">
+        <h1 className="operational-title mt-4">
           Fora da análise
         </h1>
         <p className="mt-6 max-w-3xl text-base leading-7 text-[oklch(43%_0.03_252)]">
@@ -168,7 +228,25 @@ export default function OutsideAnalysisPage() {
         ) : null}
 
         {currentState.status === "error" ? (
-          <OutsideAnalysisError />
+          <>
+            <OutsideAnalysisError />
+            <button type="button" onClick={refreshCompanies} disabled={isRefreshing} className="ui-action ui-action--secondary mt-5">
+              {isRefreshing ? "Atualizando…" : "Tentar novamente"}
+            </button>
+          </>
+        ) : null}
+
+        {currentState.status === "success" ? (
+          <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+            <p role={currentState.refreshFailed ? "status" : undefined} className="max-w-2xl text-sm leading-6 text-[oklch(43%_0.03_252)]">
+              {currentState.refreshFailed
+                ? "Não foi possível atualizar. Exibindo a última consulta disponível; os resultados podem ter mudado."
+                : "Resultados atualizados automaticamente enquanto esta página estiver aberta."}
+            </p>
+            <button type="button" onClick={refreshCompanies} disabled={isRefreshing} className="ui-action ui-action--secondary">
+              {isRefreshing ? "Atualizando…" : "Atualizar lista"}
+            </button>
+          </div>
         ) : null}
 
         {currentState.status === "success" &&

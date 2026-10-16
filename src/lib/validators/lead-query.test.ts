@@ -6,6 +6,7 @@ import {
   leadDetailQuerySchema,
   leadHistoryQuerySchema,
   leadListQuerySchema,
+  outsideAnalysisDetailQuerySchema,
   outsideAnalysisQuerySchema,
 } from "./lead-query";
 
@@ -140,7 +141,7 @@ describe("leadListQuerySchema", () => {
     },
   );
 
-  it.each(["B", "C", "E", "R"])(
+  it.each(["B", "C", "D", "E", "R"])(
     "accepts approved priority %s",
     (priority) => {
       expect(leadListQuerySchema.parse(query({ priority })).priority).toBe(
@@ -388,6 +389,24 @@ describe("outsideAnalysisQuerySchema", () => {
     expect(
       outsideAnalysisQuerySchema.safeParse(
         query({ [key]: "synthetic" }),
+      ).success,
+    ).toBe(false);
+  });
+});
+
+describe("outsideAnalysisDetailQuerySchema", () => {
+  it("accepts only an empty detail query", () => {
+    expect(
+      outsideAnalysisDetailQuerySchema.parse(new URLSearchParams()),
+    ).toEqual({});
+    expect(
+      outsideAnalysisDetailQuerySchema.safeParse(
+        query({ leadRunId: syntheticShortLeadRunId }),
+      ).success,
+    ).toBe(false);
+    expect(
+      outsideAnalysisDetailQuerySchema.safeParse(
+        query({ page: "1" }),
       ).success,
     ).toBe(false);
   });

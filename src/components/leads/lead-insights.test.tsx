@@ -68,13 +68,13 @@ describe("lead facts and insights", () => {
     renderInsights();
 
     const business = screen.getByRole("region", {
-      name: "Fatos empresariais",
+      name: "Identificação da empresa",
     });
     const fiscal = screen.getByRole("region", {
-      name: "Fatos fiscais",
+      name: "Porte e regime tributário",
     });
     const commercial = screen.getByRole("region", {
-      name: "Fatos comerciais",
+      name: "Dados comerciais",
     });
 
     expect(business).toHaveTextContent("Empresa Aurora Serviços Ltda.");
@@ -114,7 +114,7 @@ describe("lead facts and insights", () => {
     });
 
     const facts = screen.getByRole("region", {
-      name: "Fatos armazenados",
+      name: "Dados da empresa",
     });
 
     expect(within(facts).getAllByText("Não disponível")).toHaveLength(9);
@@ -150,7 +150,7 @@ describe("lead facts and insights", () => {
     });
 
     const facts = screen.getByRole("region", {
-      name: "Fatos armazenados",
+      name: "Dados da empresa",
     });
 
     expect(within(facts).getAllByText("Não disponível")).toHaveLength(8);
@@ -187,16 +187,56 @@ describe("lead facts and insights", () => {
     });
     expect(risks).toHaveTextContent("Dados ausentes");
     expect(risks).toHaveTextContent(
-      "Nenhuma informação de risco foi armazenada para esta análise.",
+      "Não há informação sobre riscos nesta análise.",
     );
 
     rerender(<LeadInsights lead={completeLead} />);
 
     expect(risks).toHaveTextContent("Sem riscos registrados");
     expect(risks).toHaveTextContent(
-      "A análise armazenada contém uma coleção vazia de riscos.",
+      "Esta análise não registra riscos. Isso não garante ausência de risco.",
     );
     expect(risks).not.toHaveTextContent("Dados ausentes");
+  });
+
+  it("presents approved risk codes as clear business sentences", () => {
+    renderInsights({
+      riskFlags: {
+        status: "available",
+        items: [
+          "SEM_SITE",
+          "SEM_EMAIL",
+          "SEM_TELEFONE",
+          "DIVIDA_FEDERAL_ATIVA_INFORMADA",
+          "RISCO_NOVO_NAO_MAPEADO",
+          "CADASTRO_SEM_CONFIRMACAO",
+          "FONTE_PUBLICA_INCONCLUSIVA",
+        ],
+      },
+    });
+
+    const risks = screen.getByRole("region", {
+      name: "Riscos encontrados",
+    });
+    expect(risks).toHaveTextContent(
+      "O site da empresa não foi localizado nos dados analisados.",
+    );
+    expect(risks).toHaveTextContent(
+      "O e-mail corporativo não foi localizado nos dados analisados.",
+    );
+    expect(risks).toHaveTextContent(
+      "O telefone da empresa não foi localizado nos dados analisados.",
+    );
+    expect(risks).toHaveTextContent(
+      "A análise informa a existência de dívida ativa federal.",
+    );
+    expect(risks).not.toHaveTextContent("SEM_SITE");
+    expect(risks).toHaveTextContent("RISCO_NOVO_NAO_MAPEADO");
+    expect(risks).toHaveTextContent("CADASTRO_SEM_CONFIRMACAO");
+    expect(risks).toHaveTextContent("FONTE_PUBLICA_INCONCLUSIVA");
+    expect(risks).not.toHaveTextContent(
+      "A análise registrou um risco sem descrição disponível.",
+    );
   });
 
   it("renders unavailable risk and signal collections as accessible alerts", () => {
@@ -229,7 +269,7 @@ describe("lead facts and insights", () => {
 
     expect(signals).toHaveTextContent("Sem sinais registrados");
     expect(signals).toHaveTextContent(
-      "A análise armazenada contém uma coleção vazia de sinais positivos.",
+      "Esta análise não registra sinais positivos.",
     );
     expect(signals).not.toHaveTextContent("Dados ausentes");
   });
@@ -244,15 +284,15 @@ describe("lead facts and insights", () => {
     });
 
     const withheldStates = screen.getAllByRole("status", {
-      name: "Retido por política",
+      name: "Conteúdo protegido",
     });
 
     expect(withheldStates).toHaveLength(3);
     expect(withheldStates[0]).toHaveTextContent(
-      "O conteúdo de riscos não foi aprovado para exibição.",
+      "Os riscos não podem ser exibidos conforme a política de privacidade.",
     );
     expect(withheldStates[1]).toHaveTextContent(
-      "O conteúdo de sinais positivos não foi aprovado para exibição.",
+      "Os sinais positivos não podem ser exibidos conforme a política de privacidade.",
     );
   });
 
@@ -263,11 +303,41 @@ describe("lead facts and insights", () => {
       name: "Evidências",
     });
 
-    expect(evidence).toHaveTextContent("Retido por política");
+    expect(evidence).toHaveTextContent("Conteúdo protegido");
     expect(evidence).toHaveTextContent(
-      "As evidências desta análise não foram aprovadas para exibição.",
+      "As evidências não podem ser exibidas conforme a política de privacidade.",
     );
     expect(within(evidence).queryByRole("link")).toBeNull();
+  });
+
+  it("distinguishes explicit empty evidence from missing and unavailable evidence", () => {
+    const { rerender } = renderInsights({
+      evidences: { status: "available", content: [] },
+    });
+    const evidence = screen.getByRole("region", { name: "Evidências" });
+
+    expect(evidence).toHaveTextContent("Sem evidências registradas");
+    expect(evidence).toHaveTextContent("Esta análise não registra evidências.");
+    expect(within(evidence).queryByRole("alert")).toBeNull();
+
+    rerender(<LeadInsights lead={{
+      ...completeLead,
+      evidences: { status: "missing", content: null },
+    }} />);
+
+    expect(evidence).toHaveTextContent("Evidências ausentes");
+    expect(evidence).toHaveTextContent("Não há informação sobre evidências nesta análise.");
+    expect(evidence).not.toHaveTextContent("Sem evidências registradas");
+
+    rerender(<LeadInsights lead={{
+      ...completeLead,
+      evidences: { status: "unavailable", content: null },
+    }} />);
+
+    expect(within(evidence).getByRole("alert", { name: "Evidências indisponíveis" }))
+      .toHaveTextContent("Não foi possível consultar as evidências desta análise.");
+    expect(evidence).not.toHaveTextContent("Evidências ausentes");
+    expect(evidence).not.toHaveTextContent("Sem evidências registradas");
   });
 
   it("renders only validated evidence fields in a safe external link", () => {

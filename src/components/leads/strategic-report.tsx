@@ -11,6 +11,11 @@ interface StrategicReportProps {
   report: StrategicReportDisplayState;
 }
 
+interface ReportField {
+  label: string;
+  value: string;
+}
+
 const stateAppearance: Record<
   StrategicReportDisplayState["status"],
   string
@@ -32,30 +37,26 @@ export function StrategicReport({ report }: StrategicReportProps) {
           label: "Relatório disponível",
           title: "Análise estratégica registrada",
           description: "Conteúdo disponível para consulta nesta análise.",
-          note: null,
         }
       : report.status === "omitted_by_policy"
       ? {
-          label: "Retido por política",
-          title: "Conteúdo não exibido",
+          label: "Conteúdo protegido",
+          title: "Relatório protegido",
           description:
-            "O conteúdo foi retido conforme a política de privacidade vigente. A decisão e os campos aprovados permanecem disponíveis.",
-          note: "A proteção técnica contra código malicioso não substitui a aprovação de privacidade.",
+            "Este relatório não pode ser exibido conforme a política de privacidade. A recomendação e os dados permitidos continuam disponíveis.",
         }
       : report.status === "missing"
         ? {
-            label: "Ausente",
-            title: "Relatório ainda não disponível",
+            label: "Não registrado",
+            title: "Relatório não registrado",
             description:
               "Nenhum relatório foi associado a esta análise.",
-            note: null,
           }
         : {
             label: "Indisponível",
-            title: "Não foi possível consultar o relatório",
+            title: "Relatório indisponível",
             description:
-              "A consulta ao relatório não pôde ser concluída. Tente novamente mais tarde.",
-            note: null,
+              "Não foi possível apresentar o conteúdo com segurança nesta consulta. Consulte a recomendação e os demais dados disponíveis da análise.",
           };
 
   return (
@@ -91,17 +92,89 @@ export function StrategicReport({ report }: StrategicReportProps) {
             {copy.description}
           </p>
           {report.status === "available" ? (
-            <p className="mt-5 max-w-2xl whitespace-pre-wrap border-t border-current/20 pt-4 text-sm leading-6">
-              {report.content}
-            </p>
+            <ReadableReportContent content={report.content} />
           ) : null}
-          {copy.note === null ? null : (
-            <p className="mt-3 max-w-2xl border-t border-current/20 pt-3 text-xs leading-5">
-              {copy.note}
-            </p>
-          )}
         </div>
       </div>
     </section>
   );
+}
+
+function ReadableReportContent({ content }: { content: string }) {
+  const blocks = content
+    .split(/\n{2,}/)
+    .map((block) => block.trim())
+    .filter(Boolean);
+
+  return (
+    <div className="mt-6 grid max-w-4xl gap-6 border-t border-current/20 pt-5">
+      {blocks.map((block, index) => {
+        const fields = parseReportFields(block);
+        if (fields !== null) {
+          return (
+            <dl
+              key={index}
+              className="grid gap-x-8 sm:grid-cols-2"
+            >
+              {fields.map((field, fieldIndex) => (
+                <div
+                  key={`${field.label}:${fieldIndex}`}
+                  className="border-t border-current/20 py-4 first:border-t-0 sm:first:border-t"
+                >
+                  <dt className="text-xs font-bold tracking-[0.1em] uppercase">
+                    {field.label}
+                  </dt>
+                  <dd className="mt-1 break-words text-base leading-6">
+                    {formatReportValue(field.value)}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          );
+        }
+
+        return (
+          <p
+            key={index}
+            className={
+              index === 0
+                ? "max-w-[65ch] font-serif text-xl leading-8 tracking-[-0.015em]"
+                : "max-w-[65ch] whitespace-pre-wrap text-base leading-7"
+            }
+          >
+            {block}
+          </p>
+        );
+      })}
+    </div>
+  );
+}
+
+function formatReportValue(value: string): string {
+  return /^[\p{L}\p{N}]+(?:_[\p{L}\p{N}]+)+$/u.test(value)
+    ? value.replace(/_/g, " ")
+    : value;
+}
+
+function parseReportFields(block: string): readonly ReportField[] | null {
+  const lines = block
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const fields = lines.map((line): ReportField | null => {
+    const separator = line.indexOf(":");
+    if (separator <= 0 || separator > 80) {
+      return null;
+    }
+
+    const label = line.slice(0, separator).trim();
+    const value = line.slice(separator + 1).trim();
+    return label.length === 0 || value.length === 0
+      ? null
+      : { label, value };
+  });
+
+  return fields.length > 0 && fields.every((field) => field !== null)
+    ? fields
+    : null;
 }

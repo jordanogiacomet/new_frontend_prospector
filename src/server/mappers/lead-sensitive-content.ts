@@ -10,6 +10,32 @@ const maximumInsightLength = 320;
 const maximumEvidenceTitleLength = 160;
 const maximumEvidenceSummaryLength = 800;
 const maximumStrategicReportLength = 12_000;
+const strategicReportPhoneRedaction = "[Telefone removido por privacidade]";
+const strategicReportReductionNotice = "Conteúdo reduzido para exibição.";
+const strategicReportPhonePattern =
+  /(?:\+?55\s*)?(?:\(?\d{2}\)?\s*)?\d{4,5}[\s-]?\d{4}/g;
+const restrictedStrategicReportLabels = new Set([
+  "api model",
+  "effective generation",
+  "effective model",
+  "generation mode",
+  "geracao efetiva",
+  "ia concluida",
+  "mode",
+  "modo",
+  "modelo",
+  "modelo api",
+  "modelo efetivo",
+  "requested policy",
+  "politica solicitada",
+  "saida estruturada interpretada",
+  "status",
+  "structured output interpreted",
+  "tipo",
+  "type",
+]);
+const strategicReportFieldPattern =
+  /\*\*([^*\n]{1,80}?):\*\*\s*([\s\S]*?)(?=(?:\s*\|\s*)?\*\*[^*\n]{1,80}?:\*\*|$)/g;
 
 export interface SensitiveContentAccess {
   readonly enabled: boolean;
@@ -201,33 +227,108 @@ function sanitizeStrategicReportMarkdown(value: unknown): string | null {
 
   if (
     normalized.length === 0 ||
-    normalized.length > maximumStrategicReportLength ||
     /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(normalized) ||
     /<\/?[a-z][^>]*>/i.test(normalized)
   ) {
     return null;
   }
 
-  const plainText = normalized
+  const sourceWasReduced = normalized.length > maximumStrategicReportLength;
+  const boundedSource = sourceWasReduced
+    ? normalized.slice(0, maximumStrategicReportLength)
+    : normalized;
+  const structurallySanitized = boundedSource
     .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
     .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
     .replace(/^[\t ]{0,3}(?:#{1,6}[\t ]+|[-*+]\s+|>\s?)/gm, "")
-    .replace(/`{1,3}/g, "")
+    .replace(/`{1,3}/g, "");
+  const plainText = structurallySanitized
+    .split(/\n{2,}/)
+    .map(formatStrategicReportBlock)
+    .filter((block) => block.length > 0)
+    .join("\n\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 
   if (
     plainText.length === 0 ||
     /\b(?:javascript|data|vbscript):/i.test(plainText) ||
-    /\b[\w.+-]+@[\w.-]+\.[a-z]{2,}\b/i.test(plainText) ||
-    /(?:\+?55\s*)?(?:\(?\d{2}\)?\s*)?\d{4,5}[\s-]?\d{4}/.test(
-      plainText,
-    )
+    /\b[\w.+-]+@[\w.-]+\.[a-z]{2,}\b/i.test(plainText)
   ) {
     return null;
   }
 
-  return plainText;
+  const privacySanitized = plainText.replace(
+    strategicReportPhonePattern,
+    strategicReportPhoneRedaction,
+  );
+
+  if (
+    !sourceWasReduced &&
+    privacySanitized.length <= maximumStrategicReportLength
+  ) {
+    return privacySanitized;
+  }
+
+  const noticeSeparator = "\n\n";
+  const contentLimit =
+    maximumStrategicReportLength -
+    noticeSeparator.length -
+    strategicReportReductionNotice.length;
+  const reducedContent = privacySanitized
+    .slice(0, contentLimit)
+    .trimEnd();
+
+  return `${reducedContent}${noticeSeparator}${strategicReportReductionNotice}`;
+}
+
+function formatStrategicReportBlock(block: string): string {
+  const fields = [...block.matchAll(strategicReportFieldPattern)];
+  if (fields.length === 0) {
+    return stripInlineMarkdown(block);
+  }
+
+  const firstFieldIndex = fields[0]?.index ?? 0;
+  const preface = stripInlineMarkdown(
+    block.slice(0, firstFieldIndex).replace(/\s*\|\s*$/, "").trim(),
+  );
+  const readableFields = fields.flatMap((field) => {
+    const label = stripInlineMarkdown(field[1]?.trim() ?? "");
+    const value = stripInlineMarkdown(
+      (field[2] ?? "").replace(/\s*\|\s*$/, "").trim(),
+    );
+    if (
+      label.length === 0 ||
+      value.length === 0 ||
+      isRestrictedStrategicReportLabel(label)
+    ) {
+      return [];
+    }
+    return [`${label}: ${value}`];
+  });
+
+  return [preface, ...readableFields].filter(Boolean).join("\n");
+}
+
+function stripInlineMarkdown(value: string): string {
+  return value
+    .replace(/\*\*([^*\n]+)\*\*/g, "$1")
+    .replace(/__([^_\n]+)__/g, "$1")
+    .trim();
+}
+
+function isRestrictedStrategicReportLabel(label: string): boolean {
+  const normalized = label
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+
+  return (
+    restrictedStrategicReportLabels.has(normalized) ||
+    normalized.startsWith("modelo ") ||
+    normalized.startsWith("model ")
+  );
 }
 
 export function mapSensitiveStrategicReport(

@@ -1,13 +1,33 @@
 "use client";
 
-import { useParams } from "next/navigation";
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import Link from "next/link";
+import { useParams, useSearchParams } from "next/navigation";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+} from "react";
 
+import { actionErrorFeedback, unknownMutationMessage } from "../../../../lib/action-feedback";
+
+import { usePrivateCapabilities } from "../../../../components/auth/private-capabilities";
+import { QualificationCadence } from "../../../../components/commercial/qualification-cadence";
+import { WorkspaceApproachMessage } from "../../../../components/commercial/workspace-approach-message";
 import {
   formatBrazilianDate,
   formatBrazilianDateTime,
   formatCnpj,
 } from "../../../../lib/formatters";
+import {
+  appendReturnTo,
+  resolveLeadListReturnHref,
+} from "../../../../lib/navigation-return";
+import {
+  getCommercialFollowUpStatus,
+  getFollowUpDateInputValue,
+} from "../../../../lib/commercial-follow-up";
 import {
   commercialActivityTypes,
   commercialOutcomes,
@@ -75,22 +95,21 @@ type ListState<T> =
   | { readonly status: "not_found" }
   | { readonly status: "error" };
 
-type EditState =
-  | { readonly status: "idle" }
-  | { readonly status: "saving" }
-  | { readonly status: "success" }
-  | { readonly status: "conflict" }
-  | { readonly status: "unauthenticated" }
-  | { readonly status: "denied" }
-  | { readonly status: "error" };
+type MutationFeedbackState =
+  | { readonly status: "idle" | "saving" | "success" }
+  | {
+      readonly status: "conflict" | "unauthenticated" | "denied" | "validation" | "unavailable" | "unknown";
+      readonly message?: string;
+      readonly field?: string;
+    };
 
-type AppendState =
-  | { readonly status: "idle" }
-  | { readonly status: "saving" }
-  | { readonly status: "success" }
-  | { readonly status: "unauthenticated" }
-  | { readonly status: "denied" }
-  | { readonly status: "error" };
+type EditState = MutationFeedbackState;
+type AppendState = MutationFeedbackState;
+
+function mutationFeedback(status: number, payload: unknown): MutationFeedbackState {
+  const feedback = actionErrorFeedback(status, payload, "mutation");
+  return { status: feedback.kind === "session" ? "unauthenticated" : feedback.kind, message: feedback.message };
+}
 
 interface WorkspaceDraft {
   readonly responsibleSubject: string;
@@ -106,6 +125,14 @@ interface ActivityDraft {
   readonly activityOutcome: string;
   readonly summary: string;
 }
+
+interface ActivityEditorState {
+  readonly draft: ActivityDraft;
+  readonly baseline: ActivityDraft;
+}
+
+const unsavedChangesMessage =
+  "Há alterações não salvas neste acompanhamento. Deseja sair mesmo assim?";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -261,8 +288,117 @@ function toWorkspaceDraft(workspace: LeadWorkspaceDto): WorkspaceDraft {
   };
 }
 
+function workspaceDraftHasChanges(
+  draft: WorkspaceDraft,
+  workspace: LeadWorkspaceDto,
+): boolean {
+  return (
+    (draft.responsibleSubject === "" ? null : draft.responsibleSubject) !==
+      workspace.responsible_subject ||
+    draft.commercialStage !== workspace.commercial_stage ||
+    (draft.nextAction === "" ? null : draft.nextAction) !==
+      workspace.next_action ||
+    draft.nextActionDueDate !== toDateInputValue(workspace.next_action_due_at) ||
+    (draft.commercialOutcome === "" ? null : draft.commercialOutcome) !==
+      workspace.commercial_outcome
+  );
+}
+
+function refreshWorkspaceDraft(
+  draft: WorkspaceDraft | null,
+  previous: LeadWorkspaceDto,
+  refreshed: LeadWorkspaceDto,
+): WorkspaceDraft {
+  const next = toWorkspaceDraft(refreshed);
+  if (draft === null) return next;
+  const baseline = toWorkspaceDraft(previous);
+  return {
+    responsibleSubject: draft.responsibleSubject === baseline.responsibleSubject
+      ? next.responsibleSubject : draft.responsibleSubject,
+    commercialStage: draft.commercialStage === baseline.commercialStage
+      ? next.commercialStage : draft.commercialStage,
+    nextAction: draft.nextAction === baseline.nextAction
+      ? next.nextAction : draft.nextAction,
+    nextActionDueDate: draft.nextActionDueDate === baseline.nextActionDueDate
+      ? next.nextActionDueDate : draft.nextActionDueDate,
+    commercialOutcome: draft.commercialOutcome === baseline.commercialOutcome
+      ? next.commercialOutcome : draft.commercialOutcome,
+  };
+}
+
+function activityDraftHasChanges(
+  draft: ActivityDraft,
+  baseline: ActivityDraft,
+): boolean {
+  return (
+    draft.occurredAt !== baseline.occurredAt ||
+    draft.activityType !== baseline.activityType ||
+    draft.activityOutcome !== baseline.activityOutcome ||
+    draft.summary !== baseline.summary
+  );
+}
+
+function useUnsavedChangesWarning(enabled: boolean): void {
+  useEffect(() => {
+    if (!enabled) {
+      return;
+    }
+
+    function handleBeforeUnload(event: BeforeUnloadEvent): void {
+      event.preventDefault();
+      event.returnValue = "";
+    }
+
+    function handleLinkClick(event: MouseEvent): void {
+      if (
+        event.defaultPrevented ||
+        event.button !== 0 ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.shiftKey ||
+        event.altKey ||
+        !(event.target instanceof Element)
+      ) {
+        return;
+      }
+
+      const link = event.target.closest<HTMLAnchorElement>("a[href]");
+      if (
+        link === null ||
+        link.hasAttribute("download") ||
+        (link.target !== "" && link.target !== "_self")
+      ) {
+        return;
+      }
+
+      const destination = new URL(link.href, window.location.href);
+      const current = new URL(window.location.href);
+      if (
+        destination.origin === current.origin &&
+        destination.pathname === current.pathname &&
+        destination.search === current.search
+      ) {
+        return;
+      }
+
+      if (!window.confirm(unsavedChangesMessage)) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+      }
+    }
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    document.addEventListener("click", handleLinkClick, true);
+
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+      document.removeEventListener("click", handleLinkClick, true);
+    };
+  }, [enabled]);
+}
+
 function toDateInputValue(value: string | null): string {
-  return value === null ? "" : value.slice(0, 10);
+  return value === null ? "" : getFollowUpDateInputValue(0, new Date(value));
 }
 
 function padDatetimeComponent(value: number): string {
@@ -275,6 +411,15 @@ function toDatetimeLocalValue(value: Date): string {
 
 function currentDatetimeLocalValue(): string {
   return toDatetimeLocalValue(new Date());
+}
+
+function createActivityDraft(): ActivityDraft {
+  return {
+    occurredAt: currentDatetimeLocalValue(),
+    activityType: "CALL",
+    activityOutcome: "",
+    summary: "",
+  };
 }
 
 function toUtcNoon(value: string): string | null {
@@ -442,24 +587,39 @@ function listResponseState<T>(status: number): ListState<T> {
 }
 
 export default function CommercialWorkspaceDetailPage() {
+  const { hasPermission } = usePrivateCapabilities();
+  const canRead = hasPermission("commercial:read");
+  const canReadAudit = hasPermission("audit:read");
+  const [accessFailure, setAccessFailure] = useState<"unauthenticated" | "denied" | null>(null);
+  const handleSessionExpired = useCallback(() => setAccessFailure("unauthenticated"), []);
+  const canAccess = canRead && accessFailure === null;
+  const canWrite = canAccess && hasPermission("commercial:write");
+  const canAssign = canWrite && hasPermission("commercial:assign");
+  const canReadApproach =
+    hasPermission("leads:read") && hasPermission("sensitive:read");
   const params = useParams<{ readonly id?: string }>();
+  const searchParams = useSearchParams();
   const workspaceId = typeof params.id === "string" ? params.id : "";
+  const workspaceLoadGeneration = useRef(0);
+  const workspaceMutationPending = useRef(false);
+  const activityMutationPending = useRef(false);
+  const noteMutationPending = useRef(false);
   const [workspaceState, setWorkspaceState] = useState<WorkspaceState>({
     status: "loading",
   });
   const [workspaceDraft, setWorkspaceDraft] = useState<WorkspaceDraft | null>(null);
   const [editState, setEditState] = useState<EditState>({ status: "idle" });
+  const [workspaceRefreshState, setWorkspaceRefreshState] = useState<"idle" | "loading" | "error">("idle");
   const [activityPage, setActivityPage] = useState(defaultPage);
   const [activityReloadKey, setActivityReloadKey] = useState(0);
   const [activitiesState, setActivitiesState] = useState<ListState<LeadActivityDto>>({
     status: "loading",
   });
-  const [activityDraft, setActivityDraft] = useState<ActivityDraft>({
-    occurredAt: currentDatetimeLocalValue(),
-    activityType: "CALL",
-    activityOutcome: "",
-    summary: "",
+  const [activityEditor, setActivityEditor] = useState<ActivityEditorState>(() => {
+    const initialDraft = createActivityDraft();
+    return { draft: initialDraft, baseline: initialDraft };
   });
+  const activityDraft = activityEditor.draft;
   const [activityAppendState, setActivityAppendState] = useState<AppendState>({
     status: "idle",
   });
@@ -473,14 +633,32 @@ export default function CommercialWorkspaceDetailPage() {
     status: "idle",
   });
   const [auditPage, setAuditPage] = useState(defaultPage);
+  const [auditReloadKey, setAuditReloadKey] = useState(0);
   const [auditState, setAuditState] = useState<ListState<CommercialAuditEventDto>>({
     status: "loading",
   });
+  const workspaceIsDirty =
+    workspaceState.status === "success" &&
+    workspaceDraft !== null &&
+    workspaceDraftHasChanges(workspaceDraft, workspaceState.workspace);
+  const activityIsDirty = activityDraftHasChanges(
+    activityDraft,
+    activityEditor.baseline,
+  );
+  const hasUnsavedWork =
+    workspaceIsDirty || activityIsDirty || noteDraft !== "";
 
-  const loadWorkspace = useCallback(async (signal?: AbortSignal): Promise<void> => {
+  useUnsavedChangesWarning(canWrite && hasUnsavedWork);
+
+  const loadWorkspace = useCallback(async (
+    signal?: AbortSignal,
+    previousWorkspace?: LeadWorkspaceDto,
+  ): Promise<void> => {
+    if (!canAccess) return;
+    const generation = ++workspaceLoadGeneration.current;
     await Promise.resolve();
 
-    if (signal?.aborted) {
+    if (signal?.aborted || generation !== workspaceLoadGeneration.current) {
       return;
     }
 
@@ -489,7 +667,11 @@ export default function CommercialWorkspaceDetailPage() {
       return;
     }
 
-    setWorkspaceState({ status: "loading" });
+    if (previousWorkspace === undefined) {
+      setWorkspaceState({ status: "loading" });
+    } else {
+      setWorkspaceRefreshState("loading");
+    }
 
     try {
       const response = await fetch(
@@ -497,35 +679,55 @@ export default function CommercialWorkspaceDetailPage() {
         safeGetInit(signal),
       );
 
-      if (signal?.aborted) {
+      if (signal?.aborted || generation !== workspaceLoadGeneration.current) {
         return;
       }
 
       if (!response.ok) {
+        if (response.status === 401 || response.status === 403) {
+          setAccessFailure(response.status === 401 ? "unauthenticated" : "denied");
+        }
+        if (previousWorkspace !== undefined && response.status !== 401 && response.status !== 403 && response.status !== 404) {
+          setWorkspaceRefreshState("error");
+          return;
+        }
         setWorkspaceState(responseState(response.status));
         return;
       }
 
       const payload: unknown = await response.json();
-      if (signal?.aborted) {
+      if (signal?.aborted || generation !== workspaceLoadGeneration.current) {
         return;
       }
 
-      if (!isWorkspaceEnvelope(payload)) {
+      if (!isWorkspaceEnvelope(payload) || payload.data.workspace_id !== workspaceId) {
+        if (previousWorkspace !== undefined) {
+          setWorkspaceRefreshState("error");
+          return;
+        }
         setWorkspaceState({ status: "error" });
         return;
       }
 
       setWorkspaceState({ status: "success", workspace: payload.data });
-      setWorkspaceDraft(toWorkspaceDraft(payload.data));
+      setWorkspaceDraft((draft) => previousWorkspace === undefined
+        ? toWorkspaceDraft(payload.data)
+        : refreshWorkspaceDraft(draft, previousWorkspace, payload.data));
+      setWorkspaceRefreshState("idle");
+      setEditState((current) => current.status === "unknown" ? { status: "idle" } : current);
     } catch {
-      if (!signal?.aborted) {
-        setWorkspaceState({ status: "error" });
+      if (!signal?.aborted && generation === workspaceLoadGeneration.current) {
+        if (previousWorkspace === undefined) {
+          setWorkspaceState({ status: "error" });
+        } else {
+          setWorkspaceRefreshState("error");
+        }
       }
     }
-  }, [workspaceId]);
+  }, [canAccess, workspaceId]);
 
   useEffect(() => {
+    if (!canAccess) return;
     const abortController = new AbortController();
     const timeout = setTimeout(() => {
       void loadWorkspace(abortController.signal);
@@ -534,10 +736,12 @@ export default function CommercialWorkspaceDetailPage() {
     return () => {
       clearTimeout(timeout);
       abortController.abort();
+      workspaceLoadGeneration.current += 1;
     };
-  }, [loadWorkspace]);
+  }, [canAccess, loadWorkspace]);
 
   useEffect(() => {
+    if (!canAccess) return;
     const abortController = new AbortController();
 
     async function loadActivities(): Promise<void> {
@@ -556,12 +760,18 @@ export default function CommercialWorkspaceDetailPage() {
           safeGetInit(abortController.signal),
         );
 
+        if (abortController.signal.aborted) return;
+
         if (!response.ok) {
+          if (response.status === 401 || response.status === 403) {
+            setAccessFailure(response.status === 401 ? "unauthenticated" : "denied");
+          }
           setActivitiesState(listResponseState<LeadActivityDto>(response.status));
           return;
         }
 
         const payload: unknown = await response.json();
+        if (abortController.signal.aborted) return;
         if (!isPaginatedEnvelope(payload, isActivity)) {
           setActivitiesState({ status: "error" });
           return;
@@ -589,9 +799,10 @@ export default function CommercialWorkspaceDetailPage() {
       clearTimeout(timeout);
       abortController.abort();
     };
-  }, [activityPage, activityReloadKey, workspaceId]);
+  }, [canAccess, activityPage, activityReloadKey, workspaceId]);
 
   useEffect(() => {
+    if (!canAccess) return;
     const abortController = new AbortController();
 
     async function loadNotes(): Promise<void> {
@@ -610,12 +821,18 @@ export default function CommercialWorkspaceDetailPage() {
           safeGetInit(abortController.signal),
         );
 
+        if (abortController.signal.aborted) return;
+
         if (!response.ok) {
+          if (response.status === 401 || response.status === 403) {
+            setAccessFailure(response.status === 401 ? "unauthenticated" : "denied");
+          }
           setNotesState(listResponseState<LeadNoteDto>(response.status));
           return;
         }
 
         const payload: unknown = await response.json();
+        if (abortController.signal.aborted) return;
         if (!isPaginatedEnvelope(payload, isNote)) {
           setNotesState({ status: "error" });
           return;
@@ -643,9 +860,10 @@ export default function CommercialWorkspaceDetailPage() {
       clearTimeout(timeout);
       abortController.abort();
     };
-  }, [notePage, noteReloadKey, workspaceId]);
+  }, [canAccess, notePage, noteReloadKey, workspaceId]);
 
   useEffect(() => {
+    if (!canAccess || !canReadAudit) return;
     const abortController = new AbortController();
 
     async function loadAudit(): Promise<void> {
@@ -664,12 +882,16 @@ export default function CommercialWorkspaceDetailPage() {
           safeGetInit(abortController.signal),
         );
 
+        if (abortController.signal.aborted) return;
+
         if (!response.ok) {
+          if (response.status === 401) setAccessFailure("unauthenticated");
           setAuditState(listResponseState<CommercialAuditEventDto>(response.status));
           return;
         }
 
         const payload: unknown = await response.json();
+        if (abortController.signal.aborted) return;
         if (!isPaginatedEnvelope(payload, isAuditEvent)) {
           setAuditState({ status: "error" });
           return;
@@ -697,10 +919,26 @@ export default function CommercialWorkspaceDetailPage() {
       clearTimeout(timeout);
       abortController.abort();
     };
-  }, [auditPage, workspaceId]);
+  }, [canAccess, canReadAudit, auditPage, auditReloadKey, workspaceId]);
+
+  function handleCadenceChanged(): void {
+    if (workspaceState.status === "success") {
+      void loadWorkspace(undefined, workspaceState.workspace);
+    }
+    setActivityPage(defaultPage);
+    setActivityReloadKey((current) => current + 1);
+    reloadAudit();
+  }
+
+  function reloadAudit(): void {
+    setAuditPage(defaultPage);
+    setAuditReloadKey((current) => current + 1);
+  }
 
   async function handleWorkspaceSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
+
+    if (!canWrite || workspaceRefreshState !== "idle" || workspaceMutationPending.current || editState.status === "unknown") return;
 
     if (workspaceState.status !== "success" || workspaceDraft === null) {
       return;
@@ -711,22 +949,25 @@ export default function CommercialWorkspaceDetailPage() {
       responsibleSubject !== "" &&
       (responsibleSubject !== responsibleSubject.trim() || Array.from(responsibleSubject).length > 256)
     ) {
-      setEditState({ status: "error" });
+      setEditState({ status: "validation", field: "responsible", message: "Informe um responsável válido, com até 256 caracteres, ou deixe o campo vazio." });
       return;
     }
 
     if (Array.from(workspaceDraft.nextAction).length > 500) {
-      setEditState({ status: "error" });
-      return;
-    }
-
-    const dueAt = toUtcNoon(workspaceDraft.nextActionDueDate);
-    if (workspaceDraft.nextActionDueDate !== "" && dueAt === null) {
-      setEditState({ status: "error" });
+      setEditState({ status: "validation", field: "nextAction", message: "A próxima ação deve ter até 500 caracteres. Reduza o texto antes de salvar." });
       return;
     }
 
     const beforeSave = workspaceState.workspace;
+    const dueAt =
+      workspaceDraft.nextActionDueDate === toDateInputValue(beforeSave.next_action_due_at)
+        ? beforeSave.next_action_due_at
+        : toUtcNoon(workspaceDraft.nextActionDueDate);
+    if (workspaceDraft.nextActionDueDate !== "" && dueAt === null) {
+      setEditState({ status: "validation", field: "dueDate", message: "Informe uma data válida para a próxima ação." });
+      return;
+    }
+
     const optimisticWorkspace: LeadWorkspaceDto = {
       ...beforeSave,
       responsible_subject: responsibleSubject === "" ? null : responsibleSubject,
@@ -735,31 +976,38 @@ export default function CommercialWorkspaceDetailPage() {
       next_action_due_at: dueAt,
       commercial_outcome: workspaceDraft.commercialOutcome === "" ? null : workspaceDraft.commercialOutcome,
     };
+    const update = {
+      expected_version: beforeSave.version,
+      ...(optimisticWorkspace.responsible_subject !==
+        beforeSave.responsible_subject
+        ? { responsible_subject: optimisticWorkspace.responsible_subject }
+        : {}),
+      ...(optimisticWorkspace.commercial_stage !== beforeSave.commercial_stage
+        ? { commercial_stage: optimisticWorkspace.commercial_stage }
+        : {}),
+      ...(optimisticWorkspace.next_action !== beforeSave.next_action
+        ? { next_action: optimisticWorkspace.next_action }
+        : {}),
+      ...(optimisticWorkspace.next_action_due_at !==
+        beforeSave.next_action_due_at
+        ? { next_action_due_at: optimisticWorkspace.next_action_due_at }
+        : {}),
+      ...(optimisticWorkspace.commercial_outcome !==
+        beforeSave.commercial_outcome
+        ? { commercial_outcome: optimisticWorkspace.commercial_outcome }
+        : {}),
+    };
+
+    if (Object.keys(update).length === 1) {
+      setEditState({ status: "idle" });
+      return;
+    }
+
+    workspaceMutationPending.current = true;
     setWorkspaceState({ status: "success", workspace: optimisticWorkspace });
     setEditState({ status: "saving" });
 
     try {
-      const update = {
-        expected_version: beforeSave.version,
-        ...(optimisticWorkspace.responsible_subject !==
-        beforeSave.responsible_subject
-          ? { responsible_subject: optimisticWorkspace.responsible_subject }
-          : {}),
-        ...(optimisticWorkspace.commercial_stage !== beforeSave.commercial_stage
-          ? { commercial_stage: optimisticWorkspace.commercial_stage }
-          : {}),
-        ...(optimisticWorkspace.next_action !== beforeSave.next_action
-          ? { next_action: optimisticWorkspace.next_action }
-          : {}),
-        ...(optimisticWorkspace.next_action_due_at !==
-        beforeSave.next_action_due_at
-          ? { next_action_due_at: optimisticWorkspace.next_action_due_at }
-          : {}),
-        ...(optimisticWorkspace.commercial_outcome !==
-        beforeSave.commercial_outcome
-          ? { commercial_outcome: optimisticWorkspace.commercial_outcome }
-          : {}),
-      };
       const response = await fetch(`/api/workspaces/${workspaceId}`, {
         method: "PATCH",
         headers: {
@@ -772,47 +1020,52 @@ export default function CommercialWorkspaceDetailPage() {
       });
 
       if (response.status === 409) {
-        await loadWorkspace();
-        setEditState({ status: "conflict" });
+        setWorkspaceState({ status: "success", workspace: beforeSave });
+        await loadWorkspace(undefined, beforeSave);
+        setEditState({ status: "conflict", message: "O acompanhamento foi alterado por outra pessoa. Seu rascunho foi preservado; consulte os dados atuais e revise as alterações antes de salvar." });
         return;
       }
 
       if (response.status === 401) {
-        setWorkspaceState({ status: "success", workspace: beforeSave });
-        setEditState({ status: "unauthenticated" });
+        setAccessFailure("unauthenticated");
         return;
       }
 
       if (response.status === 403) {
         setWorkspaceState({ status: "success", workspace: beforeSave });
         setEditState({ status: "denied" });
+        await loadWorkspace(undefined, beforeSave);
         return;
       }
 
-      if (!response.ok) {
+      if (response.status !== 200) {
         setWorkspaceState({ status: "success", workspace: beforeSave });
-        setEditState({ status: "error" });
+        setEditState(mutationFeedback(response.status, await response.json().catch(() => null)));
         return;
       }
 
       const payload: unknown = await response.json();
-      if (!isWorkspaceEnvelope(payload)) {
+      if (!isWorkspaceEnvelope(payload) || payload.data.workspace_id !== workspaceId || payload.data.version <= beforeSave.version) {
         setWorkspaceState({ status: "success", workspace: beforeSave });
-        setEditState({ status: "error" });
+        setEditState({ status: "unknown", message: unknownMutationMessage });
         return;
       }
 
       setWorkspaceState({ status: "success", workspace: payload.data });
       setWorkspaceDraft(toWorkspaceDraft(payload.data));
       setEditState({ status: "success" });
+      reloadAudit();
     } catch {
       setWorkspaceState({ status: "success", workspace: beforeSave });
-      setEditState({ status: "error" });
+      setEditState({ status: "unknown", message: unknownMutationMessage });
+    } finally {
+      workspaceMutationPending.current = false;
     }
   }
 
   async function handleActivitySubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
+    if (!canWrite || activityMutationPending.current || activityAppendState.status === "unknown") return;
     const occurredAt = toUtcTimestamp(activityDraft.occurredAt);
 
     if (
@@ -820,10 +1073,11 @@ export default function CommercialWorkspaceDetailPage() {
       Array.from(activityDraft.activityOutcome).length > 120 ||
       Array.from(activityDraft.summary).length > 1000
     ) {
-      setActivityAppendState({ status: "error" });
+      setActivityAppendState({ status: "validation", message: "Informe uma data e horário válidos, um resultado de até 120 caracteres e um resumo de até 1.000 caracteres." });
       return;
     }
 
+    activityMutationPending.current = true;
     setActivityAppendState({ status: "saving" });
 
     try {
@@ -844,53 +1098,56 @@ export default function CommercialWorkspaceDetailPage() {
       });
 
       if (response.status === 401) {
-        setActivityAppendState({ status: "unauthenticated" });
+        setAccessFailure("unauthenticated");
         return;
       }
 
       if (response.status === 403) {
         setActivityAppendState({ status: "denied" });
+        if (workspaceState.status === "success") await loadWorkspace(undefined, workspaceState.workspace);
         return;
       }
 
-      if (!response.ok) {
-        setActivityAppendState({ status: "error" });
+      if (response.status !== 201) {
+        setActivityAppendState(mutationFeedback(response.status, await response.json().catch(() => null)));
         return;
       }
 
       const payload: unknown = await response.json();
       const appendedActivity = isRecord(payload) ? payload.data : undefined;
-      if (!isActivity(appendedActivity)) {
-        setActivityAppendState({ status: "error" });
+      if (!isActivity(appendedActivity) || appendedActivity.workspace_id !== workspaceId) {
+        setActivityAppendState({ status: "unknown", message: unknownMutationMessage });
         return;
       }
 
       setActivityPage(defaultPage);
       setActivityReloadKey((current) => current + 1);
-      setActivityDraft({
-        occurredAt: currentDatetimeLocalValue(),
-        activityType: "CALL",
-        activityOutcome: "",
-        summary: "",
-      });
+      const resetDraft = createActivityDraft();
+      setActivityEditor({ draft: resetDraft, baseline: resetDraft });
       setActivityAppendState({ status: "success" });
+      reloadAudit();
     } catch {
-      setActivityAppendState({ status: "error" });
+      setActivityAppendState({ status: "unknown", message: unknownMutationMessage });
+    } finally {
+      activityMutationPending.current = false;
     }
   }
 
   async function handleNoteSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
 
+    if (!canWrite || noteMutationPending.current || noteAppendState.status === "unknown") return;
+
     if (
       noteDraft === "" ||
       noteDraft !== noteDraft.trim() ||
       Array.from(noteDraft).length > 4000
     ) {
-      setNoteAppendState({ status: "error" });
+      setNoteAppendState({ status: "validation", field: "note", message: "Escreva uma nota com até 4.000 caracteres e remova os espaços no início e no fim." });
       return;
     }
 
+    noteMutationPending.current = true;
     setNoteAppendState({ status: "saving" });
 
     try {
@@ -906,24 +1163,25 @@ export default function CommercialWorkspaceDetailPage() {
       });
 
       if (response.status === 401) {
-        setNoteAppendState({ status: "unauthenticated" });
+        setAccessFailure("unauthenticated");
         return;
       }
 
       if (response.status === 403) {
         setNoteAppendState({ status: "denied" });
+        if (workspaceState.status === "success") await loadWorkspace(undefined, workspaceState.workspace);
         return;
       }
 
-      if (!response.ok) {
-        setNoteAppendState({ status: "error" });
+      if (response.status !== 201) {
+        setNoteAppendState(mutationFeedback(response.status, await response.json().catch(() => null)));
         return;
       }
 
       const payload: unknown = await response.json();
       const appendedNote = isRecord(payload) ? payload.data : undefined;
-      if (!isNote(appendedNote)) {
-        setNoteAppendState({ status: "error" });
+      if (!isNote(appendedNote) || appendedNote.workspace_id !== workspaceId) {
+        setNoteAppendState({ status: "unknown", message: unknownMutationMessage });
         return;
       }
 
@@ -931,9 +1189,20 @@ export default function CommercialWorkspaceDetailPage() {
       setNoteReloadKey((current) => current + 1);
       setNoteDraft("");
       setNoteAppendState({ status: "success" });
+      reloadAudit();
     } catch {
-      setNoteAppendState({ status: "error" });
+      setNoteAppendState({ status: "unknown", message: unknownMutationMessage });
+    } finally {
+      noteMutationPending.current = false;
     }
+  }
+
+  if (accessFailure === "unauthenticated") {
+    return <WorkspacePageState alert signIn title="Acesso necessário" description="Entre para acessar este acompanhamento comercial." />;
+  }
+
+  if (!canRead || accessFailure === "denied") {
+    return <WorkspacePageState alert title="Acesso restrito" description="Você não tem acesso a este acompanhamento comercial." />;
   }
 
   if (workspaceState.status === "loading") {
@@ -945,7 +1214,7 @@ export default function CommercialWorkspaceDetailPage() {
   }
 
   if (workspaceState.status === "unauthenticated") {
-    return <WorkspacePageState alert title="Acesso necessário" description="Entre para acessar este acompanhamento comercial." />;
+    return <WorkspacePageState alert signIn title="Acesso necessário" description="Entre para acessar este acompanhamento comercial." />;
   }
 
   if (workspaceState.status === "denied") {
@@ -957,10 +1226,42 @@ export default function CommercialWorkspaceDetailPage() {
   }
 
   const workspace = workspaceState.workspace;
+  const leadListReturnHref = resolveLeadListReturnHref(
+    searchParams.get("returnTo"),
+    workspace.cnpj_normalizado,
+  );
+  const workspaceReturnTo = appendReturnTo(
+    `/workspaces/${encodeURIComponent(workspace.workspace_id)}`,
+    leadListReturnHref,
+  );
+
+  function resetWorkspaceDraft(): void {
+    setWorkspaceDraft(toWorkspaceDraft(workspace));
+    setEditState({ status: "idle" });
+  }
 
   return (
     <div className="mx-auto w-full max-w-[96rem]">
       <header className="border-b border-[oklch(78%_0.025_82)] pb-8">
+        <nav aria-label="Navegação do acompanhamento" className="mb-6 flex flex-wrap gap-4">
+          <Link
+            href={leadListReturnHref}
+            aria-label="Voltar para leads"
+            className="ui-action ui-action--quiet"
+          >
+            ← Voltar para leads
+          </Link>
+          <Link
+            href={appendReturnTo(
+              `/leads/${encodeURIComponent(workspace.cnpj_normalizado)}?leadRunId=${encodeURIComponent(workspace.observed_lead_run_id)}`,
+              workspaceReturnTo,
+            )}
+            aria-label="Ver avaliação da empresa"
+            className="ui-action ui-action--secondary"
+          >
+            Ver avaliação da empresa →
+          </Link>
+        </nav>
         <p className="text-xs font-bold tracking-[0.16em] text-[oklch(45%_0.105_174)] uppercase">
           Espaço de trabalho
         </p>
@@ -976,31 +1277,76 @@ export default function CommercialWorkspaceDetailPage() {
           <StageBadge stage={workspace.commercial_stage} />
         </div>
         <p className="mt-6 max-w-3xl text-sm leading-6 text-[oklch(43%_0.03_252)]">
-          As alterações aqui afetam somente o acompanhamento comercial e nunca a recomendação do produtor.
+          As alterações aqui afetam somente o acompanhamento comercial. A recomendação da análise permanece a mesma.
         </p>
       </header>
 
-      <section className="mt-8 grid gap-8 xl:grid-cols-[minmax(0,1.35fr)_minmax(18rem,0.65fr)]">
+      <WorkspaceTaskNavigation showApproach={canReadApproach} />
+
+      {workspaceRefreshState === "loading" ? (
+        <p role="status" className="mt-5 text-sm leading-6">Atualizando acompanhamento após a qualificação…</p>
+      ) : workspaceRefreshState === "error" ? (
+        <div role="alert" className="mt-5 flex flex-wrap items-center gap-3 text-sm leading-6">
+          <p>Não foi possível atualizar o acompanhamento. Seus rascunhos foram preservados.</p>
+          <button type="button" className="ui-action ui-action--secondary" onClick={() => void loadWorkspace(undefined, workspace)}>Atualizar acompanhamento</button>
+        </div>
+      ) : null}
+
+      <section
+        id="workspace-state"
+        className="mt-8 grid scroll-mt-6 gap-8 xl:grid-cols-[minmax(0,1.35fr)_minmax(18rem,0.65fr)]"
+      >
         <div>
+          {!canWrite ? (
+            <p className="mb-5 border-l-2 border-[oklch(68%_0.11_61)] pl-4 text-sm font-semibold leading-6">
+              Este acompanhamento está disponível somente para leitura.
+            </p>
+          ) : null}
           <WorkspaceForm
             draft={workspaceDraft}
             currentStage={workspace.commercial_stage}
             editState={editState}
+            isDirty={workspaceDraftHasChanges(workspaceDraft, workspace)}
+            canWrite={canWrite && workspaceRefreshState === "idle"}
+            canAssign={canAssign}
             onChange={setWorkspaceDraft}
+            onReset={resetWorkspaceDraft}
             onSubmit={handleWorkspaceSubmit}
+            onReload={() => void loadWorkspace(undefined, workspace)}
           />
         </div>
         <WorkspaceFacts workspace={workspace} />
       </section>
+
+      {canReadApproach ? (
+        <WorkspaceApproachMessage
+          cnpj={workspace.cnpj_normalizado}
+          leadRunId={workspace.observed_lead_run_id}
+          leadReturnTo={workspaceReturnTo}
+          onSessionExpired={handleSessionExpired}
+        />
+      ) : null}
+
+      <QualificationCadence
+        workspaceId={workspace.workspace_id}
+        canWrite={canWrite}
+        onCadenceChanged={handleCadenceChanged}
+        onSessionExpired={handleSessionExpired}
+      />
 
       <section className="mt-12 grid gap-10 xl:grid-cols-2">
         <ActivitiesPanel
           state={activitiesState}
           draft={activityDraft}
           appendState={activityAppendState}
-          onDraftChange={setActivityDraft}
+          onDraftChange={(draft) =>
+            setActivityEditor((current) => ({ ...current, draft }))
+          }
           onSubmit={handleActivitySubmit}
           onPageChange={setActivityPage}
+          canWrite={canWrite}
+          onReload={() => { setActivitiesState({ status: "loading" }); setActivityPage(defaultPage); setActivityReloadKey((current) => current + 1); }}
+          onReviewed={() => setActivityAppendState({ status: "idle" })}
         />
         <NotesPanel
           state={notesState}
@@ -1009,10 +1355,13 @@ export default function CommercialWorkspaceDetailPage() {
           onDraftChange={setNoteDraft}
           onSubmit={handleNoteSubmit}
           onPageChange={setNotePage}
+          canWrite={canWrite}
+          onReload={() => { setNotesState({ status: "loading" }); setNotePage(defaultPage); setNoteReloadKey((current) => current + 1); }}
+          onReviewed={() => setNoteAppendState({ status: "idle" })}
         />
       </section>
 
-      <AuditPanel state={auditState} onPageChange={setAuditPage} />
+      <AuditPanel state={canReadAudit ? auditState : { status: "denied" }} onPageChange={setAuditPage} onReload={reloadAudit} />
     </div>
   );
 }
@@ -1037,10 +1386,12 @@ function WorkspaceLoading() {
 
 function WorkspacePageState({
   alert = false,
+  signIn = false,
   title,
   description,
 }: {
   readonly alert?: boolean;
+  readonly signIn?: boolean;
   readonly title: string;
   readonly description: string;
 }) {
@@ -1056,6 +1407,7 @@ function WorkspacePageState({
       <p className="mt-5 max-w-2xl text-sm leading-6 text-[oklch(43%_0.03_252)]">
         {description}
       </p>
+      {signIn ? <Link href="/login" className="ui-action ui-action--primary mt-6">Entrar novamente</Link> : null}
     </section>
   );
 }
@@ -1072,27 +1424,28 @@ function WorkspaceForm({
   draft,
   currentStage,
   editState,
+  isDirty,
+  canWrite,
+  canAssign,
   onChange,
+  onReset,
   onSubmit,
+  onReload,
 }: {
   readonly draft: WorkspaceDraft;
   readonly currentStage: CommercialStage;
   readonly editState: EditState;
+  readonly isDirty: boolean;
+  readonly canWrite: boolean;
+  readonly canAssign: boolean;
   readonly onChange: (draft: WorkspaceDraft) => void;
+  readonly onReset: () => void;
   readonly onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  readonly onReload: () => void;
 }) {
-  const errorMessage =
-    editState.status === "conflict"
-      ? "O acompanhamento foi alterado por outra pessoa. Os dados mais recentes foram recarregados."
-      : editState.status === "unauthenticated"
-        ? "Entre para salvar o acompanhamento comercial."
-        : editState.status === "denied"
-          ? "Você não tem acesso para salvar este acompanhamento comercial."
-          : editState.status === "error"
-            ? draft.responsibleSubject !== "" && draft.responsibleSubject !== draft.responsibleSubject.trim()
-              ? "Informe um responsável válido ou deixe o campo vazio."
-              : "Não foi possível salvar o acompanhamento comercial agora."
-            : null;
+  const errorMessage = "message" in editState && editState.message ? editState.message
+    : editState.status === "denied" ? "Você não tem acesso para salvar este acompanhamento comercial. Solicite ao responsável a verificação do acesso."
+    : null;
 
   return (
     <form onSubmit={onSubmit} className="border-t-2 border-[oklch(24%_0.035_252)] pt-6">
@@ -1103,7 +1456,7 @@ function WorkspaceForm({
           </p>
           <h2 className="mt-2 font-serif text-3xl tracking-[-0.03em]">Atualizar acompanhamento</h2>
         </div>
-        {editState.status === "saving" ? <span className="text-sm font-semibold">Salvando…</span> : null}
+        {editState.status === "saving" ? <span role="status" className="text-sm font-semibold">Salvando acompanhamento…</span> : null}
       </div>
 
       {editState.status === "success" ? (
@@ -1111,21 +1464,47 @@ function WorkspaceForm({
           Acompanhamento comercial salvo.
         </p>
       ) : null}
-      {errorMessage !== null ? (
+      {isDirty ? (
+        <div
+          role="status"
+          className="mt-5 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm font-semibold text-[oklch(36%_0.08_52)]"
+        >
+          <span>Alterações não salvas.</span>
+          <button
+            type="button"
+            onClick={onReset}
+            className="ui-action ui-action--quiet"
+          >
+            Descartar alterações
+          </button>
+        </div>
+      ) : null}
+      {errorMessage !== null && (editState.status !== "validation" || editState.field === undefined) ? (
         <p role="alert" className="mt-5 text-sm font-semibold text-[oklch(42%_0.15_28)]">
           {errorMessage}
         </p>
       ) : null}
 
-      <fieldset disabled={editState.status === "saving"} className="min-w-0 border-0 p-0">
+      {editState.status === "unknown" || editState.status === "conflict" ? (
+        <button type="button" onClick={onReload} className="ui-action ui-action--secondary mt-3">Consultar acompanhamento atual</button>
+      ) : null}
+
+      <fieldset disabled={editState.status === "saving" || !canWrite} className="min-w-0 border-0 p-0">
         <div className="mt-6 grid gap-5 sm:grid-cols-2">
           <label className="grid gap-2 text-sm font-semibold">
             Responsável
             <input
+              disabled={!canAssign}
+              aria-label="Responsável"
+              aria-describedby={editState.status === "validation" && editState.field === "responsible" ? "workspace-responsible-error" : "workspace-responsible-hint"}
+              aria-invalid={editState.status === "validation" && editState.field === "responsible" || undefined}
               value={draft.responsibleSubject}
               onChange={(event) => onChange({ ...draft, responsibleSubject: event.target.value })}
               className="min-h-11 border border-[oklch(66%_0.03_252)] bg-[oklch(99%_0.007_82)] px-3 text-sm font-normal focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[oklch(45%_0.105_174)]"
             />
+            <span id="workspace-responsible-hint" className="text-xs font-normal leading-5">Use o identificador corporativo do responsável, informado por quem administra os acessos.</span>
+            {editState.status === "validation" && editState.field === "responsible" ? <span id="workspace-responsible-error" role="alert" className="text-xs font-normal">{editState.message}</span> : null}
+            {!canAssign ? <span className="text-xs font-normal">Seu acesso não permite alterar o responsável. Solicite essa permissão ao responsável pelo acesso.</span> : null}
           </label>
           <label className="grid gap-2 text-sm font-semibold">
             Estágio comercial
@@ -1144,20 +1523,42 @@ function WorkspaceForm({
           <label className="grid gap-2 text-sm font-semibold sm:col-span-2">
             Próxima ação
             <input
+              aria-describedby={editState.status === "validation" && editState.field === "nextAction" ? "workspace-next-action-error" : undefined}
+              aria-invalid={editState.status === "validation" && editState.field === "nextAction" || undefined}
               value={draft.nextAction}
               onChange={(event) => onChange({ ...draft, nextAction: event.target.value })}
+              placeholder="Ex.: ligar para combinar uma reunião"
               className="min-h-11 border border-[oklch(66%_0.03_252)] bg-[oklch(99%_0.007_82)] px-3 text-sm font-normal focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[oklch(45%_0.105_174)]"
             />
           </label>
-          <label className="grid gap-2 text-sm font-semibold">
-            Prazo da próxima ação
-            <input
-              type="date"
-              value={draft.nextActionDueDate}
-              onChange={(event) => onChange({ ...draft, nextActionDueDate: event.target.value })}
-              className="min-h-11 border border-[oklch(66%_0.03_252)] bg-[oklch(99%_0.007_82)] px-3 text-sm font-normal focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[oklch(45%_0.105_174)]"
-            />
-          </label>
+          {editState.status === "validation" && editState.field === "nextAction" ? <p id="workspace-next-action-error" role="alert" className="text-xs">{editState.message}</p> : null}
+          <div>
+            <label className="grid gap-2 text-sm font-semibold">
+              Prazo da próxima ação
+              <input
+                type="date"
+                value={draft.nextActionDueDate}
+                onChange={(event) => onChange({ ...draft, nextActionDueDate: event.target.value })}
+                className="min-h-11 border border-[oklch(66%_0.03_252)] bg-[oklch(99%_0.007_82)] px-3 text-sm font-normal focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[oklch(45%_0.105_174)]"
+              />
+            </label>
+            <div role="group" aria-label="Atalhos para o prazo da próxima ação" className="mt-2 flex flex-wrap gap-1">
+              {([
+                { days: 0, label: "Hoje" },
+                { days: 1, label: "Amanhã" },
+                { days: 7, label: "Em 7 dias" },
+              ] as const).map(({ days, label }) => (
+                <button
+                  key={days}
+                  type="button"
+                  onClick={() => onChange({ ...draft, nextActionDueDate: getFollowUpDateInputValue(days) })}
+                  className="ui-action ui-action--quiet text-xs"
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
           <label className="grid gap-2 text-sm font-semibold">
             Desfecho comercial
             <select
@@ -1176,16 +1577,21 @@ function WorkspaceForm({
         </div>
         <button
           type="submit"
+          aria-label="Salvar acompanhamento"
+          disabled={editState.status === "saving" || editState.status === "unknown" || !isDirty}
           className="mt-7 inline-flex min-h-11 items-center border border-[oklch(24%_0.035_252)] bg-[oklch(24%_0.035_252)] px-5 py-2 text-sm font-bold text-[oklch(97%_0.012_82)] transition-colors hover:bg-[oklch(35%_0.05_246)] disabled:cursor-wait disabled:opacity-65 focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-[oklch(45%_0.105_174)]"
         >
-          Salvar acompanhamento
+          {editState.status === "saving" ? "Salvando acompanhamento…" : "Salvar acompanhamento"}
         </button>
+        {editState.status === "validation" && editState.field === "dueDate" ? <p role="alert" className="mt-2 text-sm">{editState.message}</p> : null}
+        {!isDirty ? <p className="mt-2 text-xs">Altere um campo para salvar o acompanhamento.</p> : null}
       </fieldset>
     </form>
   );
 }
 
 function WorkspaceFacts({ workspace }: { readonly workspace: LeadWorkspaceDto }) {
+  const followUpStatus = getCommercialFollowUpStatus(workspace);
   return (
     <aside className="border-y border-[oklch(82%_0.025_82)] py-6 xl:border-t-2 xl:border-[oklch(24%_0.035_252)]">
       <p className="text-xs font-bold tracking-[0.14em] text-[oklch(48%_0.025_252)] uppercase">
@@ -1199,7 +1605,12 @@ function WorkspaceFacts({ workspace }: { readonly workspace: LeadWorkspaceDto })
         <div>
           <dt className="text-[oklch(43%_0.03_252)]">Próxima ação</dt>
           <dd className="mt-1 font-semibold">{workspace.next_action ?? "Não definida"}</dd>
-          <dd className="mt-1 text-[oklch(43%_0.03_252)]">Prazo: {formatBrazilianDate(workspace.next_action_due_at)}</dd>
+          <dd className="mt-1 text-[oklch(43%_0.03_252)]">{workspace.next_action_due_at === null ? "Sem prazo definido" : `Prazo: ${formatBrazilianDate(workspace.next_action_due_at)}`}</dd>
+          {followUpStatus === "overdue" || followUpStatus === "today" ? (
+            <dd className="mt-2 text-xs font-bold text-[oklch(36%_0.08_52)]">
+              {followUpStatus === "overdue" ? "Prazo vencido" : "Para hoje"}
+            </dd>
+          ) : null}
         </div>
         <div>
           <dt className="text-[oklch(43%_0.03_252)]">Desfecho</dt>
@@ -1217,6 +1628,42 @@ function WorkspaceFacts({ workspace }: { readonly workspace: LeadWorkspaceDto })
   );
 }
 
+function WorkspaceTaskNavigation({
+  showApproach,
+}: {
+  readonly showApproach: boolean;
+}) {
+  const tasks = [
+    { href: "#workspace-state", label: "Atualizar estado comercial" },
+    ...(showApproach
+      ? [{ href: "#workspace-approach", label: "Revisar mensagem" }]
+      : []),
+    { href: "#qualification-cadence", label: "Plano de contatos" },
+    { href: "#commercial-activities", label: "Registrar atividade" },
+    { href: "#commercial-notes", label: "Adicionar nota" },
+  ];
+
+  return (
+    <nav
+      aria-label="Atalhos do acompanhamento"
+      className="mt-6 border-b border-[oklch(82%_0.025_82)] pb-5"
+    >
+      <p className="text-xs font-bold tracking-[0.12em] text-[oklch(48%_0.025_252)] uppercase">
+        Ir direto para
+      </p>
+      <ul className="mt-2 flex flex-wrap gap-x-5 gap-y-1">
+        {tasks.map((task) => (
+          <li key={task.href}>
+            <a href={task.href} className="ui-action ui-action--quiet">
+              {task.label}
+            </a>
+          </li>
+        ))}
+      </ul>
+    </nav>
+  );
+}
+
 function ActivitiesPanel({
   state,
   draft,
@@ -1224,6 +1671,9 @@ function ActivitiesPanel({
   onDraftChange,
   onSubmit,
   onPageChange,
+  canWrite,
+  onReload,
+  onReviewed,
 }: {
   readonly state: ListState<LeadActivityDto>;
   readonly draft: ActivityDraft;
@@ -1231,11 +1681,53 @@ function ActivitiesPanel({
   readonly onDraftChange: (draft: ActivityDraft) => void;
   readonly onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   readonly onPageChange: (page: number) => void;
+  readonly canWrite: boolean;
+  readonly onReload: () => void;
+  readonly onReviewed: () => void;
 }) {
+  const [hasConsulted, setHasConsulted] = useState(false);
   return (
-    <section aria-label="Atividades comerciais" className="border-t-2 border-[oklch(24%_0.035_252)] pt-6">
-      <PanelHeading eyebrow="Histórico" title="Atividades comerciais" />
-      <ListContent state={state} kind="activities" onPageChange={onPageChange}>
+    <section id="commercial-activities" aria-label="Atividades comerciais" className="scroll-mt-6 border-t-2 border-[oklch(24%_0.035_252)] pt-6">
+      <PanelHeading eyebrow="Ação e histórico" title="Atividades comerciais" />
+      <p className="mt-3 text-sm leading-6 text-[oklch(43%_0.03_252)]">Registre reuniões e outras ações comerciais. Os contatos registrados no plano já aparecem neste histórico.</p>
+      {canWrite ? (
+        <form onSubmit={onSubmit} className="mt-6 grid gap-4 border-y border-[oklch(82%_0.025_82)] py-6">
+          <fieldset disabled={appendState.status === "saving"} className="grid min-w-0 gap-4 border-0 p-0">
+          <label className="grid gap-2 text-sm font-semibold">
+            Tipo de atividade
+            <select value={draft.activityType} onChange={(event) => onDraftChange({ ...draft, activityType: event.target.value as CommercialActivityType })} className="ui-field text-sm font-normal">
+              {commercialActivityTypes.map((activityType) => <option key={activityType} value={activityType}>{activityTypeLabel(activityType)}</option>)}
+            </select>
+          </label>
+          <label className="grid gap-2 text-sm font-semibold">
+            Data e horário
+            <input type="datetime-local" value={draft.occurredAt} onChange={(event) => onDraftChange({ ...draft, occurredAt: event.target.value })} className="ui-field text-sm font-normal" />
+          </label>
+          <label className="grid gap-2 text-sm font-semibold">
+            Resumo da atividade
+            <textarea value={draft.summary} onChange={(event) => onDraftChange({ ...draft, summary: event.target.value })} placeholder="Ex.: reunião para entender a necessidade da empresa" className="ui-field min-h-24 text-sm font-normal" />
+          </label>
+          <label className="grid gap-2 text-sm font-semibold">
+            Resultado da atividade
+            <input value={draft.activityOutcome} onChange={(event) => onDraftChange({ ...draft, activityOutcome: event.target.value })} placeholder="Ex.: proposta solicitada" className="ui-field text-sm font-normal" />
+          </label>
+          </fieldset>
+          <AppendMessage state={appendState} success="Atividade registrada." saving="Registrando atividade…" />
+          {appendState.status === "unknown" ? (
+            <div className="flex flex-wrap gap-3">
+              <button type="button" onClick={() => { setHasConsulted(true); onReload(); }} className="ui-action ui-action--quiet">Consultar atividades registradas</button>
+              {hasConsulted && state.status === "success" ? <button type="button" onClick={() => { setHasConsulted(false); onReviewed(); }} className="ui-action ui-action--quiet">Conferi o histórico; preparar novo registro</button> : null}
+            </div>
+          ) : null}
+          <button type="submit" disabled={appendState.status === "saving" || appendState.status === "unknown"} className="ui-action ui-action--secondary justify-self-start">
+            {appendState.status === "saving" ? "Registrando atividade…" : "Registrar atividade"}
+          </button>
+        </form>
+      ) : null}
+      <p className="mt-7 text-xs font-bold tracking-[0.12em] text-[oklch(48%_0.025_252)] uppercase">
+        Histórico registrado
+      </p>
+      <ListContent state={state} kind="activities" onPageChange={onPageChange} onReload={onReload}>
         {(items) => (
           <ol className="mt-6 divide-y divide-[oklch(84%_0.02_82)] border-y border-[oklch(84%_0.02_82)]">
             {items.map((item) => (
@@ -1249,30 +1741,6 @@ function ActivitiesPanel({
           </ol>
         )}
       </ListContent>
-      <form onSubmit={onSubmit} className="mt-7 grid gap-4 border-t border-[oklch(82%_0.025_82)] pt-6">
-        <label className="grid gap-2 text-sm font-semibold">
-          Tipo de atividade
-          <select value={draft.activityType} onChange={(event) => onDraftChange({ ...draft, activityType: event.target.value as CommercialActivityType })} className="min-h-11 border border-[oklch(66%_0.03_252)] bg-[oklch(99%_0.007_82)] px-3 text-sm font-normal">
-            {commercialActivityTypes.map((activityType) => <option key={activityType} value={activityType}>{activityTypeLabel(activityType)}</option>)}
-          </select>
-        </label>
-        <label className="grid gap-2 text-sm font-semibold">
-          Data e horário
-          <input type="datetime-local" value={draft.occurredAt} onChange={(event) => onDraftChange({ ...draft, occurredAt: event.target.value })} className="min-h-11 border border-[oklch(66%_0.03_252)] bg-[oklch(99%_0.007_82)] px-3 text-sm font-normal" />
-        </label>
-        <label className="grid gap-2 text-sm font-semibold">
-          Resumo da atividade
-          <textarea value={draft.summary} onChange={(event) => onDraftChange({ ...draft, summary: event.target.value })} className="min-h-24 border border-[oklch(66%_0.03_252)] bg-[oklch(99%_0.007_82)] px-3 py-2 text-sm font-normal" />
-        </label>
-        <label className="grid gap-2 text-sm font-semibold">
-          Resultado da atividade
-          <input value={draft.activityOutcome} onChange={(event) => onDraftChange({ ...draft, activityOutcome: event.target.value })} className="min-h-11 border border-[oklch(66%_0.03_252)] bg-[oklch(99%_0.007_82)] px-3 text-sm font-normal" />
-        </label>
-        <AppendMessage state={appendState} success="Atividade registrada." error="Não foi possível registrar a atividade agora." />
-        <button type="submit" disabled={appendState.status === "saving"} className="justify-self-start min-h-11 border-b-2 border-[oklch(45%_0.105_174)] px-1 text-sm font-bold disabled:opacity-65">
-          Registrar atividade
-        </button>
-      </form>
     </section>
   );
 }
@@ -1284,6 +1752,9 @@ function NotesPanel({
   onDraftChange,
   onSubmit,
   onPageChange,
+  canWrite,
+  onReload,
+  onReviewed,
 }: {
   readonly state: ListState<LeadNoteDto>;
   readonly draft: string;
@@ -1291,11 +1762,40 @@ function NotesPanel({
   readonly onDraftChange: (draft: string) => void;
   readonly onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   readonly onPageChange: (page: number) => void;
+  readonly canWrite: boolean;
+  readonly onReload: () => void;
+  readonly onReviewed: () => void;
 }) {
+  const [hasConsulted, setHasConsulted] = useState(false);
   return (
-    <section aria-label="Notas comerciais" className="border-t-2 border-[oklch(24%_0.035_252)] pt-6">
-      <PanelHeading eyebrow="Registro" title="Notas comerciais" />
-      <ListContent state={state} kind="notes" onPageChange={onPageChange}>
+    <section id="commercial-notes" aria-label="Notas comerciais" className="scroll-mt-6 border-t-2 border-[oklch(24%_0.035_252)] pt-6">
+      <PanelHeading eyebrow="Ação e histórico" title="Notas comerciais" />
+      <p className="mt-3 text-sm leading-6 text-[oklch(43%_0.03_252)]">Guarde contexto interno útil para a equipe, como preferências e pontos a confirmar na próxima conversa.</p>
+      {canWrite ? (
+        <form onSubmit={onSubmit} className="mt-6 grid gap-4 border-y border-[oklch(82%_0.025_82)] py-6">
+          <fieldset disabled={appendState.status === "saving"} className="grid min-w-0 gap-4 border-0 p-0">
+          <label className="grid gap-2 text-sm font-semibold">
+            Nova nota
+            <textarea required maxLength={4000} aria-invalid={appendState.status === "validation" || undefined} value={draft} onChange={(event) => onDraftChange(event.target.value)} placeholder="Ex.: prefere conversar à tarde; confirmar a área responsável" className="ui-field min-h-28 text-sm font-normal" />
+          </label>
+          </fieldset>
+          <AppendMessage state={appendState} success="Nota adicionada." saving="Adicionando nota…" />
+          {appendState.status === "unknown" ? (
+            <div className="flex flex-wrap gap-3">
+              <button type="button" onClick={() => { setHasConsulted(true); onReload(); }} className="ui-action ui-action--quiet">Consultar notas registradas</button>
+              {hasConsulted && state.status === "success" ? <button type="button" onClick={() => { setHasConsulted(false); onReviewed(); }} className="ui-action ui-action--quiet">Conferi o histórico; preparar novo registro</button> : null}
+            </div>
+          ) : null}
+          <button type="submit" disabled={appendState.status === "saving" || appendState.status === "unknown" || draft.trim() === ""} className="ui-action ui-action--secondary justify-self-start">
+            {appendState.status === "saving" ? "Adicionando nota…" : "Adicionar nota"}
+          </button>
+          {draft.trim() === "" ? <p className="text-xs">Escreva uma nota para adicionar ao histórico.</p> : null}
+        </form>
+      ) : null}
+      <p className="mt-7 text-xs font-bold tracking-[0.12em] text-[oklch(48%_0.025_252)] uppercase">
+        Histórico registrado
+      </p>
+      <ListContent state={state} kind="notes" onPageChange={onPageChange} onReload={onReload}>
         {(items) => (
           <ol className="mt-6 divide-y divide-[oklch(84%_0.02_82)] border-y border-[oklch(84%_0.02_82)]">
             {items.map((item) => (
@@ -1307,16 +1807,6 @@ function NotesPanel({
           </ol>
         )}
       </ListContent>
-      <form onSubmit={onSubmit} className="mt-7 grid gap-4 border-t border-[oklch(82%_0.025_82)] pt-6">
-        <label className="grid gap-2 text-sm font-semibold">
-          Nova nota
-          <textarea value={draft} onChange={(event) => onDraftChange(event.target.value)} className="min-h-28 border border-[oklch(66%_0.03_252)] bg-[oklch(99%_0.007_82)] px-3 py-2 text-sm font-normal" />
-        </label>
-        <AppendMessage state={appendState} success="Nota adicionada." error="Não foi possível adicionar a nota agora." />
-        <button type="submit" disabled={appendState.status === "saving"} className="justify-self-start min-h-11 border-b-2 border-[oklch(45%_0.105_174)] px-1 text-sm font-bold disabled:opacity-65">
-          Adicionar nota
-        </button>
-      </form>
     </section>
   );
 }
@@ -1324,14 +1814,16 @@ function NotesPanel({
 function AuditPanel({
   state,
   onPageChange,
+  onReload,
 }: {
   readonly state: ListState<CommercialAuditEventDto>;
   readonly onPageChange: (page: number) => void;
+  readonly onReload: () => void;
 }) {
   return (
-    <section aria-label="Auditoria comercial" className="mt-12 border-t-2 border-[oklch(24%_0.035_252)] pt-6">
+    <section id="commercial-audit" aria-label="Auditoria comercial" className="mt-12 scroll-mt-6 border-t-2 border-[oklch(24%_0.035_252)] pt-6">
       <PanelHeading eyebrow="Somente leitura" title="Auditoria comercial" />
-      <ListContent state={state} kind="audit" onPageChange={onPageChange}>
+      <ListContent state={state} kind="audit" onPageChange={onPageChange} onReload={onReload}>
         {(items) => (
           <ol className="mt-6 divide-y divide-[oklch(84%_0.02_82)] border-y border-[oklch(84%_0.02_82)]">
             {items.map((item) => {
@@ -1366,39 +1858,33 @@ function PanelHeading({ eyebrow, title }: { readonly eyebrow: string; readonly t
 function AppendMessage({
   state,
   success,
-  error,
+  saving,
 }: {
   readonly state: AppendState;
   readonly success: string;
-  readonly error: string;
+  readonly saving: string;
 }) {
-  if (state.status === "success") {
-    return <p role="status" className="text-sm font-semibold text-[oklch(30%_0.09_150)]">{success}</p>;
+  if (state.status === "success" || state.status === "saving") {
+    return <p role="status" className="text-sm font-semibold text-[oklch(30%_0.09_150)]">{state.status === "saving" ? saving : success}</p>;
   }
-
-  if (state.status === "unauthenticated") {
-    return <p role="alert" className="text-sm font-semibold text-[oklch(42%_0.15_28)]">Entre para registrar esta informação.</p>;
-  }
-
-  if (state.status === "denied") {
-    return <p role="alert" className="text-sm font-semibold text-[oklch(42%_0.15_28)]">Você não tem acesso para registrar esta informação.</p>;
-  }
-
-  if (state.status === "error") {
-    return <p role="alert" className="text-sm font-semibold text-[oklch(42%_0.15_28)]">{error}</p>;
-  }
-
-  return null;
+  if (state.status === "idle") return null;
+  const message = "message" in state && state.message ? state.message
+    : state.status === "denied" ? "Você não tem acesso para registrar esta informação. Solicite ao responsável a verificação do acesso."
+    : state.status === "unauthenticated" ? "Sua sessão expirou. Entre novamente para registrar esta informação."
+    : unknownMutationMessage;
+  return <p role="alert" className="text-sm font-semibold text-[oklch(42%_0.15_28)]">{message}</p>;
 }
 
 function ListContent<T>({
   state,
   kind,
   onPageChange,
+  onReload,
   children,
 }: {
   readonly state: ListState<T>;
   readonly kind: "activities" | "notes" | "audit";
+  readonly onReload: () => void;
   readonly onPageChange: (page: number) => void;
   readonly children: (items: readonly T[]) => React.ReactNode;
 }) {
@@ -1448,7 +1934,7 @@ function ListContent<T>({
           : state.status === "not_found"
             ? labels.notFound
             : labels.error;
-    return <p role="alert" className="mt-6 text-sm font-semibold text-[oklch(42%_0.15_28)]">{message}</p>;
+    return <div className="mt-6"><p role="alert" className="text-sm font-semibold text-[oklch(42%_0.15_28)]">{message}</p>{state.status === "error" ? <><p className="mt-2 text-xs">O motivo não foi informado. Atualize a consulta; seus rascunhos serão preservados.</p><button type="button" onClick={onReload} className="ui-action ui-action--quiet mt-3">Consultar {kind === "activities" ? "atividades" : kind === "notes" ? "notas" : "auditoria"} novamente</button></> : state.status === "unauthenticated" ? <Link href="/login" className="ui-action ui-action--quiet mt-3">Entrar novamente</Link> : state.status === "denied" ? <p className="mt-2 text-xs">Solicite ao responsável a verificação do acesso.</p> : <Link href="/leads" className="ui-action ui-action--quiet mt-3">Voltar para leads</Link>}</div>;
   }
 
   if (state.items.length === 0 && state.total === 0) {
@@ -1494,13 +1980,13 @@ function ListPagination({
 
   return (
     <nav aria-label="Paginação" className="mt-5 flex items-center justify-between gap-4 text-sm">
-      <button type="button" onClick={() => onPageChange(page - 1)} disabled={!hasPrevious} aria-label={previousLabel} className="min-h-11 border-b border-[oklch(45%_0.105_174)] px-1 font-bold disabled:border-transparent disabled:text-[oklch(63%_0.02_252)]">
+      <button type="button" onClick={() => onPageChange(page - 1)} disabled={!hasPrevious} aria-label={previousLabel} className="ui-action ui-action--quiet disabled:border-transparent disabled:text-[oklch(63%_0.02_252)]">
         ← Anterior
       </button>
       <span className="font-semibold text-[oklch(43%_0.03_252)]">
         {totalPages === null ? `Página ${page}` : `Página ${page} de ${totalPages}`}
       </span>
-      <button type="button" onClick={() => onPageChange(page + 1)} disabled={!hasNext} aria-label={nextLabel} className="min-h-11 border-b border-[oklch(45%_0.105_174)] px-1 font-bold disabled:border-transparent disabled:text-[oklch(63%_0.02_252)]">
+      <button type="button" onClick={() => onPageChange(page + 1)} disabled={!hasNext} aria-label={nextLabel} className="ui-action ui-action--quiet disabled:border-transparent disabled:text-[oklch(63%_0.02_252)]">
         Próxima →
       </button>
     </nav>

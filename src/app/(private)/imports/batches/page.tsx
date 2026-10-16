@@ -2,7 +2,13 @@
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+
+import { usePrivateCapabilities } from "../../../../components/auth/private-capabilities";
+import { BatchResults } from "../../../../components/imports/batch-results";
+import { useImportCompanyNotices } from "../../../../components/imports/import-company-notices";
+import { hasConfirmedBatchCounts } from "../../../../lib/import-batch-presentation";
+import { appendReturnTo } from "../../../../lib/navigation-return";
 
 import {
   UNAVAILABLE_LABEL,
@@ -36,6 +42,7 @@ type RequestState =
       readonly query: string;
       readonly status: "success";
       readonly response: BatchListEnvelope;
+      readonly refreshFailed?: boolean;
     }
   | {
       readonly query: string;
@@ -44,6 +51,10 @@ type RequestState =
   | {
       readonly query: string;
       readonly status: "error";
+    }
+  | {
+      readonly query: string;
+      readonly status: "auth_required" | "access_denied";
     };
 
 const defaultPage = 1;
@@ -90,6 +101,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isString(value: unknown): value is string {
   return typeof value === "string";
+}
+
+function isImportSubmissionId(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 }
 
 function isNullableString(value: unknown): value is string | null {
@@ -213,8 +228,15 @@ function buildBatchListQuery(searchParams: URLSearchParams): string {
 }
 
 export default function BatchListPage() {
+  const { hasPermission } = usePrivateCapabilities();
+  const watchImportCompanies = useImportCompanyNotices();
+  const canReadImports = hasPermission("imports:read");
   const searchParams = useSearchParams();
   const query = buildBatchListQuery(new URLSearchParams(searchParams));
+  const refreshRef = useRef<(() => Promise<void>) | null>(null);
+  const manualRefreshRef = useRef(false);
+  const [refreshState, setRefreshState] = useState<{ readonly key: string; readonly status: "idle" | "loading" | "success" }>({ key: query, status: "idle" });
+  const refreshing = refreshState.key === query && refreshState.status === "loading";
   const [requestState, setRequestState] = useState<RequestState>(() => ({
     query,
     status: "loading",
@@ -223,13 +245,40 @@ export default function BatchListPage() {
     requestState.query === query
       ? requestState
       : { query, status: "loading" };
+  const watchedSubmissionIdsKey =
+    canReadImports && currentState.status === "success"
+      ? [...new Set(currentState.response.data.map((batch) => batch.submissionId))]
+          .filter(isImportSubmissionId)
+          .sort()
+          .join(",")
+      : "";
 
   useEffect(() => {
+    if (!canReadImports || watchedSubmissionIdsKey === "") return;
+    const releases = watchedSubmissionIdsKey.split(",").map((submissionId) =>
+      watchImportCompanies(submissionId, false),
+    );
+    return () => releases.forEach((release) => release());
+  }, [canReadImports, query, watchedSubmissionIdsKey, watchImportCompanies]);
+
+  useEffect(() => {
+    if (!canReadImports) return;
+
     const abortController = new AbortController();
     let requestInFlight = false;
+    let accessStopped = false;
+
+    function showReadFailure(status: "unavailable" | "error", preserveLastResult = true): void {
+      if (abortController.signal.aborted) return;
+      setRequestState((previous) =>
+        preserveLastResult && previous.query === query && previous.status === "success"
+          ? { ...previous, refreshFailed: true }
+          : { query, status },
+      );
+    }
 
     async function loadBatches(): Promise<void> {
-      if (requestInFlight) {
+      if (requestInFlight || accessStopped) {
         return;
       }
 
@@ -245,24 +294,31 @@ export default function BatchListPage() {
         });
 
         if (!response.ok) {
-          if (!abortController.signal.aborted) {
-            setRequestState({
-              query,
-              status:
-                response.status === 503 ? "unavailable" : "error",
-            });
+          if (response.status === 401 || response.status === 403) {
+            accessStopped = true;
+            window.clearInterval(refreshIntervalId);
+            if (!abortController.signal.aborted) {
+              setRequestState({ query, status: response.status === 401 ? "auth_required" : "access_denied" });
+            }
+            return;
           }
+
+          showReadFailure(
+            response.status === 503 ? "unavailable" : "error",
+            response.status !== 401 && response.status !== 403,
+          );
 
           return;
         }
 
         const payload: unknown = await response.json();
 
-        if (!isBatchListEnvelope(payload)) {
+        if (response.status !== 200 || !isBatchListEnvelope(payload)) {
           throw new Error("Batch list response is invalid.");
         }
 
         if (!abortController.signal.aborted) {
+          if (manualRefreshRef.current) setRefreshState({ key: query, status: "success" });
           setRequestState({
             query,
             status: "success",
@@ -270,26 +326,45 @@ export default function BatchListPage() {
           });
         }
       } catch {
-        if (!abortController.signal.aborted) {
-          setRequestState({ query, status: "error" });
-        }
+        showReadFailure("error");
       } finally {
         requestInFlight = false;
+        if (!abortController.signal.aborted) {
+          manualRefreshRef.current = false;
+          setRefreshState((previous) => previous.key === query && previous.status === "loading" ? { key: query, status: "idle" } : previous);
+        }
       }
     }
 
-    void loadBatches();
+    refreshRef.current = loadBatches;
     const refreshIntervalId = window.setInterval(() => {
       if (document.visibilityState === "visible") {
         void loadBatches();
       }
     }, refreshIntervalMilliseconds);
+    void loadBatches();
 
     return () => {
       window.clearInterval(refreshIntervalId);
       abortController.abort();
+      refreshRef.current = null;
+      manualRefreshRef.current = false;
     };
-  }, [query]);
+  }, [query, canReadImports]);
+
+  function refreshManually(): void {
+    if (refreshRef.current === null || manualRefreshRef.current) return;
+    manualRefreshRef.current = true;
+    setRefreshState({ key: query, status: "loading" });
+    void refreshRef.current();
+  }
+
+  if (!canReadImports) {
+    return <ReadAccessState status="access_denied" />;
+  }
+  if (currentState.status === "auth_required" || currentState.status === "access_denied") {
+    return <ReadAccessState status={currentState.status} />;
+  }
 
   return (
     <div className="mx-auto w-full max-w-[96rem]">
@@ -297,25 +372,50 @@ export default function BatchListPage() {
         <p className="text-xs font-bold tracking-normal text-[oklch(45%_0.105_174)] uppercase">
           Importações registradas
         </p>
-        <h1 className="mt-4 max-w-[12ch] font-serif text-5xl leading-[0.96] tracking-normal text-balance sm:text-6xl lg:text-7xl">
-          Lotes enviados
+        <h1 className="operational-title mt-4">
+          Suas importações
         </h1>
         <p className="mt-6 max-w-3xl text-base leading-7 text-[oklch(43%_0.03_252)]">
-          Acompanhe os envios registrados e as contagens confirmadas pelas
-          fontes aprovadas. Métricas sem evidência ficam indisponíveis.
+          Veja a situação de cada envio. Abra os detalhes para acompanhar o
+          processamento; resultados ainda não confirmados ficam indisponíveis.
         </p>
-        <Link
-          href="/imports"
-          className="mt-7 inline-flex min-h-11 items-center border-b border-[oklch(45%_0.105_174)] px-1 text-sm font-bold text-[oklch(37%_0.095_174)] transition-colors hover:border-[oklch(24%_0.035_252)] hover:text-[oklch(24%_0.035_252)] focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-[oklch(45%_0.105_174)] motion-reduce:transition-none"
-        >
-          Enviar novo CSV
-          <span aria-hidden="true" className="ml-1">
-            →
-          </span>
-        </Link>
+        {hasPermission("leads:read") ? (
+          <div className="mt-6">
+            <Link href="/leads" className="ui-action ui-action--secondary">
+              Abrir lista geral de empresas
+            </Link>
+            <p className="mt-2 text-sm leading-6 text-[oklch(43%_0.03_252)]">
+              A lista reúne empresas elegíveis de todas as importações.
+            </p>
+          </div>
+        ) : null}
+        {hasPermission("imports:create") ? (
+          <Link href="/imports" className="ui-action ui-action--secondary mt-4">
+            Importar outro arquivo
+          </Link>
+        ) : null}
+        <div className="mt-5 flex flex-wrap items-center gap-3 text-sm text-[oklch(43%_0.03_252)]">
+          <button
+            type="button"
+            disabled={currentState.status === "loading" || refreshing}
+            aria-busy={refreshing}
+            onClick={refreshManually}
+            className="ui-action ui-action--quiet"
+          >
+            {refreshing ? "Atualizando importações…" : "Atualizar importações"}
+          </button>
+          <p>A situação é consultada automaticamente enquanto esta tela estiver aberta.</p>
+          <p role="status" className="w-full">{refreshing ? "Consultando dados atualizados…" : refreshState.key === query && refreshState.status === "success" ? "Importações atualizadas." : ""}</p>
+        </div>
       </header>
 
       <div className="mt-10">
+        {currentState.status === "success" && currentState.refreshFailed ? (
+          <p role="alert" className="mb-5 border-l-2 border-[oklch(69%_0.11_77)] pl-4 text-sm leading-6">
+            A atualização não foi concluída. O motivo não foi informado. Você está vendo a última consulta confirmada.
+            {" "}Use Atualizar importações para consultar novamente.
+          </p>
+        ) : null}
         {currentState.status === "loading" ? <BatchListLoading /> : null}
 
         {currentState.status === "unavailable" ? (
@@ -420,7 +520,7 @@ function BatchListUnavailable() {
         As importações não puderam ser consultadas agora.
       </h2>
       <p className="mt-4 max-w-xl text-sm leading-6 text-[oklch(36%_0.055_62)]">
-        Atualize a página mais tarde. Valores ausentes não serão tratados como
+        Use Atualizar importações para consultar novamente mais tarde. Valores ausentes não serão tratados como
         zero.
       </p>
     </section>
@@ -440,7 +540,7 @@ function BatchListError() {
         Não foi possível carregar as importações agora.
       </h2>
       <p className="mt-4 max-w-xl text-sm leading-6 text-[oklch(38%_0.045_32)]">
-        Atualize a página para tentar novamente. Se o problema continuar,
+        O motivo não foi informado. Use Atualizar importações para consultar novamente. Se o problema continuar,
         contate o suporte responsável.
       </p>
     </section>
@@ -454,6 +554,8 @@ function BatchListTable({
   readonly batches: readonly BatchSummary[];
   readonly pagination: BatchListMeta;
 }) {
+  const returnTo = buildPageHref(pagination.page, pagination.pageSize);
+
   return (
     <section aria-label="Importações registradas">
       <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-[oklch(82%_0.025_82)] pb-4">
@@ -468,16 +570,14 @@ function BatchListTable({
       <div className="overflow-x-auto">
         <table
           aria-label="Importações registradas"
-          className="w-full min-w-[82rem] border-collapse text-left"
+          className="responsive-data-table w-full border-collapse text-left md:min-w-[58rem]"
         >
           <thead>
             <tr className="border-b border-[oklch(72%_0.035_82)]">
               {[
                 "Envio",
                 "Status",
-                "Lote",
-                "Aceite",
-                "Observação",
+                "Atualização",
                 "Resultados",
               ].map((column) => (
                 <th
@@ -496,15 +596,15 @@ function BatchListTable({
                 key={batch.submissionId}
                 className="border-b border-[oklch(88%_0.02_82)] align-top transition-colors hover:bg-[oklch(95%_0.025_82)] motion-reduce:transition-none"
               >
-                <td className="py-5 pr-3 text-sm">
+                <td data-label="Envio" className="py-5 pr-3 text-sm">
                   <p className="font-bold text-[oklch(24%_0.035_252)]">
                     {formatBrazilianDate(batch.submittedAt)}
                   </p>
-                  <p className="mt-2 max-w-56 leading-5 text-[oklch(48%_0.025_252)]">
-                    Base: {batchSituationBasis(batch)}
-                  </p>
                   <Link
-                    href={`/imports/batches/${encodeURIComponent(batch.submissionId)}`}
+                    href={appendReturnTo(
+                      `/imports/batches/${encodeURIComponent(batch.submissionId)}`,
+                      returnTo,
+                    )}
                     aria-label={`Ver detalhes da importação enviada em ${formatBrazilianDate(batch.submittedAt)}`}
                     className="mt-4 inline-flex min-h-11 items-center border-b border-[oklch(45%_0.105_174)] px-1 text-sm font-bold text-[oklch(37%_0.095_174)] transition-colors hover:border-[oklch(24%_0.035_252)] hover:text-[oklch(24%_0.035_252)] focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-[oklch(45%_0.105_174)] motion-reduce:transition-none"
                   >
@@ -513,8 +613,26 @@ function BatchListTable({
                       →
                     </span>
                   </Link>
+                  <details className="mt-4 max-w-64 text-sm leading-6">
+                    <summary className="cursor-pointer font-semibold text-[oklch(43%_0.03_252)]">
+                      Detalhes da importação
+                    </summary>
+                    <div className="mt-3 grid gap-3 text-[oklch(48%_0.025_252)]">
+                      <p>Situação: {batchSituationBasis(batch)}</p>
+                      <p>
+                        Identificação do lote:
+                        <span className="mt-1 block break-all">
+                          {batch.import_batch_id ?? UNAVAILABLE_LABEL}
+                        </span>
+                      </p>
+                      <MetricLine
+                        label="Aceite confirmado"
+                        value={formatBrazilianDate(batch.acceptedAt)}
+                      />
+                    </div>
+                  </details>
                 </td>
-                <td className="px-3 py-5">
+                <td data-label="Status" className="px-3 py-5">
                   <StatusBadge batch={batch} />
                   {workflowReportedStatusAt(batch) === null ? null : (
                     <p className="mt-2 text-xs font-semibold text-[oklch(48%_0.025_252)]">
@@ -524,52 +642,22 @@ function BatchListTable({
                     </p>
                   )}
                 </td>
-                <td className="max-w-60 px-3 py-5 text-sm">
-                  <span className="block break-all">
-                    {batch.import_batch_id ?? UNAVAILABLE_LABEL}
-                  </span>
-                </td>
-                <td className="px-3 py-5 text-sm leading-6">
-                  <MetricLine
-                    label="Data"
-                    value={formatBrazilianDate(batch.acceptedAt)}
-                  />
-                  <MetricLine
-                    label="Linhas aceitas"
-                    value={formatCount(batch.rowCountAccepted)}
-                  />
-                </td>
-                <td className="max-w-64 px-3 py-5 text-sm leading-6">
+                <td data-label="Atualização" className="max-w-64 px-3 py-5 text-sm leading-6">
                   <MetricLine
                     label="Última"
                     value={formatBrazilianDate(batch.lastObservedAt)}
                   />
                   <p className="mt-1">
-                    <ObservationBadge batch={batch} />
+                    <ObservationBadge batch={batch} returnTo={returnTo} />
                   </p>
                   {batch.observationBasis === null ? null : (
                     <p className="mt-2 leading-5 text-[oklch(48%_0.025_252)]">
-                      Base: {observationBasisLabel(batch.observationBasis)}
+                      Situação: {observationBasisLabel(batch.observationBasis)}
                     </p>
                   )}
                 </td>
-                <td className="py-5 pl-3 text-sm leading-6 last:pr-0">
-                  <MetricLine
-                    label="Terminais"
-                    value={formatCount(batch.terminalCount)}
-                  />
-                  <MetricLine
-                    label="Leads"
-                    value={formatCount(batch.leadCount)}
-                  />
-                  <MetricLine
-                    label="Bloqueadas"
-                    value={formatCount(batch.blockedCount)}
-                  />
-                  <MetricLine
-                    label="Falhas"
-                    value={formatCount(batch.failedCount)}
-                  />
+                <td data-label="Resultados" className="py-5 pl-3 text-sm leading-6 last:pr-0">
+                  <BatchResults batch={batch} />
                 </td>
               </tr>
             ))}
@@ -686,16 +774,27 @@ function StatusBadge({ batch }: { readonly batch: BatchSummary }) {
   );
 }
 
-function ObservationBadge({ batch }: { readonly batch: BatchSummary }) {
+function ObservationBadge({
+  batch,
+  returnTo,
+}: {
+  readonly batch: BatchSummary;
+  readonly returnTo: string;
+}) {
   return (
     <Link
-      href={`/imports/batches/${encodeURIComponent(batch.submissionId)}`}
-      aria-label={`Ver observações da importação enviada em ${formatBrazilianDate(batch.submittedAt)}`}
-      className={`inline-flex min-h-7 cursor-pointer items-center border px-2.5 py-1 text-xs font-bold leading-4 transition-colors hover:border-[oklch(24%_0.035_252)] hover:text-[oklch(24%_0.035_252)] focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-[oklch(45%_0.105_174)] motion-reduce:transition-none ${observationBadgeClass(
+      href={appendReturnTo(
+        `/imports/batches/${encodeURIComponent(batch.submissionId)}`,
+        returnTo,
+      )}
+      aria-label={`Ver atualização da importação enviada em ${formatBrazilianDate(batch.submittedAt)}`}
+      className={`inline-flex min-h-11 cursor-pointer items-center border px-2.5 py-1 text-xs font-bold leading-4 transition-colors hover:border-[oklch(24%_0.035_252)] hover:text-[oklch(24%_0.035_252)] focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-[oklch(45%_0.105_174)] motion-reduce:transition-none ${observationBadgeClass(
         batch.observationStatus,
+        batch.lastObservedAt !== null,
+        hasConfirmedBatchCounts(batch),
       )}`}
     >
-      {observationStatusLabel(batch.observationStatus)}
+      {observationStatusLabel(batch.observationStatus, batch.lastObservedAt !== null, hasConfirmedBatchCounts(batch))}
     </Link>
   );
 }
@@ -721,7 +820,7 @@ function displayStatusLabel(batch: BatchSummary): string {
   }
 
   if (hasWorkflowReportedStart(batch)) {
-    return "Processamento iniciado pelo workflow";
+    return "Processamento iniciado";
   }
 
   return statusLabel(batch.status);
@@ -729,11 +828,11 @@ function displayStatusLabel(batch: BatchSummary): string {
 
 function batchSituationBasis(batch: BatchSummary): string {
   if (batch.workflowReportedClosedAt !== null) {
-    return "encerramento informado pelo workflow";
+    return "encerramento informado";
   }
 
   if (hasWorkflowReportedStart(batch)) {
-    return "início operacional informado pelo workflow";
+    return "início do processamento informado";
   }
 
   return statusBasisLabel(batch.statusBasis);
@@ -757,9 +856,13 @@ function workflowReportedStatusAt(batch: BatchSummary): string | null {
 
 function observationBadgeClass(
   status: BatchObservationStatus,
+  hasCorrelatedProducerFacts: boolean,
+  hasKnownCounts: boolean,
 ): string {
-  if (status === "AVAILABLE") {
-    return "border-[oklch(72%_0.075_174)] bg-[oklch(94%_0.035_174)] text-[oklch(32%_0.09_174)]";
+  if (status === "AVAILABLE" && hasCorrelatedProducerFacts) {
+    return hasKnownCounts
+      ? "border-[oklch(72%_0.075_174)] bg-[oklch(94%_0.035_174)] text-[oklch(32%_0.09_174)]"
+      : "border-[oklch(79%_0.02_252)] bg-[oklch(95%_0.01_252)] text-[oklch(43%_0.025_252)]";
   }
 
   if (status === "INCONSISTENT") {
@@ -793,26 +896,32 @@ function statusBasisLabel(statusBasis: BatchStatusBasis): string {
     case "ACCEPTANCE_CONFIRMED":
       return "aceite confirmado";
     case "PRODUCER_ACTIVITY_OBSERVED":
-      return "observação aprovada";
+      return "atividade confirmada";
     case "PRODUCER_CLOSED_ALL_ROWS_TERMINAL":
-      return "fechamento completo aprovado";
+      return "todos os resultados confirmados";
     case "PRODUCER_CLOSED_ROWS_MISSING":
-      return "fechamento com pendências";
+      return "encerramento com resultados pendentes";
     case "FRESHNESS_WINDOW_EXCEEDED":
-      return "janela de atualização excedida";
+      return "sem atualização recente";
   }
 }
 
 function observationStatusLabel(
   observationStatus: BatchObservationStatus,
+  hasCorrelatedProducerFacts: boolean,
+  hasKnownCounts: boolean,
 ): string {
   switch (observationStatus) {
     case "AVAILABLE":
-      return "Observações disponíveis";
+      return hasCorrelatedProducerFacts
+        ? hasKnownCounts
+          ? "Atualizações disponíveis"
+          : "Atualização registrada"
+        : "Sem atualização deste lote";
     case "UNAVAILABLE":
-      return "Observações indisponíveis";
+      return "Atualização indisponível";
     case "INCONSISTENT":
-      return "Evidência inconsistente";
+      return "Dados divergentes";
   }
 }
 
@@ -821,20 +930,12 @@ function observationBasisLabel(
 ): string {
   switch (observationBasis) {
     case "PRODUCER_SOURCE_UNAVAILABLE":
-      return "fonte indisponível";
+      return "consulta indisponível";
     case "PRODUCER_EVIDENCE_CONFLICT":
-      return "conflito de evidências";
+      return "informações conflitantes";
     case "PRODUCER_EVIDENCE_EXCEEDS_ACCEPTANCE":
-      return "evidência acima do aceite";
+      return "resultados acima das linhas aceitas";
   }
-}
-
-function formatCount(value: number | null): string {
-  if (!isNonNegativeInteger(value)) {
-    return UNAVAILABLE_LABEL;
-  }
-
-  return portugueseNumberFormatter.format(value);
 }
 
 function formatTotal(total: number | null): string {
@@ -856,4 +957,20 @@ function buildPageHref(targetPage: number, pageSize: number): string {
   });
 
   return `/imports/batches?${params.toString()}`;
+}
+
+function ReadAccessState({ status }: { readonly status: "auth_required" | "access_denied" }) {
+  const expired = status === "auth_required";
+  return (
+    <section role="alert" className="mx-auto w-full max-w-4xl border-y border-[oklch(82%_0.025_82)] py-10">
+      <p className="text-xs font-bold uppercase text-[oklch(45%_0.105_174)]">{expired ? "Acesso expirado" : "Acesso restrito"}</p>
+      <h1 className="operational-title mt-4">{expired ? "Sua sessão expirou" : "Acesso não autorizado"}</h1>
+      <p className="mt-5 max-w-2xl text-sm leading-6 text-[oklch(43%_0.03_252)]">
+        {expired ? "Entre novamente para continuar. As consultas foram interrompidas." : "Seu perfil não permite esta consulta. Solicite ao responsável a verificação do seu acesso."}
+      </p>
+      <Link href={expired ? "/login" : "/inicio"} className="ui-action ui-action--primary mt-6">
+        {expired ? "Entrar novamente" : "Voltar ao início"}
+      </Link>
+    </section>
+  );
 }

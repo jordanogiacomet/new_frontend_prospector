@@ -73,6 +73,91 @@ advances to `COMPLETED` or chooses among conflicting facts.
 
 ## State Derivation
 
+### Individual processing notices
+
+`GET /api/imports/:id?processedCompaniesPage=1&pageSize=100` preserves
+`BatchSummary` and optionally adds `meta.processedCompanies`. Authorization
+requires `imports:read` and the imports feature before validating the request.
+The app verifies the submission in the actor's organization before any
+individual producer read. Producer access additionally requires
+`FEATURE_BATCH_OBSERVATION_ENABLED`, a known correlated `import_batch_id` and
+synthetic demo mode disabled; visibility is resolved from the verified actor.
+
+- Named fact source: `producer_current_company_results_v1`, a SELECT of current
+  `company_validations` joined to their last `company_validation_runs` through
+  matching analysis, company, batch and row identities.
+- Allowed `processing_result` values: `INSERIDO_VALIDATION` and
+  `CRM_DECIDIU_E_SALVO`; both records require integrity `OK`. Existing producer
+  visibility predicates and query safety bounds still apply. Ambiguous
+  company/run or batch/row identities are excluded rather than selected.
+- Field allowlist: positive safe-integer `source_row` and `processedAt` mapped
+  from the matched run's `run_created_at`. This is the recorded analysis date,
+  not a newly established completion timestamp. No name, CNPJ, contact, CSV
+  row, recommendation, payload or run identifier is exposed.
+- The metadata contains `available`, `data`, `page`, `pageSize`, `total` and
+  `factSource`. A missing gate, unknown correlation or synthetic demo data
+  returns `available:false`, `data:[]`, `total:null` without visibility or
+  producer repository reads. Read failure returns a safe error; zero requires
+  an authorized successful query. Pages contain at most 100 results.
+- A correlated approved current result supports “Empresa processada” for its
+  row. Upload receipt, workflow start, absent callback, blocked/failed/unknown
+  result or observation failure does not support this notice.
+- This is a mutable current projection. Later processing may replace a current
+  company result; it is not an immutable historical terminal ledger or a
+  complete enumeration of all processed rows in the batch.
+- Its total is independent from `rowCountAccepted`, `terminalCount`,
+  `blockedCount`, `failedCount`, `leadCount`, producer recommendations and batch
+  status. It does not establish durable acceptance or promote `COMPLETED`.
+  Existing nullability and completion requirements remain unchanged.
+
+The browser reads this metadata exclusively for individual company notices.
+A newly confirmed app upload subscribes with `includeExisting:true`, allowing
+results already recorded before its first read. Existing list/detail pages
+subscribe with `false`: their first successful complete paginated read
+establishes a historical baseline without notices. List subscriptions cover
+valid visible submission IDs, remain stable across refreshes of the same ID set
+and are released on pagination or navigation. The private-layout provider
+retains baseline and row deduplication across subscription release/navigation;
+reloading starts a new visual session.
+
+Every newly observed submission/row queues once. Partial reads and failures
+neither advance the baseline nor produce success. Observation uses GET every
+five seconds, without overlap, only in the visible imports area. 401/403 stop
+all observations and clear notices; 404 stops the affected submission. An
+explicit operational close plus a complete unique result set equal to the
+reported row count may stop browser polling only, never change batch status
+or its nullable counts.
+
+### Individual receipts — historical compatibility
+
+`GET /api/imports/:id?receivedCompaniesPage=1&pageSize=100` continues to
+preserve the batch read model and optionally add `meta.receivedCompanies`.
+The read requires `imports:read`, the imports feature gate and a submission in
+the actor's organization before querying the paginated app-owned receipt source.
+A request combining received and processed pagination views is rejected before
+database work.
+
+- Fact source: `prospecting_app.import_received_companies`, recorded from the
+  authenticated `ACCEPTED_ROW` callback in the start-report transaction.
+- Identity: organization, submission and positive safe-integer `source_row`;
+  duplicate callbacks retain the first reported timestamp.
+- Field allowlist: `source_row`, `receivedAt`; no name, CNPJ, contact, CSV row,
+  producer payload or run identifier is retained or exposed by this source.
+- The envelope contains `available`, `data`, `page`, `pageSize` and `total`.
+  Unavailable synthetic facts use `available:false`, `data:[]`, `total:null`;
+  database failure returns a safe error. Zero requires a successful scoped read.
+- A receipt proves only receipt and row position. Missing row identity does
+  not create a receipt. Historical callbacks are not reconstructed from
+  retained producer rows or CSV contents. Receipt data no longer feeds the
+  company confirmation popup and cannot prove individual processing.
+- Receipt pagination and its total are independent from `rowCountAccepted`,
+  `terminalCount`, `leadCount`, status and producer recommendations. Neither a
+  receipt nor the operational workflow close promotes contractual completion.
+- Migration 019 and its recorded historical deployment remain applicable.
+  Receipts are append-only; application rollback retains populated storage.
+
+### Batch states
+
 | State | Minimum evidence |
 | --- | --- |
 | `SUBMITTED` | Durable app submission exists; no validated producer acceptance |

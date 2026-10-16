@@ -2,12 +2,13 @@ import "server-only";
 
 import { randomUUID } from "node:crypto";
 
-import type { ContactCompanySearchStatus } from "../../types/contact-enrichment";
+import type { ContactCompanySearchStatus, ContactSearchDiagnosticDto } from "../../types/contact-enrichment";
 import {
   transaction,
   type AppDatabaseTransaction,
 } from "../db/app-client";
 import type { EncryptedContactData } from "./contact-data-crypto";
+import { contactSearchDiagnosticsSchema } from "./contact-enrichment-v2-contract";
 
 type StoredCompanySearchStatus = Exclude<
   ContactCompanySearchStatus,
@@ -25,6 +26,7 @@ export interface ContactCompanySearchRecord {
   readonly updatedAt: Date;
   readonly providerOccurredAt: Date | null;
   readonly matchesExpiresAt: Date | null;
+  readonly searchDiagnostics?: readonly ContactSearchDiagnosticDto[] | null;
 }
 
 interface CompanySearchRow {
@@ -40,6 +42,7 @@ interface CompanySearchRow {
   readonly updated_at: Date;
   readonly provider_occurred_at: Date | null;
   readonly matches_expires_at: Date | null;
+  readonly search_diagnostics: unknown;
 }
 
 export interface PreparedCompanyMatch {
@@ -87,7 +90,8 @@ const requestColumns = `
   requested_at,
   updated_at,
   provider_occurred_at,
-  matches_expires_at
+  matches_expires_at,
+  search_diagnostics
 `;
 
 export type RecordCompanySearchIntentResult =
@@ -222,6 +226,7 @@ export async function recordCompanySearchResult(input: {
   readonly occurredAt: Date;
   readonly expiresAt: Date | null;
   readonly matches: readonly PreparedCompanyMatch[];
+  readonly searchDiagnostics?: readonly ContactSearchDiagnosticDto[] | null;
 }): Promise<RecordCompanySearchResult> {
   return transaction(async (client) => {
     const current = await lockCompanySearchRequest(
@@ -298,6 +303,7 @@ export async function recordCompanySearchResult(input: {
             result_sha256 = $4,
             provider_occurred_at = $5,
             matches_expires_at = $6,
+            search_diagnostics = $7::jsonb,
             updated_at = GREATEST(updated_at, $5)
         WHERE organization_id = $1 AND search_request_id = $2
         RETURNING ${requestColumns}
@@ -309,6 +315,7 @@ export async function recordCompanySearchResult(input: {
         input.resultSha256,
         input.occurredAt,
         effectiveExpiry,
+        input.searchDiagnostics == null ? null : JSON.stringify(input.searchDiagnostics),
       ],
     });
     const row = updated[0];
@@ -534,6 +541,9 @@ function mapCompanySearchRow(row: CompanySearchRow): ContactCompanySearchRecord 
     updatedAt: row.updated_at,
     providerOccurredAt: row.provider_occurred_at,
     matchesExpiresAt: row.matches_expires_at,
+    searchDiagnostics: row.search_diagnostics == null
+      ? null
+      : contactSearchDiagnosticsSchema.parse(row.search_diagnostics),
   };
 }
 

@@ -1,9 +1,10 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { PrivateCapabilitiesProvider } from "../../../../components/auth/private-capabilities";
 import type { LeadDetail } from "../../../../types/leads";
 
 const { navigationState } = vi.hoisted(() => ({
@@ -16,6 +17,28 @@ const { navigationState } = vi.hoisted(() => ({
 vi.mock("next/navigation", () => ({
   useParams: () => ({ cnpj: navigationState.cnpj }),
   useSearchParams: () => new URLSearchParams(navigationState.query),
+}));
+
+vi.mock("../../../../components/leads/lead-location-map", () => ({
+  LeadLocationMap: ({
+    city,
+    cnpj,
+    leadRunId,
+    uf,
+  }: {
+    city: string | null;
+    cnpj: string;
+    leadRunId: string;
+    uf: string | null;
+  }) => (
+    <section
+      aria-label="Localização da empresa"
+      data-cnpj={cnpj}
+      data-lead-run-id={leadRunId}
+    >
+      {[city, uf].filter(Boolean).join(" / ")}
+    </section>
+  ),
 }));
 
 import LeadDetailPage from "./page";
@@ -91,6 +114,14 @@ function successfulResponse(data: LeadDetail = syntheticDetail) {
   return { data };
 }
 
+function authorizedPage() {
+  return (
+    <PrivateCapabilitiesProvider permissions={["leads:read"]}>
+      <LeadDetailPage />
+    </PrivateCapabilitiesProvider>
+  );
+}
+
 describe("lead detail page", () => {
   beforeEach(() => {
     navigationState.cnpj = "11222333000181";
@@ -100,8 +131,40 @@ describe("lead detail page", () => {
     vi.stubGlobal("fetch", fetchMock);
   });
 
-  it("shows an accessible loading state while the authenticated API request is pending", () => {
+  it("denies missing read permission before any request", () => {
+
     render(<LeadDetailPage />);
+
+    expect(screen.getByRole("heading", { name: "Acesso não autorizado" })).toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it.each([401, 403])("gives HTTP %i an access recovery state and stops further polling", async (responseStatus) => {
+    const intervalSpy = vi.spyOn(window, "setInterval");
+    const visibilitySpy = vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+    try {
+      fetchMock.mockResolvedValue(respondWithJson({}, responseStatus));
+      render(authorizedPage());
+
+      expect(await screen.findByRole("heading", { name: responseStatus === 401 ? "Sua sessão expirou" : "Acesso não autorizado" })).toBeInTheDocument();
+      const login = screen.queryByRole("link", { name: "Entrar novamente" });
+      if (responseStatus === 401) expect(login).toHaveAttribute("href", "/login");
+      else expect(login).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /Tentar novamente|Atualizar/ })).not.toBeInTheDocument();
+      const refresh = intervalSpy.mock.calls.find(([, delay]) => delay === 5_000)?.[0];
+      if (typeof refresh === "function") {
+        await act(async () => refresh());
+        await act(async () => refresh());
+      }
+      expect(fetchMock).toHaveBeenCalledOnce();
+    } finally {
+      intervalSpy.mockRestore();
+      visibilitySpy.mockRestore();
+    }
+  });
+
+  it("shows an accessible loading state while the authenticated API request is pending", () => {
+    render(authorizedPage());
 
     expect(
       screen.getByRole("status", { name: "Carregando detalhes do lead" }),
@@ -113,10 +176,10 @@ describe("lead detail page", () => {
 
   it("preserves the formatted CNPJ and exact optional run identifier in the request contract", async () => {
     navigationState.cnpj = "11.222.333/0001-81";
-    navigationState.query = `leadRunId=${syntheticLeadRunId}`;
+    navigationState.query = `leadRunId=${syntheticLeadRunId}&returnTo=${encodeURIComponent("/leads?page=3&uf=PE")}`;
     fetchMock.mockResolvedValue(respondWithJson(successfulResponse()));
 
-    render(<LeadDetailPage />);
+    render(authorizedPage());
 
     expect(
       await screen.findByRole("heading", {
@@ -133,6 +196,9 @@ describe("lead detail page", () => {
         method: "GET",
       }),
     );
+    expect(
+      screen.getByRole("link", { name: "Voltar para leads" }),
+    ).toHaveAttribute("href", "/leads?page=3&uf=PE");
     expect(fetchMock).toHaveBeenNthCalledWith(
       2,
       "/api/leads/11.222.333%2F0001-81/history",
@@ -144,10 +210,30 @@ describe("lead detail page", () => {
     );
   });
 
+  it("returns to an approved workspace but rejects an unsafe return URL", async () => {
+    const workspaceReturn =
+      "/workspaces/00000000-0000-4000-8000-000000000041?returnTo=%2Fwork-queue%3Fpage%3D2";
+    navigationState.query = `returnTo=${encodeURIComponent(workspaceReturn)}`;
+    fetchMock.mockResolvedValue(respondWithJson(successfulResponse()));
+
+    const { rerender } = render(authorizedPage());
+
+    expect(
+      await screen.findByRole("link", { name: "Voltar ao acompanhamento" }),
+    ).toHaveAttribute("href", workspaceReturn);
+
+    navigationState.query = `returnTo=${encodeURIComponent("https://malicious.example")}`;
+    rerender(authorizedPage());
+
+    expect(
+      await screen.findByRole("link", { name: "Voltar para leads" }),
+    ).toHaveAttribute("href", "/leads");
+  });
+
   it("omits the run query when no execution identifier was provided", async () => {
     fetchMock.mockResolvedValue(respondWithJson(successfulResponse()));
 
-    render(<LeadDetailPage />);
+    render(authorizedPage());
 
     await screen.findByRole("heading", {
       name: "Empresa Detalhe Sintética",
@@ -194,7 +280,7 @@ describe("lead detail page", () => {
         : refreshResponse;
     });
 
-    const { unmount } = render(<LeadDetailPage />);
+    const { unmount } = render(authorizedPage());
 
     await screen.findByRole("heading", {
       name: "Empresa Detalhe Sintética",
@@ -278,7 +364,7 @@ describe("lead detail page", () => {
       ),
     );
 
-    render(<LeadDetailPage />);
+    render(authorizedPage());
 
     expect(
       await screen.findByRole("heading", {
@@ -288,6 +374,112 @@ describe("lead detail page", () => {
     expect(document.body).not.toHaveTextContent(
       "SELECT secret FROM private_source",
     );
+  });
+
+  it("keeps the current analysis after a transient refresh failure and explicitly recovers", async () => {
+    const intervalSpy = vi.spyOn(window, "setInterval");
+    vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+    let detailRequests = 0;
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      if (String(input).endsWith("/history")) {
+        return Promise.resolve(respondWithJson({ data: [], meta: { total: 0 } }));
+      }
+      detailRequests += 1;
+      return Promise.resolve(detailRequests === 2
+        ? respondWithJson({ error: { message: "private refresh details" } }, 503)
+        : respondWithJson(successfulResponse()));
+    });
+
+    render(authorizedPage());
+    await screen.findByRole("heading", { name: "Empresa Detalhe Sintética" });
+    const refresh = intervalSpy.mock.calls.find(([, delay]) => delay === 5_000)?.[0];
+    if (typeof refresh !== "function") {
+      throw new Error("Expected the lead detail refresh callback.");
+    }
+    await act(async () => refresh());
+
+    expect(await screen.findByText(/última consulta disponível/)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Empresa Detalhe Sintética" })).toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent("private refresh details");
+
+    fireEvent.click(screen.getByRole("button", { name: "Atualizar análise" }));
+
+    await waitFor(() => expect(screen.queryByText(/última consulta disponível/)).not.toBeInTheDocument());
+    expect(detailRequests).toBe(3);
+    expect(screen.getByRole("heading", { name: "Empresa Detalhe Sintética" })).toBeInTheDocument();
+    intervalSpy.mockRestore();
+  });
+
+  it.each([401, 403, 404])("clears the last analysis when refresh returns %i", async (status) => {
+    const intervalSpy = vi.spyOn(window, "setInterval");
+    vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+    let detailRequests = 0;
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      if (String(input).endsWith("/history")) {
+        return Promise.resolve(respondWithJson({ data: [], meta: { total: 0 } }));
+      }
+      detailRequests += 1;
+      return Promise.resolve(detailRequests === 1
+        ? respondWithJson(successfulResponse())
+        : respondWithJson({ error: { code: "UNAVAILABLE" } }, status));
+    });
+
+    render(authorizedPage());
+    await screen.findByRole("heading", { name: "Empresa Detalhe Sintética" });
+    const refresh = intervalSpy.mock.calls.find(([, delay]) => delay === 5_000)?.[0];
+    if (typeof refresh !== "function") {
+      throw new Error("Expected the lead detail refresh callback.");
+    }
+    await act(async () => refresh());
+
+    if (status === 404) {
+      expect(await screen.findByRole("button", { name: "Tentar novamente" })).toBeInTheDocument();
+    } else {
+      expect(await screen.findByRole("heading", { name: status === 401 ? "Sua sessão expirou" : "Acesso não autorizado" })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Tentar novamente" })).not.toBeInTheDocument();
+    }
+    expect(screen.queryByRole("heading", { name: "Empresa Detalhe Sintética" })).not.toBeInTheDocument();
+    expect(screen.queryByText(/última consulta disponível/)).not.toBeInTheDocument();
+    intervalSpy.mockRestore();
+  });
+
+  it("keeps the filtered return destination during errors and retries the selected run", async () => {
+    navigationState.query = `leadRunId=${syntheticLeadRunId}&returnTo=${encodeURIComponent("/leads?page=3&uf=PE")}`;
+    fetchMock.mockResolvedValueOnce(respondWithJson({ error: { code: "UNAVAILABLE" } }, 503));
+    fetchMock.mockResolvedValue(respondWithJson(successfulResponse()));
+
+    render(authorizedPage());
+
+    expect(await screen.findByRole("link", { name: "Voltar para leads" }))
+      .toHaveAttribute("href", "/leads?page=3&uf=PE");
+    fireEvent.click(screen.getByRole("button", { name: "Tentar novamente" }));
+
+    expect(await screen.findByRole("heading", { name: "Empresa Detalhe Sintética" })).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenNthCalledWith(2,
+      `/api/leads/11222333000181?leadRunId=${syntheticLeadRunId}`,
+      expect.any(Object));
+  });
+
+  it("clears the last analysis when an update returns an invalid contract", async () => {
+    let detailRequests = 0;
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      if (String(input).endsWith("/history")) {
+        return Promise.resolve(respondWithJson({ data: [], meta: { total: 0 } }));
+      }
+      detailRequests += 1;
+      return Promise.resolve(detailRequests === 1
+        ? respondWithJson(successfulResponse())
+        : respondWithJson({ data: { companyName: "Unsafe incomplete response" } }));
+    });
+
+    render(authorizedPage());
+    await screen.findByRole("heading", { name: "Empresa Detalhe Sintética" });
+    fireEvent.click(screen.getByRole("button", { name: "Atualizar análise" }));
+
+    expect(await screen.findByRole("heading", { name: "Dados da análise indisponíveis" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Empresa Detalhe Sintética" })).not.toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent("Unsafe incomplete response");
+    expect(screen.queryByText(/última consulta disponível/)).not.toBeInTheDocument();
   });
 
   it("renders a fixed safe API error for an unexpected response", async () => {
@@ -304,7 +496,7 @@ describe("lead detail page", () => {
       ),
     );
 
-    render(<LeadDetailPage />);
+    render(authorizedPage());
 
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent(
@@ -327,7 +519,7 @@ describe("lead detail page", () => {
       ),
     );
 
-    render(<LeadDetailPage />);
+    render(authorizedPage());
 
     expect(
       await screen.findByRole("heading", {
@@ -350,7 +542,7 @@ describe("lead detail page", () => {
       }),
     );
 
-    render(<LeadDetailPage />);
+    render(authorizedPage());
 
     expect(
       await screen.findByRole("heading", {
@@ -364,15 +556,20 @@ describe("lead detail page", () => {
   it("assembles the complete detail from existing summary, insight, report, and audit components", async () => {
     fetchMock.mockResolvedValue(respondWithJson(successfulResponse()));
 
-    render(<LeadDetailPage />);
+    render(
+      <PrivateCapabilitiesProvider permissions={["leads:read", "commercial:read"]}>
+        <LeadDetailPage />
+      </PrivateCapabilitiesProvider>,
+    );
 
     expect(
       await screen.findByRole("heading", {
         name: "Empresa Detalhe Sintética",
       }),
     ).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /pipeline de prospecção/i })).not.toBeInTheDocument();
     expect(
-      screen.getByRole("heading", { name: "Recomendação da análise" }),
+      screen.getByRole("heading", { name: "Avaliação comercial" }),
     ).toBeInTheDocument();
     expect(
       screen.getByRole("heading", {
@@ -382,10 +579,157 @@ describe("lead detail page", () => {
     expect(
       screen.getByRole("heading", { name: "Relatório estratégico" }),
     ).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Mensagem personalizada" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("region", { name: "Localização da empresa" }),
+    ).toHaveTextContent("Recife / PE");
+    expect(
+      screen.getByRole("region", { name: "Localização da empresa" }),
+    ).toHaveAttribute("data-cnpj", syntheticDetail.cnpj);
+    expect(
+      screen.getByRole("region", { name: "Localização da empresa" }),
+    ).toHaveAttribute("data-lead-run-id", syntheticDetail.lead_run_id);
     expect(screen.getByText("Auditoria avançada")).toBeInTheDocument();
+    for (const [label, target] of [
+      ["Avaliação comercial", "#lead-summary"],
+      ["Fundamentos da decisão", "#lead-insights"],
+      ["Relatório", "#lead-report"],
+      ["Mensagem de abordagem", "#lead-message"],
+      ["Histórico", "#lead-history"],
+    ]) {
+      expect(screen.getByRole("link", { name: label })).toHaveAttribute("href", target);
+      expect(document.querySelector(target)).toBeInTheDocument();
+    }
+    const assessment = screen.getByRole("region", { name: "Avaliação comercial" });
+    expect(screen.getByRole("heading", { name: "Prospecção recomendada" })).toBeInTheDocument();
+    expect(assessment).toHaveTextContent("Data da análise: 02/07/2026");
+    for (const subsequent of ["#lead-insights", "#lead-report", "#lead-message"]) {
+      expect(assessment.compareDocumentPosition(document.querySelector(subsequent)!))
+        .toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    }
+    expect(screen.queryByRole("button", { name: /buscar|recuperar|revelar|enriquecer.*contato/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /buscar|recuperar|revelar|enriquecer.*contato/i })).not.toBeInTheDocument();
     expect(screen.getByTestId("audit-lead-run-id")).toHaveTextContent(
       syntheticLeadRunId,
     );
+  });
+
+  it.each([
+    ["leads:read"] as const,
+    ["leads:read", "commercial:read"] as const,
+    ["leads:read", "contacts:read"] as const,
+    ["leads:read", "contacts:enrich"] as const,
+  ])("requires both contact permissions for direct company contact actions: %j", async (...permissions) => {
+    fetchMock.mockResolvedValue(respondWithJson(successfulResponse()));
+
+    render(
+      <PrivateCapabilitiesProvider permissions={permissions}>
+        <LeadDetailPage />
+      </PrivateCapabilitiesProvider>,
+    );
+
+    expect(await screen.findByRole("heading", { name: "Empresa Detalhe Sintética" }))
+      .toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Ver na pipeline de prospecção" }))
+      .not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Encontrar contatos" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Contatos" })).not.toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Contatos profissionais" }))
+      .toHaveTextContent("Seu perfil não permite buscar ou visualizar contatos.");
+    expect(fetchMock.mock.calls.some(([endpoint]) => String(endpoint).startsWith("/api/contact-enrichment")))
+      .toBe(false);
+    expect(screen.getByRole("link", { name: "Mensagem de abordagem" }))
+      .toHaveAttribute("href", "#lead-message");
+  });
+
+  it("finds contacts directly for the displayed company only after an explicit search", async () => {
+    fetchMock.mockImplementation(async (input) => {
+      if (input === "/api/contact-enrichment/v2/company-search") {
+        return respondWithJson({ data: {
+          searchRequestId: "00000000-0000-4000-8000-000000000041",
+          status: "SEARCH_DISPATCHED",
+          requestedAt: "2026-10-16T12:00:00.000Z",
+          updatedAt: "2026-10-16T12:00:00.000Z",
+        } }, 202);
+      }
+      return respondWithJson(successfulResponse());
+    });
+    render(
+      <PrivateCapabilitiesProvider permissions={["leads:read", "contacts:enrich", "contacts:read"]}>
+        <LeadDetailPage />
+      </PrivateCapabilitiesProvider>,
+    );
+
+    expect(await screen.findByRole("link", { name: "Encontrar contatos" }))
+      .toHaveAttribute("href", "#lead-contacts");
+    expect(screen.getByRole("link", { name: "Contatos" })).toHaveAttribute("href", "#lead-contacts");
+    expect(fetchMock.mock.calls.some(([endpoint]) => String(endpoint).startsWith("/api/contact-enrichment")))
+      .toBe(false);
+    const contacts = screen.getByRole("region", { name: "Contatos profissionais" });
+    fireEvent.click(within(contacts).getByRole("button", { name: /contatos de/i }));
+    expect(fetchMock.mock.calls.some(([endpoint]) => String(endpoint).startsWith("/api/contact-enrichment")))
+      .toBe(false);
+    fireEvent.click(within(contacts).getByRole("button", { name: "Localizar empresa pelo nome" }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+      "/api/contact-enrichment/v2/company-search",
+      expect.objectContaining({
+        method: "POST",
+        cache: "no-store",
+        credentials: "same-origin",
+        body: JSON.stringify({
+          cnpj_normalizado: syntheticDetail.cnpj,
+          company_name: syntheticDetail.companyName,
+          company_city: syntheticDetail.city,
+          company_state: syntheticDetail.uf,
+          company_country_iso2: "BR",
+        }),
+      }),
+    ));
+    expect(within(contacts).getByRole("button", { name: "Ver empresa localizada" })).toBeInTheDocument();
+    expect(fetchMock.mock.calls.filter(([endpoint]) => String(endpoint).startsWith("/api/contact-enrichment")))
+      .toHaveLength(1);
+    expect(contacts.compareDocumentPosition(document.querySelector("#lead-insights")!))
+      .toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+  });
+
+  it("keeps an uncertain contact request during a refreshed company analysis without submitting again", async () => {
+    let currentLead = syntheticDetail;
+    fetchMock.mockImplementation(async (input) => {
+      if (input === "/api/contact-enrichment/v2") {
+        return respondWithJson({ data: {
+          requestId: "00000000-0000-4000-8000-000000000042",
+          status: "DISPATCH_OUTCOME_UNKNOWN",
+          requestedAt: "2026-10-16T12:00:00.000Z",
+          updatedAt: "2026-10-16T12:00:00.000Z",
+        } }, 202);
+      }
+      return respondWithJson(successfulResponse(currentLead));
+    });
+    render(
+      <PrivateCapabilitiesProvider permissions={["leads:read", "contacts:enrich", "contacts:read"]}>
+        <LeadDetailPage />
+      </PrivateCapabilitiesProvider>,
+    );
+
+    const contacts = await screen.findByRole("region", { name: "Contatos profissionais" });
+    fireEvent.click(within(contacts).getByRole("button", { name: /contatos de/i }));
+    fireEvent.change(within(contacts).getByRole("textbox", { name: "Domínio da empresa" }), {
+      target: { value: "empresa.example" },
+    });
+    fireEvent.click(within(contacts).getByRole("button", { name: "Buscar decisores" }));
+    expect(await within(contacts).findByRole("button", { name: "Ver ou atualizar contatos" })).toBeInTheDocument();
+
+    currentLead = { ...syntheticDetail, decision_id: "decision-synthetic-refreshed", lead_run_id: syntheticPreviousLeadRunId };
+    fireEvent.click(screen.getByRole("button", { name: "Atualizar análise" }));
+    await waitFor(() => expect(screen.getByRole("region", { name: "Localização da empresa" }))
+      .toHaveAttribute("data-lead-run-id", syntheticPreviousLeadRunId));
+    expect(within(contacts).getByRole("button", { name: "Ver ou atualizar contatos" })).toBeInTheDocument();
+    expect(within(contacts).queryByRole("button", { name: /contatos de/i })).not.toBeInTheDocument();
+    expect(fetchMock.mock.calls.filter(([endpoint]) => String(endpoint).startsWith("/api/contact-enrichment")))
+      .toHaveLength(1);
   });
 
   it("integrates the retained history section using only the history API response", async () => {
@@ -431,7 +775,7 @@ describe("lead detail page", () => {
       return respondWithJson(successfulResponse());
     });
 
-    render(<LeadDetailPage />);
+    render(authorizedPage());
 
     expect(
       await screen.findByRole("heading", {
@@ -464,14 +808,14 @@ describe("lead detail page", () => {
       ),
     );
 
-    render(<LeadDetailPage />);
+    render(authorizedPage());
 
-    expect(
-      await screen.findByText("Relatório ainda não disponível"),
-    ).toBeInTheDocument();
+    const report = await screen.findByRole("region", { name: "Relatório estratégico" });
+    expect(report).toHaveTextContent("Relatório não registrado");
+    expect(screen.getByText("Relatório ainda não disponível")).toBeInTheDocument();
     const evidence = screen.getByRole("region", { name: "Evidências" });
     expect(evidence).toHaveTextContent("Evidências ausentes");
-    expect(evidence).not.toHaveTextContent("Retido por política");
+    expect(evidence).not.toHaveTextContent("Conteúdo protegido");
   });
 
   it("preserves policy-withheld report and evidence states without rendering raw extras", async () => {
@@ -492,10 +836,10 @@ describe("lead detail page", () => {
       }),
     );
 
-    render(<LeadDetailPage />);
+    render(authorizedPage());
 
     const withheldStates = await screen.findAllByRole("status", {
-      name: "Retido por política",
+      name: "Conteúdo protegido",
     });
     expect(withheldStates).toHaveLength(2);
     expect(document.body).not.toHaveTextContent("PRIVATE_EVIDENCE_CANARY");
@@ -518,7 +862,7 @@ describe("lead detail page", () => {
       ),
     );
 
-    render(<LeadDetailPage />);
+    render(authorizedPage());
 
     const staleNotice = await screen.findByRole("status", {
       name: "Dados desatualizados",
@@ -530,6 +874,9 @@ describe("lead detail page", () => {
     expect(screen.getByTestId("lead-recommended-action")).toHaveTextContent(
       "Nutrir",
     );
+    expect(screen.getByRole("heading", { name: "Manter em acompanhamento" })).toBeInTheDocument();
+    expect(staleNotice.compareDocumentPosition(screen.getByRole("region", { name: "Avaliação comercial" })))
+      .toBe(Node.DOCUMENT_POSITION_FOLLOWING);
   });
 
   it("keeps nullable decision values unavailable instead of converting them to zero", async () => {
@@ -546,7 +893,7 @@ describe("lead detail page", () => {
       ),
     );
 
-    render(<LeadDetailPage />);
+    render(authorizedPage());
 
     await screen.findByRole("heading", {
       name: "Empresa Detalhe Sintética",
@@ -556,7 +903,7 @@ describe("lead detail page", () => {
     );
     expect(screen.getByTestId("lead-score")).not.toHaveTextContent("0");
     expect(screen.getByTestId("lead-recommendation-reason")).toHaveTextContent(
-      "Não disponível",
+      "O motivo da recomendação não está disponível nesta consulta.",
     );
   });
 

@@ -1,1 +1,193 @@
 @import "tailwindcss";
+
+:root {
+  --prospecta-canvas: oklch(97% 0.012 82);
+  --prospecta-surface: oklch(99% 0.006 82);
+  --prospecta-ink: oklch(24% 0.035 252);
+  --prospecta-ink-muted: oklch(43% 0.03 252);
+  --prospecta-border: oklch(82% 0.025 82);
+  --prospecta-accent: oklch(45% 0.105 174);
+  --prospecta-accent-dark: oklch(32% 0.09 174);
+  --prospecta-accent-soft: oklch(94% 0.035 174);
+  --prospecta-danger: oklch(42% 0.12 32);
+  --prospecta-danger-soft: oklch(96% 0.025 32);
+  --prospecta-navigation: oklch(22% 0.052 246);
+}
+
+body {
+  background: var(--prospecta-canvas);
+  color: var(--prospecta-ink);
+  font-family:
+    Arial, "Helvetica Neue", Helvetica, ui-sans-serif, system-ui, sans-serif;
+}
+
+.font-serif {
+  font-family: Georgia, "Times New Roman", ui-serif, serif;
+}
+
+.ui-action {
+  display: inline-flex;
+  min-height: 2.75rem;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  padding: 0.55rem 1rem;
+  font-size: 0.875rem;
+  font-weight: 700;
+  line-height: 1.25rem;
+  cursor: pointer;
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease,
+    color 150ms ease;
+}
+
+.ui-action:focus-visible,
+.ui-field:focus-visible {
+  outline: 2px solid var(--prospecta-accent);
+  outline-offset: 3px;
+}
+
+.ui-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+.ui-action--primary {
+  border-color: var(--prospecta-ink);
+  background: var(--prospecta-ink);
+  color: var(--prospecta-canvas);
+}
+
+.ui-action:not(:disabled):active {
+  filter: brightness(0.94);
+}
+
+.ui-action--secondary {
+  border-color: var(--prospecta-accent);
+  background: transparent;
+  color: var(--prospecta-accent-dark);
+}
+
+.ui-action--quiet {
+  justify-content: flex-start;
+  border-width: 0 0 1px;
+  border-bottom-color: var(--prospecta-accent);
+  padding-inline: 0.15rem;
+  color: var(--prospecta-ink);
+}
+
+.ui-action--danger {
+  border-color: oklch(67% 0.11 32);
+  background: var(--prospecta-danger-soft);
+  color: var(--prospecta-danger);
+}
+
+.ui-field {
+  min-height: 2.75rem;
+  width: 100%;
+  border: 1px solid oklch(70% 0.035 82);
+  background: var(--prospecta-surface);
+  padding: 0.65rem 0.8rem;
+  color: var(--prospecta-ink);
+}
+
+.ui-field::placeholder {
+  color: oklch(58% 0.025 252);
+}
+
+summary {
+  cursor: pointer;
+}
+
+summary:focus-visible {
+  outline: 2px solid var(--prospecta-accent);
+  outline-offset: 3px;
+}
+
+section[id], h2[id] {
+  scroll-margin-top: 1.5rem;
+}
+
+.operational-title {
+  max-width: 28ch;
+  font-family: inherit;
+  font-size: clamp(1.8rem, 3vw, 2.75rem);
+  font-weight: 700;
+  line-height: 1.12;
+  letter-spacing: -0.035em;
+  text-wrap: balance;
+}
+
+@media (width < 48rem) {
+  .responsive-data-table {
+    min-width: 0;
+  }
+
+  .responsive-data-table thead {
+    display: none;
+  }
+
+  .responsive-data-table tbody {
+    display: grid;
+    gap: 1rem;
+    padding-block: 1rem;
+  }
+
+  .responsive-data-table tr {
+    display: grid;
+    gap: 0;
+    border: 1px solid var(--prospecta-border);
+    background: var(--prospecta-surface);
+    padding: 0.25rem 1rem;
+  }
+
+  .responsive-data-table td {
+    display: grid;
+    grid-template-columns: minmax(7.5rem, 0.7fr) minmax(0, 1.3fr);
+    align-items: start;
+    gap: 1rem;
+    max-width: none;
+    border-bottom: 1px solid oklch(89% 0.02 82);
+    padding: 0.8rem 0;
+    white-space: normal;
+  }
+
+  .responsive-data-table td:last-child {
+    border-bottom: 0;
+  }
+
+  .responsive-data-table td::before {
+    content: attr(data-label);
+    color: var(--prospecta-ink-muted);
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    line-height: 1.25rem;
+    text-transform: uppercase;
+  }
+}
+
+@media (hover: hover) {
+  .ui-action--primary:hover {
+    background: oklch(31% 0.055 252);
+  }
+
+  .ui-action--secondary:hover {
+    background: var(--prospecta-accent-soft);
+  }
+
+  .ui-action--quiet:hover {
+    border-bottom-color: var(--prospecta-ink);
+  }
+
+  .ui-action--danger:hover {
+    background: oklch(93% 0.045 32);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ui-action {
+    transition: none;
+  }
+}

@@ -52,6 +52,40 @@ const contactCompanyResolutionSql = readSql(
 const contactCompanyResolutionRollbackSql = readSql(
   "011_contact_company_resolution_rollback.sql",
 );
+const contactCompanyPhoneFallbackSql = readSql(
+  "012_contact_company_phone_fallback_forward.sql",
+);
+const contactCompanyPhoneFallbackRollbackSql = readSql(
+  "012_contact_company_phone_fallback_rollback.sql",
+);
+const leadRegisteredGeocodeCacheSql = readSql(
+  "013_lead_registered_geocode_cache_forward.sql",
+);
+const leadRegisteredGeocodeCacheRollbackSql = readSql(
+  "013_lead_registered_geocode_cache_rollback.sql",
+);
+const leadPostalGeocodeFallbackSql = readSql(
+  "014_lead_postal_geocode_fallback_forward.sql",
+);
+const leadPostalGeocodeFallbackRollbackSql = readSql(
+  "014_lead_postal_geocode_fallback_rollback.sql",
+);
+const leadApproachDraftCacheSql = readSql(
+  "015_lead_approach_draft_cache_forward.sql",
+);
+const leadApproachDraftCacheRollbackSql = readSql(
+  "015_lead_approach_draft_cache_rollback.sql",
+);
+const qualificationCadenceSql = readSql(
+  "016_qualification_cadence_forward.sql",
+);
+const qualificationCadenceRollbackSql = readSql(
+  "016_qualification_cadence_rollback.sql",
+);
+const contactSearchFeedbackSql = readSql("017_contact_search_feedback_forward.sql");
+const contactSearchFeedbackRollbackSql = readSql("017_contact_search_feedback_rollback.sql");
+const contactSearchRelevanceSql = readSql("018_contact_search_relevance_forward.sql");
+const contactSearchRelevanceRollbackSql = readSql("018_contact_search_relevance_rollback.sql");
 const disposableTargets = [
   {
     hostname: "localhost",
@@ -173,6 +207,18 @@ async function queryRows<Row extends QueryResultRow>(
 
 async function resetDisposableDatabase(): Promise<void> {
   await execute(
+    "DROP TABLE IF EXISTS prospecting_app.lead_qualification_contacts",
+  );
+  await execute(
+    "DROP TABLE IF EXISTS prospecting_app.lead_approach_drafts",
+  );
+  await execute(
+    "DROP TABLE IF EXISTS prospecting_app.lead_registered_geocode_cache",
+  );
+  await execute(
+    "DROP TABLE IF EXISTS prospecting_app.contact_company_phone_fallbacks",
+  );
+  await execute(
     "DROP TABLE IF EXISTS prospecting_app.contact_governance_events",
   );
   await execute(
@@ -204,6 +250,7 @@ async function resetDisposableDatabase(): Promise<void> {
   await execute(
     "DROP TABLE IF EXISTS prospecting_app.contact_enrichment_requests",
   );
+  await execute("DROP FUNCTION IF EXISTS prospecting_app.contact_search_diagnostics_are_valid(jsonb, boolean)");
   await execute(rollbackSql);
   await execute(`DROP SCHEMA IF EXISTS ${producerLikeSchema} CASCADE`);
   await resetSyntheticRoles();
@@ -216,11 +263,30 @@ async function resetDisposableDatabase(): Promise<void> {
   await execute(contactEnrichmentLedgerSql);
   await execute(contactDataGovernanceSql);
   await execute(contactCompanyResolutionSql);
+  await execute(contactCompanyPhoneFallbackSql);
+  await execute(leadRegisteredGeocodeCacheSql);
+  await execute(leadPostalGeocodeFallbackSql);
+  await execute(leadApproachDraftCacheSql);
+  await execute(qualificationCadenceSql);
+  await execute(contactSearchFeedbackSql);
+  await execute(contactSearchRelevanceSql);
   await execute(grantsSql);
   await createProducerLikeObjects();
 }
 
 async function cleanupDisposableDatabase(): Promise<void> {
+  await execute(
+    "DROP TABLE IF EXISTS prospecting_app.lead_qualification_contacts",
+  );
+  await execute(
+    "DROP TABLE IF EXISTS prospecting_app.lead_approach_drafts",
+  );
+  await execute(
+    "DROP TABLE IF EXISTS prospecting_app.lead_registered_geocode_cache",
+  );
+  await execute(
+    "DROP TABLE IF EXISTS prospecting_app.contact_company_phone_fallbacks",
+  );
   await execute(
     "DROP TABLE IF EXISTS prospecting_app.contact_governance_events",
   );
@@ -253,6 +319,7 @@ async function cleanupDisposableDatabase(): Promise<void> {
   await execute(
     "DROP TABLE IF EXISTS prospecting_app.contact_enrichment_requests",
   );
+  await execute("DROP FUNCTION IF EXISTS prospecting_app.contact_search_diagnostics_are_valid(jsonb, boolean)");
   await execute(rollbackSql);
   await execute(`DROP SCHEMA IF EXISTS ${producerLikeSchema} CASCADE`);
   await dropSyntheticRoles();
@@ -796,6 +863,7 @@ describe("Prospecta app-owned schema migration", () => {
       "commercial_audit_events",
       "contact_candidates",
       "contact_company_matches",
+      "contact_company_phone_fallbacks",
       "contact_company_search_events",
       "contact_company_search_requests",
       "contact_enrichment_events",
@@ -809,12 +877,22 @@ describe("Prospecta app-owned schema migration", () => {
       "import_submission_events",
       "import_submissions",
       "lead_activities",
+      "lead_approach_drafts",
       "lead_notes",
+      "lead_qualification_contacts",
+      "lead_registered_geocode_cache",
       "lead_workspaces",
     ]);
   });
 
   it("rolls back the app-owned schema without relying on producer objects", async () => {
+    await execute(contactSearchRelevanceRollbackSql);
+    await execute(contactSearchFeedbackRollbackSql);
+    await execute(qualificationCadenceRollbackSql);
+    await execute(leadApproachDraftCacheRollbackSql);
+    await execute(leadPostalGeocodeFallbackRollbackSql);
+    await execute(leadRegisteredGeocodeCacheRollbackSql);
+    await execute(contactCompanyPhoneFallbackRollbackSql);
     await execute(contactCompanyResolutionRollbackSql);
     await execute(contactDataGovernanceRollbackSql);
     await execute(contactEnrichmentLedgerRollbackSql);
@@ -827,6 +905,143 @@ describe("Prospecta app-owned schema migration", () => {
 
     expect(rows[0]?.schema_exists).toBe(false);
   });
+
+  it("accepts only PII-free allowlisted diagnostics and replays migration 017 safely", async () => {
+    await expect(execute(contactSearchFeedbackSql)).resolves.toBeUndefined();
+    const valid = [{ provider: "LUSHA", stage: "CONTACT_PREVIEW", code: "NO_MATCHES" },
+      { provider: "APOLLO", stage: "COMPANY_MATCH", code: "DOMAIN_UNAVAILABLE" }];
+    const allowed = await queryRows<{ valid: boolean }>(
+      "SELECT prospecting_app.contact_search_diagnostics_are_valid($1::jsonb, false) AS valid",
+      [JSON.stringify(valid)],
+    );
+    expect(allowed[0]?.valid).toBe(true);
+    for (const value of [[], {}, [null], [{ provider: "LUSHA", stage: "CONTACT_PREVIEW" }],
+      [{ provider: "LUSHA", stage: "CONTACT_PREVIEW", code: "NO_MATCHES", raw_error: "synthetic secret" }],
+      [{ provider: "LUSHA", stage: "CONTACT_PREVIEW", code: "CREDITS_EXHAUSTED" }],
+      [valid[0], valid[0]],
+      [{ provider: "APOLLO", stage: "COMPANY_SEARCH", code: "NO_MATCHES" }],
+    ]) {
+      const rows = await queryRows<{ valid: boolean }>(
+        "SELECT prospecting_app.contact_search_diagnostics_are_valid($1::jsonb, false) AS valid",
+        [JSON.stringify(value)],
+      );
+      expect(rows[0]?.valid).toBe(false);
+    }
+    const company = await queryRows<{ valid: boolean }>(
+      "SELECT prospecting_app.contact_search_diagnostics_are_valid($1::jsonb, true) AS valid",
+      [JSON.stringify([{ provider: "LUSHA", stage: "COMPANY_SEARCH", code: "ACCESS_DENIED" }])],
+    );
+    expect(company[0]?.valid).toBe(true);
+  });
+
+  it("persists feedback with least-privilege app access and refuses destructive rollback", async () => {
+    // A role provisioned after the migration must also receive the CHECK grant
+    // through the general app-grants migration, without relying on PUBLIC.
+    await execute("REVOKE EXECUTE ON FUNCTION prospecting_app.contact_search_diagnostics_are_valid(jsonb, boolean) FROM prospecta_app_rw");
+    await execute(grantsSql);
+    const privileges = await queryRows<{ app_allowed: boolean; producer_allowed: boolean }>(
+      `SELECT
+        has_function_privilege($1, 'prospecting_app.contact_search_diagnostics_are_valid(jsonb,boolean)', 'EXECUTE') AS app_allowed,
+        has_function_privilege($2, 'prospecting_app.contact_search_diagnostics_are_valid(jsonb,boolean)', 'EXECUTE') AS producer_allowed`,
+      [appRuntimeRole, producerReadRole],
+    );
+    expect(privileges[0]).toEqual({ app_allowed: true, producer_allowed: false });
+    const requestId = syntheticUuid(971);
+    await pool.query(`INSERT INTO prospecting_app.contact_enrichment_v2_requests (
+      request_id, organization_id, actor_subject, cnpj_normalizado, company_domain,
+      idempotency_key_sha256, input_sha256, status, result_sha256, provider_occurred_at
+    ) VALUES ($1, 'org-synthetic-a', 'synthetic-tester', '12345678000195', 'empresa.example',
+      $2, $3, 'PREVIEW_FAILED', $4, now())`,
+    [requestId, syntheticHash("a"), syntheticHash("b"), syntheticHash("c")]);
+    const diagnostics = [{ provider: "LUSHA", stage: "CONTACT_PREVIEW", code: "ACCESS_DENIED" }];
+    const runtime = new Pool({ connectionString: connectionStringForRole(appRuntimeRole, appRuntimePassword), max: 1 });
+    try {
+      await runtime.query(`UPDATE prospecting_app.contact_enrichment_v2_requests
+        SET search_diagnostics = $2::jsonb WHERE request_id = $1`, [requestId, JSON.stringify(diagnostics)]);
+      await expect(runtime.query(`UPDATE prospecting_app.contact_enrichment_v2_requests
+        SET search_diagnostics = $2::jsonb WHERE request_id = $1`, [requestId,
+        JSON.stringify([{ ...diagnostics[0], raw_error: "synthetic secret" }])])).rejects.toThrow();
+      await expect(runtime.query(`UPDATE ${producerLikeSchema}.${producerLikeTable} SET "finalScore" = 10`)).rejects.toThrow();
+    } finally {
+      await runtime.end();
+    }
+    await expect(execute(contactSearchFeedbackRollbackSql)).rejects.toThrow("Recorded contact-search facts must be retained");
+    const retained = await queryRows<{ search_diagnostics: unknown }>(
+      "SELECT search_diagnostics FROM prospecting_app.contact_enrichment_v2_requests WHERE request_id = $1", [requestId]);
+    expect(retained[0]?.search_diagnostics).toEqual(diagnostics);
+    const producer = new Pool({ connectionString: connectionStringForRole(producerReadRole, producerReadPassword), max: 1 });
+    try {
+      await expect(producer.query("SELECT search_diagnostics FROM prospecting_app.contact_enrichment_v2_requests")).rejects.toThrow();
+    } finally {
+      await producer.end();
+    }
+  });
+
+  it("accepts relevance diagnostics only for contact preview and replays migration 018 safely", async () => {
+    await expect(execute(contactSearchRelevanceSql)).resolves.toBeUndefined();
+    for (const provider of ["LUSHA", "APOLLO"]) {
+      const rows = await queryRows<{ valid: boolean }>(
+        "SELECT prospecting_app.contact_search_diagnostics_are_valid($1::jsonb, false) AS valid",
+        [JSON.stringify([{ provider, stage: "CONTACT_PREVIEW", code: "NO_RELEVANT_MATCHES" }])],
+      );
+      expect(rows[0]?.valid).toBe(true);
+    }
+    for (const [provider, stage, companySearch] of [
+      ["APOLLO", "COMPANY_MATCH", false],
+      ["LUSHA", "COMPANY_SEARCH", true],
+      ["LUSHA", "CONTACT_PREVIEW", true],
+    ]) {
+      const rows = await queryRows<{ valid: boolean }>(
+        "SELECT prospecting_app.contact_search_diagnostics_are_valid($1::jsonb, $2::boolean) AS valid",
+        [JSON.stringify([{ provider, stage, code: "NO_RELEVANT_MATCHES" }]), companySearch],
+      );
+      expect(rows[0]?.valid).toBe(false);
+    }
+  });
+
+  it.each(["NO_MATCHES", "NO_RELEVANT_MATCHES"])(
+    "preserves recorded %s and governance history when rolling back migration 018",
+    async (code) => {
+      const requestId = syntheticUuid(973);
+      const eventId = syntheticUuid(974);
+      const diagnostics = [{ provider: "LUSHA", stage: "CONTACT_PREVIEW", code }];
+      await pool.query(`INSERT INTO prospecting_app.contact_enrichment_v2_requests (
+        request_id, organization_id, actor_subject, cnpj_normalizado, company_domain,
+        idempotency_key_sha256, input_sha256, status, result_sha256, provider_occurred_at,
+        search_diagnostics
+      ) VALUES ($1, 'org-synthetic-a', 'synthetic-tester', '12345678000195', 'empresa.example',
+        $2, $3, 'PREVIEW_EMPTY', $4, now(), $5::jsonb)`,
+      [requestId, syntheticHash("a"), syntheticHash("b"), syntheticHash("c"), JSON.stringify(diagnostics)]);
+      await pool.query(`INSERT INTO prospecting_app.contact_governance_events (
+        event_id, organization_id, request_id, actor_category, event_type, occurred_at
+      ) VALUES ($1, 'org-synthetic-a', $2, 'synthetic-tester', 'PREVIEW_RESULT_RECORDED', now())`,
+      [eventId, requestId]);
+      await expect(execute(contactSearchRelevanceSql)).resolves.toBeUndefined();
+
+      if (code === "NO_RELEVANT_MATCHES") {
+        await expect(execute(contactSearchRelevanceRollbackSql)).rejects.toThrow(
+          "Recorded contact-search relevance facts must be retained",
+        );
+      } else {
+        await expect(execute(contactSearchRelevanceRollbackSql)).resolves.toBeUndefined();
+      }
+
+      const retained = await queryRows<{ search_diagnostics: unknown; event_id: string }>(
+        `SELECT request.search_diagnostics, event.event_id
+          FROM prospecting_app.contact_enrichment_v2_requests request
+          JOIN prospecting_app.contact_governance_events event
+            ON event.organization_id = request.organization_id AND event.request_id = request.request_id
+          WHERE request.request_id = $1 AND event.event_id = $2`,
+        [requestId, eventId],
+      );
+      expect(retained).toEqual([{ search_diagnostics: diagnostics, event_id: eventId }]);
+      const restored = await queryRows<{ valid: boolean }>(
+        "SELECT prospecting_app.contact_search_diagnostics_are_valid($1::jsonb, false) AS valid",
+        [JSON.stringify([{ provider: "LUSHA", stage: "CONTACT_PREVIEW", code: "NO_RELEVANT_MATCHES" }])],
+      );
+      expect(restored[0]?.valid).toBe(code === "NO_RELEVANT_MATCHES");
+    },
+  );
 
   it("keeps every table organization-scoped", async () => {
     const missing = await queryRows<{ table_name: string }>(
@@ -848,6 +1063,164 @@ describe("Prospecta app-owned schema migration", () => {
     );
 
     expect(missing).toEqual([]);
+  });
+
+  it("enforces the registered postal-code source and precision pairing", async () => {
+    await expect(
+      execute(`
+        INSERT INTO prospecting_app.lead_registered_geocode_cache (
+          organization_id,
+          cnpj_normalizado,
+          status,
+          latitude,
+          longitude,
+          precision,
+          source,
+          resolved_at,
+          expires_at
+        ) VALUES (
+          'org-synthetic-map',
+          '11222333000181',
+          'AVAILABLE',
+          -3.700000,
+          -38.500000,
+          'REGISTERED_POSTAL_CODE',
+          'BRASILAPI_CEP_V2',
+          now(),
+          now() + interval '90 days'
+        )
+      `),
+    ).resolves.toBeUndefined();
+
+    await expect(
+      execute(`
+        INSERT INTO prospecting_app.lead_registered_geocode_cache (
+          organization_id,
+          cnpj_normalizado,
+          status,
+          latitude,
+          longitude,
+          precision,
+          source,
+          resolved_at,
+          expires_at
+        ) VALUES (
+          'org-synthetic-map',
+          '99888777000166',
+          'AVAILABLE',
+          -3.700000,
+          -38.500000,
+          'REGISTERED_ADDRESS',
+          'BRASILAPI_CEP_V2',
+          now(),
+          now() + interval '90 days'
+        )
+      `),
+    ).rejects.toThrow();
+  });
+
+  it("enforces coherent lead-approach claim, ready and failed states", async () => {
+    const values = [
+      syntheticUuid(930),
+      "org-synthetic-approach",
+      "11222333000181",
+      `lr_${"a".repeat(64)}`,
+      "apollo-low-pressure-v1",
+      syntheticUuid(931),
+      "oidc|synthetic-manager",
+    ];
+
+    await expect(
+      pool.query(
+        `
+          INSERT INTO prospecting_app.lead_approach_drafts (
+            approach_draft_id,
+            organization_id,
+            cnpj_normalizado,
+            observed_lead_run_id,
+            generator_version,
+            status,
+            generation_attempt_id,
+            requested_by_subject,
+            lease_expires_at
+          )
+          VALUES ($1, $2, $3, $4, $5, 'GENERATING', $6, $7, now() + interval '1 minute')
+        `,
+        values,
+      ),
+    ).resolves.toBeDefined();
+
+    await expect(
+      pool.query(
+        `
+          UPDATE prospecting_app.lead_approach_drafts
+          SET status = 'READY',
+              generation_attempt_id = NULL,
+              message = 'Mensagem sintética validada para revisão humana.',
+              lease_expires_at = NULL,
+              updated_at = now()
+          WHERE approach_draft_id = $1
+        `,
+        [values[0]],
+      ),
+    ).resolves.toBeDefined();
+
+    await expect(
+      pool.query(
+        `
+          UPDATE prospecting_app.lead_approach_drafts
+          SET status = 'FAILED',
+              message = NULL,
+              retry_after = NULL,
+              updated_at = now()
+          WHERE approach_draft_id = $1
+        `,
+        [values[0]],
+      ),
+    ).rejects.toMatchObject({ code: "23514" });
+  });
+
+  it("scopes lead-approach draft identity by organization, run and generator", async () => {
+    const statement = `
+      INSERT INTO prospecting_app.lead_approach_drafts (
+        approach_draft_id,
+        organization_id,
+        cnpj_normalizado,
+        observed_lead_run_id,
+        generator_version,
+        status,
+        message,
+        requested_by_subject
+      )
+      VALUES ($1, $2, '99888777000166', $3, $4, 'READY', $5, 'oidc|synthetic-manager')
+    `;
+    const identity = [
+      "org-synthetic-approach",
+      `lr_${"b".repeat(64)}`,
+      "apollo-low-pressure-v1",
+    ] as const;
+
+    await pool.query(statement, [
+      syntheticUuid(932),
+      ...identity,
+      "Primeiro rascunho sintético.",
+    ]);
+    await expect(
+      pool.query(statement, [
+        syntheticUuid(933),
+        ...identity,
+        "Duplicata sintética.",
+      ]),
+    ).rejects.toMatchObject({ code: "23505" });
+    await expect(
+      pool.query(statement, [
+        syntheticUuid(934),
+        "org-synthetic-other",
+        identity[1],
+        identity[2],
+        "Rascunho de outra organização.",
+      ]),
+    ).resolves.toBeDefined();
   });
 
   it("does not create producer foreign keys or cascading foreign keys", async () => {
@@ -1048,6 +1421,7 @@ describe("Prospecta app-owned schema migration", () => {
         "contact_enrichment_requests_org_requested_idx",
         "contact_candidates_org_request_position_idx",
         "contact_company_matches_org_request_idx",
+        "contact_company_phone_fallbacks_expiry_idx",
         "contact_company_search_events_org_time_idx",
         "contact_company_search_requests_org_idempotency_uk",
         "contact_company_search_requests_org_requested_idx",
@@ -1062,8 +1436,11 @@ describe("Prospecta app-owned schema migration", () => {
         "import_submissions_org_created_at_idx",
         "import_submissions_org_idempotency_key_uk",
         "import_submissions_org_producer_batch_idx",
+        "lead_registered_geocode_cache_expiry_idx",
+        "lead_approach_drafts_retry_idx",
         "lead_activities_org_workspace_occurred_idx",
         "lead_notes_org_workspace_created_idx",
+        "lead_qualification_contacts_org_workspace_number_uk",
         "lead_workspaces_org_cnpj_active_uk",
         "lead_workspaces_org_stage_idx",
       ]),
@@ -1170,6 +1547,7 @@ describe("Prospecta app-owned schema migration", () => {
           AND table_name IN (
             'contact_company_search_requests',
             'contact_company_matches',
+            'contact_company_phone_fallbacks',
             'contact_company_search_events',
             'contact_candidates',
             'contact_records',
@@ -1199,6 +1577,8 @@ describe("Prospecta app-owned schema migration", () => {
         "profile_ciphertext",
         "provider_ref_ciphertext",
         "channel_data_ciphertext",
+        "phone_data_ciphertext",
+        "phone_hmac",
         "identity_hmac",
       ]),
     );
@@ -2521,6 +2901,8 @@ describe("Prospecta database role isolation", () => {
         "prospecting_app.lead_notes:SELECT",
         "prospecting_app.commercial_audit_events:INSERT",
         "prospecting_app.commercial_audit_events:SELECT",
+        "prospecting_app.lead_qualification_contacts:INSERT",
+        "prospecting_app.lead_qualification_contacts:SELECT",
       ]),
     );
     expect(appGrantKeys.filter((key) => key.endsWith(":DELETE"))).toEqual([
@@ -2555,6 +2937,7 @@ describe("Prospecta database role isolation", () => {
       );
 
     expect(appRoutineGrantKeys).toEqual([
+      "prospecting_app.contact_search_diagnostics_are_valid:EXECUTE",
       "prospecting_app.jsonb_has_only_keys:EXECUTE",
       "prospecting_app.text_is_present:EXECUTE",
     ]);

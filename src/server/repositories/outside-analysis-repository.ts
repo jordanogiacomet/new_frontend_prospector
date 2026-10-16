@@ -187,6 +187,40 @@ LIMIT ${limitParameter} OFFSET ${offsetParameter}`,
   };
 }
 
+function buildDetailStatement(
+  cnpj: string,
+  options: OutsideAnalysisOptions,
+): SqlStatement {
+  const values = [...baseValues];
+  const correlatedImportBatchIdsParameter =
+    appendCorrelatedImportBatchIds(values, options);
+  values.push(cnpj);
+  const cnpjParameter = `$${values.length}`;
+
+  return {
+    text: `${buildEligibleCurrentCrmCte(
+      options,
+      correlatedImportBatchIdsParameter,
+    )}
+SELECT
+  lead.import_batch_id,
+  lead.source_row,
+  lead.cnpj_normalizado,
+  lead.nome_fantasia,
+  lead.razao_social,
+  lead.cidade,
+  lead.uf,
+  lead.cnae_descricao,
+  lead.final_action,
+  lead.reason,
+  lead.decided_at
+FROM eligible_current_crm AS lead
+WHERE lead.cnpj_normalizado = ${cnpjParameter}
+LIMIT 2`,
+    values,
+  };
+}
+
 function isValidTotal(total: unknown): total is number {
   return (
     typeof total === "number" &&
@@ -222,4 +256,29 @@ export async function listOutsideAnalysisCompanies(
     companies: rows.map(mapOutsideAnalysisCompany),
     total: countRow.total,
   };
+}
+
+export async function getOutsideAnalysisCompany(
+  cnpj: string,
+  options: OutsideAnalysisOptions = {},
+): Promise<OutsideAnalysisCompany | null> {
+  const sourceRows = await databaseQuery<SourceGuardRow>(sourceGuardStatement);
+
+  if (sourceRows.length > maximumCurrentProjections) {
+    throw new SafeApiError("DATA_SOURCE_UNAVAILABLE");
+  }
+
+  const rows = await databaseQuery<OutsideAnalysisCompanyRow>(
+    buildDetailStatement(cnpj, options),
+  );
+
+  if (rows.length === 0) {
+    return null;
+  }
+
+  if (rows.length !== 1) {
+    throw new SafeApiError("DATA_SOURCE_UNAVAILABLE");
+  }
+
+  return mapOutsideAnalysisCompany(rows[0]);
 }

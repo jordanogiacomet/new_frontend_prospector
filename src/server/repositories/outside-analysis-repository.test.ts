@@ -14,7 +14,10 @@ vi.mock("../db/producer-client", () => ({
 
 import { SafeApiError } from "../api/errors";
 import type { SqlStatement } from "../db/producer-client";
-import { listOutsideAnalysisCompanies } from "./outside-analysis-repository";
+import {
+  getOutsideAnalysisCompany,
+  listOutsideAnalysisCompanies,
+} from "./outside-analysis-repository";
 
 const defaultQuery = {
   page: 1,
@@ -241,5 +244,104 @@ describe("listOutsideAnalysisCompanies", () => {
       /from\s+["']pg["']|new\s+Pool|fetch\(|axios|n8n|webhook/i,
     );
     expect(repositorySource).not.toContain("../db/app-client");
+  });
+});
+
+describe("getOutsideAnalysisCompany", () => {
+  beforeEach(() => {
+    mocks.query.mockReset();
+  });
+
+  it("returns the mapped current CRM decision for one bound CNPJ", async () => {
+    mocks.query
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([syntheticRow]);
+
+    const result = await getOutsideAnalysisCompany("11222333000181");
+
+    const [guard, detail] = statements();
+    expect(guard.values).toEqual([1_001]);
+    expect(detail.values).toEqual([
+      "OK",
+      "^[0-9]{14}$",
+      "CRM_DECIDIU_E_SALVO",
+      "",
+      approvedRunIdPattern,
+      1,
+      "11222333000181",
+    ]);
+    expect(detail.text).toMatch(
+      /lead\.cnpj_normalizado\s*=\s*\$7/i,
+    );
+    expect(detail.text).toMatch(/LIMIT\s+2/i);
+    expect(detail.text).not.toContain("11222333000181");
+    expect(result).toEqual({
+      import_batch_id: "synthetic-crm-batch",
+      source_row: 9,
+      cnpj: "11222333000181",
+      companyName: "Empresa Sintética CRM",
+      city: "Recife",
+      uf: "PE",
+      sector: "Serviços sintéticos",
+      decidedAction: "NAO_ABORDAR",
+      decisionReason: "Decisão sintética armazenada pelo produtor",
+      decidedAt: "2026-07-23T14:30:00.000Z",
+    });
+  });
+
+  it("preserves correlated visibility and binds the CNPJ after the batch array", async () => {
+    const correlatedBatchIds = ["synthetic-correlated-batch"];
+    mocks.query
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([syntheticRow]);
+
+    await getOutsideAnalysisCompany("11222333000181", {
+      includeTestRunsFromImportBatchIds: correlatedBatchIds,
+    });
+
+    const [, detail] = statements();
+    expect(detail.text).toContain(
+      "terminal.import_batch_id = ANY($7::text[])",
+    );
+    expect(detail.text).toMatch(
+      /lead\.cnpj_normalizado\s*=\s*\$8/i,
+    );
+    expect(detail.values).toEqual([
+      "OK",
+      "^[0-9]{14}$",
+      "CRM_DECIDIU_E_SALVO",
+      "",
+      approvedRunIdPattern,
+      1,
+      correlatedBatchIds,
+      "11222333000181",
+    ]);
+  });
+
+  it("returns null when no current eligible decision exists", async () => {
+    mocks.query.mockResolvedValueOnce([]).mockResolvedValueOnce([]);
+
+    await expect(
+      getOutsideAnalysisCompany("11222333000181"),
+    ).resolves.toBeNull();
+  });
+
+  it("fails closed when the CNPJ resolves to more than one eligible projection", async () => {
+    mocks.query
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([syntheticRow, { ...syntheticRow }]);
+
+    await expect(
+      getOutsideAnalysisCompany("11222333000181"),
+    ).rejects.toBeInstanceOf(SafeApiError);
+  });
+
+  it("applies the same 1,000-projection guard before detail access", async () => {
+    mocks.query.mockResolvedValueOnce(projectionRows(1_001));
+
+    await expect(
+      getOutsideAnalysisCompany("11222333000181"),
+    ).rejects.toBeInstanceOf(SafeApiError);
+    expect(mocks.query).toHaveBeenCalledOnce();
   });
 });

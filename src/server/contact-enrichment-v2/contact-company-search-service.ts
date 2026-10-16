@@ -137,6 +137,7 @@ export async function processCompanySearchCallback(
     organizationId: environment.AUTH_ALLOWED_ORG_ID,
     searchRequestId: callback.search_request_id,
     status: callback.status,
+    searchDiagnostics: callback.search_diagnostics ?? null,
     resultSha256: canonicalSha256(callback),
     occurredAt,
     expiresAt,
@@ -204,6 +205,7 @@ export async function getContactCompanySearch(
     matchesExpiresAt:
       stored.request.matchesExpiresAt?.toISOString() ?? null,
     matches,
+    searchDiagnostics: stored.request.searchDiagnostics ?? null,
   };
 }
 
@@ -217,6 +219,7 @@ export async function resolveCompanyMatchSelection(
   environment: ParsedServerEnv,
 ): Promise<{
   readonly providerCompanyId: string;
+  readonly companyDomain: string | null;
   readonly searchRequestId: string;
 } | null> {
   const stored = await readCompanyMatchForPreview({
@@ -225,7 +228,13 @@ export async function resolveCompanyMatchSelection(
     companyMatchId: input.companyMatchId,
     now: input.now ?? new Date(),
   });
-  if (stored?.encryptedProviderRef === null || stored === null) return null;
+  if (
+    stored === null ||
+    stored.encryptedProviderRef === null ||
+    stored.encryptedProfile === null
+  ) return null;
+
+  const keys = requireContactKeys(environment);
 
   const providerCompanyId = z.string().min(1).max(256).parse(
     decryptContactJson(
@@ -235,10 +244,25 @@ export async function resolveCompanyMatchSelection(
         stored.searchRequestId,
         stored.companyMatchId,
       ),
-      requireContactKeys(environment),
+      keys,
     ),
   );
-  return { providerCompanyId, searchRequestId: stored.searchRequestId };
+  const profile = normalizedCompanyProfileSchema.parse(
+    decryptContactJson(
+      stored.encryptedProfile,
+      companyProfileAad(
+        input.actor.organizationId,
+        stored.searchRequestId,
+        stored.companyMatchId,
+      ),
+      keys,
+    ),
+  );
+  return {
+    providerCompanyId,
+    companyDomain: profile.companyDomain,
+    searchRequestId: stored.searchRequestId,
+  };
 }
 
 export async function applyCompanyMatchRetention(

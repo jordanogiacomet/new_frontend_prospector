@@ -17,13 +17,18 @@
   },
   "companySearch": {
     "providerOperation": "POST https://api.lusha.com/v3/companies/prospecting",
-    "searchCriteria": [
+    "providerSearchCriteria": [
       "COMPANY_NAME",
+      "COUNTRY_BRAZIL"
+    ],
+    "rankingContext": [
       "CITY_WHEN_AVAILABLE",
-      "STATE_WHEN_AVAILABLE",
-      "COUNTRY_BR_MAPPED_TO_PROVIDER_NAME_BRAZIL"
+      "STATE_WHEN_CITY_UNAVAILABLE"
     ],
     "providerPageSize": 10,
+    "ranking": "LOCAL_MATCHES_FIRST_PRESERVING_PROVIDER_ORDER",
+    "fallback": "FIRST_PROVIDER_RESULT_WHEN_NO_LOCAL_MATCH",
+    "automaticRetry": false,
     "billing": "API_SEARCH_MAY_CHARGE_PER_SUCCESSFUL_RESULT",
     "selection": "ONE_HUMAN_CONFIRMED_APP_OWNED_MATCH",
     "callbackPath": "/api/contact-enrichment/v2/company-search-callback",
@@ -41,12 +46,33 @@
     "rawProviderPayload": false
   },
   "preview": {
-    "providerOperation": "POST https://api.lusha.com/v3/contacts/decision-makers",
-    "selectors": ["CONFIRMED_DOMAIN", "SERVER_DECRYPTED_PROVIDER_COMPANY_ID"],
+    "contractVersion": "contact-provider-fallback-v1",
+    "primaryProviderOperation": "POST https://api.lusha.com/v3/contacts/decision-makers",
+    "emptyOnlyFallbackOperations": [
+      "GET https://api.apollo.io/api/v1/organizations/enrich",
+      "POST https://api.apollo.io/api/v1/mixed_people/api_search"
+    ],
+    "selectors": [
+      "CONFIRMED_DOMAIN",
+      "SERVER_DECRYPTED_PROVIDER_COMPANY_ID"
+    ],
+    "providerPageSize": 100,
+    "localSelection": "ASSETS_THEN_FINANCE_THEN_EXPLICIT_ASSET_OPERATIONS",
+    "genericFallback": "PROHIBITED",
+    "commercialScoreEligibility": "EXISTING_CONTACT_COMMERCIAL_SCORE_V1_ONLY",
+    "localFilterScope": "ONE_PROVIDER_RANKED_SAMPLE_NOT_EXHAUSTIVE",
+    "providerTableWrite": false,
+    "automaticRetry": false,
+    "secondProviderRequest": "APOLLO_ONLY_AFTER_STRUCTURALLY_VALID_LUSHA_RAW_EMPTY_NO_MATCHES",
+    "apolloCompanyGuard": "EXACT_PRIMARY_DOMAIN_THEN_ORGANIZATION_ID",
+    "companyPhoneFallback": "APOLLO_SANITIZED_CORPORATE_PHONE_ONLY_WHEN_BOTH_RAW_PERSON_SAMPLES_EMPTY",
+    "companyPhoneContactability": "UNKNOWN_NO_TEL_LINK",
+    "billing": "LUSHA_PREVIEW_FREE_APOLLO_ORGANIZATION_MATCH_ONE_CREDIT_APOLLO_PEOPLE_SEARCH_FREE",
     "maximumCandidates": 10,
     "callbackPath": "/api/contact-enrichment/v2/callback",
     "allowedFields": [
       "provider_contact_id",
+      "provider_source",
       "full_name",
       "job_title",
       "departments",
@@ -56,21 +82,89 @@
       "location.country",
       "linkedin_url",
       "can_reveal_work_email",
-      "can_reveal_business_phone"
+      "can_reveal_business_phone",
+      "company_phone.number",
+      "company_phone.provider_source",
+      "company_phone.contactability"
+    ],
+    "searchPolicyVersion": "contact-asset-targeting-v1",
+    "assetTitles": "VERSIONED_PHYSICAL_AND_FIXED_ASSET_ALIASES",
+    "financeTitles": "EXISTING_FINANCE_ACCOUNTING_CONTROLLER_ALIASES",
+    "assetOperationsTitles": "EXPLICIT_PHYSICAL_ASSET_INVENTORY_STOCK_ALIASES",
+    "candidateDeduplication": "PROVIDER_ID_BEFORE_MAXIMUM_CANDIDATES_HIGHEST_TIER_FIRST",
+    "excludedTitles": "PERSONAL_WEALTH_ALIASES_VETO_ALL_SEARCH_TIERS"
+  },
+  "searchDiagnostics": {
+    "callbackField": "search_diagnostics",
+    "optional": true,
+    "maximumEntries": 4,
+    "allowedFields": [
+      "provider",
+      "stage",
+      "code"
+    ],
+    "providerStages": {
+      "LUSHA": [
+        "COMPANY_SEARCH",
+        "CONTACT_PREVIEW"
+      ],
+      "APOLLO": [
+        "COMPANY_MATCH",
+        "CONTACT_PREVIEW"
+      ]
+    },
+    "allowedCodes": [
+      "RESULTS_FOUND",
+      "NO_MATCHES",
+      "NO_RELEVANT_MATCHES",
+      "ACCESS_DENIED",
+      "RATE_LIMITED",
+      "PROVIDER_ERROR",
+      "INVALID_RESPONSE",
+      "TIMEOUT",
+      "OUTCOME_UNKNOWN",
+      "DOMAIN_UNAVAILABLE",
+      "COMPANY_NOT_CONFIRMED",
+      "NOT_ATTEMPTED"
+    ],
+    "emptyMeaning": "NO_MATCHES_REQUIRES_CONFIRMED_RAW_PROVIDER_SAMPLE_EMPTY",
+    "transportTimeoutFact": "STRUCTURED_ETIMEDOUT_OR_ESOCKETTIMEDOUT_ONLY",
+    "rateLimitFact": "HTTP_429_WITHOUT_CREDIT_BALANCE_INFERENCE",
+    "rawErrorMessages": false,
+    "providerStatusCodes": false,
+    "requestIdsOrBilling": false,
+    "automaticRetry": false,
+    "noRelevantMeaning": "VALID_PERSON_SAMPLE_WITH_NO_APPROVED_JOB_TITLE_NO_PROVIDER_OR_PHONE_FALLBACK",
+    "noRelevantStages": [
+      "CONTACT_PREVIEW"
     ]
   },
   "reveal": {
     "selection": "ONE_HUMAN_SELECTED_CONTACT",
-    "providerOperation": "POST https://api.lusha.com/v3/contacts/enrich",
+    "providerOperations": [
+      "POST https://api.lusha.com/v3/contacts/enrich",
+      "POST https://api.apollo.io/api/v1/people/match"
+    ],
+    "apollo": "WORK_EMAIL_ONLY_NO_PERSONAL_EMAIL_NO_PHONE_NO_WATERFALL",
+    "apolloProfileUpdate": [
+      "full_name",
+      "linkedin_url"
+    ],
     "waterfallReveal": "PROHIBITED",
     "callbackPath": "/api/contact-enrichment/v2/reveal-callback",
-    "allowedEmailTypes": ["work"],
-    "allowedPhoneTypes": ["work", "direct"],
+    "allowedEmailTypes": [
+      "work"
+    ],
+    "allowedPhoneTypes": [
+      "work",
+      "direct"
+    ],
     "doNotCall": "SUPPRESS_AND_WITHHOLD"
   },
   "credentials": {
     "ingress": "MANUAL_NATIVE_HEADER_AUTH_BINDING",
     "lusha": "MANUAL_NATIVE_HEADER_AUTH_BINDING",
+    "apollo": "MANUAL_NATIVE_X_API_KEY_HEADER_AUTH_BINDING",
     "callback": "MANUAL_NATIVE_HEADER_AUTH_BINDING",
     "repositorySecrets": false
   },
@@ -78,12 +172,14 @@
     "producerWrites": false,
     "n8nExecutionData": "NONE",
     "rawProviderPayload": false,
+    "companyPhone": "APP_OWNED_AUTHENTICATED_ENCRYPTION_30_DAY_RETENTION",
     "prospectaAppOwnedOnly": true
   },
   "activationGates": [
     "IDENTIFIED_NON_PRODUCTION_HTTPS_TARGET",
     "CONTROLLER_TRANSPARENCY_FIELDS",
     "NATIVE_CREDENTIAL_BINDINGS",
+    "APOLLO_SCOPES_AND_CREDIT_OWNER_CONFIRMED",
     "NO_EXECUTION_DATA_REMOTELY_VERIFIED",
     "SYNTHETIC_CONTRACT_PASS",
     "EXPLICIT_ACTIVATION_APPROVAL"

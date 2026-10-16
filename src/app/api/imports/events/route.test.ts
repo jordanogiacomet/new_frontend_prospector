@@ -226,7 +226,7 @@ describe("POST /api/imports/events", () => {
     });
   });
 
-  it("records only the accepted-row batch and time under the configured organization", async () => {
+  it("records only the accepted-row batch, time and source row under the configured organization", async () => {
     const response = await POST(
       request({ authorization: secret, json: acceptedRowBody }).request,
     );
@@ -236,11 +236,55 @@ describe("POST /api/imports/events", () => {
       organizationId: "org-synthetic-a",
       importBatchId: acceptedRowBody.import_batch_id,
       occurredAt: new Date(acceptedRowBody.occurred_at),
+      sourceRow: acceptedRowBody.source_row,
     });
     expect(mocks.recordLegacyWorkflowClose).not.toHaveBeenCalled();
     expect(await responseBody(response)).toEqual({
       data: { recorded: true, replayed: false },
     });
+  });
+
+  it("passes a missing row identity as null without retaining company or producer payloads", async () => {
+    const response = await POST(request({
+      authorization: secret,
+      json: { ...acceptedRowBody, source_row: null },
+    }).request);
+
+    expect(response.status).toBe(200);
+    expect(mocks.recordLegacyWorkflowStart).toHaveBeenCalledExactlyOnceWith({
+      organizationId: "org-synthetic-a",
+      importBatchId: acceptedRowBody.import_batch_id,
+      occurredAt: new Date(acceptedRowBody.occurred_at),
+      sourceRow: null,
+    });
+    expect(JSON.stringify(mocks.recordLegacyWorkflowStart.mock.calls)).not.toMatch(
+      /cnpj|lead_run_id|idempotency_key|razao_social|nome_fantasia|payload/i,
+    );
+  });
+
+  it.each([0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1])(
+    "rejects invalid row identity %s before database work",
+    async (source_row) => {
+      const response = await POST(request({
+        authorization: secret,
+        json: { ...acceptedRowBody, source_row },
+      }).request);
+
+      expect(response.status).toBe(400);
+      expect(mocks.recordLegacyWorkflowStart).not.toHaveBeenCalled();
+      expect(mocks.recordLegacyWorkflowClose).not.toHaveBeenCalled();
+    },
+  );
+
+  it("authenticates an individual company receipt before parsing or persistence", async () => {
+    const callback = request({
+      authorization: "wrong-synthetic-secret-at-least-32-bytes",
+      json: acceptedRowBody,
+    });
+
+    expect((await POST(callback.request)).status).toBe(401);
+    expect(callback.json).not.toHaveBeenCalled();
+    expect(mocks.recordLegacyWorkflowStart).not.toHaveBeenCalled();
   });
 
   it("accepts a later accepted-row callback as an idempotent replay", async () => {

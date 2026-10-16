@@ -341,6 +341,119 @@ describe("listCommercialWorkQueue", () => {
     ]);
   });
 
+  it("decorates persisted drafts at every priority but marks only absent B/C drafts for automatic generation", async () => {
+    mocks.producerQuery
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ total: 3 }])
+      .mockResolvedValueOnce([
+        producerRow({ priority: "B" }),
+        producerRow({
+          decision_id: "9002",
+          cnpj_normalizado: otherCnpj,
+          lead_run_id: otherLeadRunId,
+          priority: "C",
+        }),
+        producerRow({
+          decision_id: "9003",
+          cnpj_normalizado: "99888777000166",
+          lead_run_id: `lr_${"c".repeat(64)}`,
+          priority: "D",
+        }),
+      ]);
+    mocks.appQuery
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          cnpj_normalizado: cnpj,
+          observed_lead_run_id: leadRunId,
+          status: "READY",
+          generation_attempt_id: null,
+          message: "Mensagem sintética pronta.",
+          lease_expires_at: null,
+          retry_after: null,
+        },
+        {
+          cnpj_normalizado: otherCnpj,
+          observed_lead_run_id: otherLeadRunId,
+          status: "FAILED",
+          generation_attempt_id: null,
+          message: null,
+          lease_expires_at: null,
+          retry_after: new Date("2026-08-17T12:05:00.000Z"),
+        },
+        {
+          cnpj_normalizado: "99888777000166",
+          observed_lead_run_id: `lr_${"c".repeat(64)}`,
+          status: "READY",
+          generation_attempt_id: null,
+          message: "Mensagem manual da empresa com nota D.",
+          lease_expires_at: null,
+          retry_after: null,
+        },
+      ]);
+
+    const result = await listCommercialWorkQueue(
+      { actor: actor() },
+      {},
+      {
+        includeApproachDrafts: true,
+        now: new Date("2026-08-17T12:00:00.000Z"),
+      },
+    );
+
+    expect(result.items.map((item) => item.approachDraft)).toEqual([
+      { status: "ready", message: "Mensagem sintética pronta." },
+      { status: "unavailable", message: null },
+      { status: "ready", message: "Mensagem manual da empresa com nota D." },
+    ]);
+    expect(appStatements()[1]?.values).toEqual([
+      organizationId,
+      "apollo-profile-fit-v2",
+      [cnpj, otherCnpj, "99888777000166"],
+      [leadRunId, otherLeadRunId, `lr_${"c".repeat(64)}`],
+    ]);
+  });
+
+  it("keeps an absent lower-priority draft null while B/C remain automatically claimable", async () => {
+    mocks.producerQuery
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ total: 2 }])
+      .mockResolvedValueOnce([
+        producerRow({ priority: "B" }),
+        producerRow({
+          decision_id: "9002",
+          cnpj_normalizado: otherCnpj,
+          lead_run_id: otherLeadRunId,
+          priority: "E",
+        }),
+      ]);
+    mocks.appQuery.mockResolvedValueOnce([]).mockResolvedValueOnce([]);
+
+    const result = await listCommercialWorkQueue(
+      { actor: actor() },
+      {},
+      { includeApproachDrafts: true },
+    );
+
+    expect(result.items.map((item) => item.approachDraft)).toEqual([
+      { status: "missing", message: null },
+      null,
+    ]);
+  });
+
+  it("withholds all approach-draft state when cache access is not authorized", async () => {
+    mocks.producerQuery
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ total: 1 }])
+      .mockResolvedValueOnce([producerRow({ priority: "B" })]);
+    mocks.appQuery.mockResolvedValueOnce([]);
+
+    const result = await listCommercialWorkQueue({ actor: actor() });
+
+    expect(result.items[0]?.approachDraft).toBeNull();
+    expect(mocks.appQuery).toHaveBeenCalledOnce();
+  });
+
   it("withholds an invalid producer company domain", async () => {
     mocks.producerQuery
       .mockResolvedValueOnce([])
@@ -493,7 +606,7 @@ describe("listCommercialWorkQueue", () => {
       filters: {
         cnpj_normalizado: cnpj,
         uf: "PE",
-        priority: "B",
+        priority: "D",
       },
     });
 
@@ -502,10 +615,10 @@ describe("listCommercialWorkQueue", () => {
     expect(countStatement?.text).toMatch(/lead\.uf = \$8/i);
     expect(countStatement?.text).toMatch(/lead\.priority = \$9/i);
     expect(countStatement?.values).toEqual(
-      expect.arrayContaining([cnpj, "PE", "B"]),
+      expect.arrayContaining([cnpj, "PE", "D"]),
     );
     expect(dataStatement?.values).toEqual(
-      expect.arrayContaining([cnpj, "PE", "B"]),
+      expect.arrayContaining([cnpj, "PE", "D"]),
     );
     expect(countStatement?.text).not.toContain(cnpj);
   });

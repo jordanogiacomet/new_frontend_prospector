@@ -43,12 +43,20 @@ function requiredEnvironment(name) {
 }
 
 function parseMode() {
-  const allowed = new Set(["--preflight", "--import-inactive"]);
+  const allowed = new Set(["--preflight", "--preflight-published", "--import-inactive", "--replace-published"]);
   const flags = process.argv.slice(2);
   if (flags.some((flag) => !allowed.has(flag)) || flags.length > 1) {
-    fail("use no flag, --preflight, or --import-inactive");
+    fail(
+      "use no flag, --preflight, --preflight-published, --import-inactive, or --replace-published",
+    );
   }
-  return flags[0] === "--import-inactive" ? "import" : "preflight";
+  const modes = {
+    "--preflight": "preflight-inactive",
+    "--preflight-published": "preflight-published",
+    "--import-inactive": "import-inactive",
+    "--replace-published": "replace-published",
+  };
+  return modes[flags[0] ?? "--preflight"];
 }
 
 function run(command, args, description, options = {}) {
@@ -95,7 +103,12 @@ function buildMetadataQuery(database) {
     "Webhook Contact Enrichment v2",
     "Lusha Prospecting Companies v2",
     "Lusha Decision Makers v2",
+    "Lusha Prospecting Priority Contacts v2",
+    "Lusha Decision Makers Priority Fallback v2",
     "Lusha Enrich Selected Contact v2",
+    "Apollo Organization Enrichment v1",
+    "Apollo People Search Fallback v1",
+    "Apollo Enrich Selected Contact v1",
     "Callback Prospecta Preview v2",
     "Callback Prospecta Company Search v2",
     "Callback Prospecta Reveal v2",
@@ -139,6 +152,7 @@ v2_rows AS (
          v."activeVersionId",
          v."projectId",
          v.role,
+         json_array_length(COALESCE(v.nodes, '[]'::json)) AS "nodeCount",
          COALESCE(v.settings, '{}'::json) AS settings,
          COALESCE((
            SELECT json_agg(binding.item ORDER BY binding.item::text)
@@ -156,6 +170,34 @@ v2_rows AS (
                 WHERE node->>'name' IN (${bindingNodes})
              ) binding
          ), '[]'::json) AS bindings,
+         (
+           SELECT node->'parameters'->>'url'
+             FROM json_array_elements(COALESCE(v.nodes, '[]'::json)) node
+            WHERE node->>'name' IN (
+                    'Lusha Decision Makers v2',
+                    'Lusha Prospecting Priority Contacts v2',
+                    'Lusha Decision Makers Priority Fallback v2'
+                  )
+            LIMIT 1
+         ) AS "previewProviderUrl",
+         (
+           SELECT node->'parameters'->>'url'
+             FROM json_array_elements(COALESCE(v.nodes, '[]'::json)) node
+            WHERE node->>'name' = 'Apollo Organization Enrichment v1'
+            LIMIT 1
+         ) AS "apolloOrganizationUrl",
+         (
+           SELECT node->'parameters'->>'url'
+             FROM json_array_elements(COALESCE(v.nodes, '[]'::json)) node
+            WHERE node->>'name' = 'Apollo People Search Fallback v1'
+            LIMIT 1
+         ) AS "apolloPeopleSearchUrl",
+         (
+           SELECT node->'parameters'->>'url'
+             FROM json_array_elements(COALESCE(v.nodes, '[]'::json)) node
+            WHERE node->>'name' = 'Apollo Enrich Selected Contact v1'
+            LIMIT 1
+         ) AS "apolloRevealUrl",
          (
            SELECT node->'parameters'->>'url'
              FROM json_array_elements(COALESCE(v.nodes, '[]'::json)) node
@@ -203,7 +245,8 @@ credential_rows AS (
       OR c.name IN (
            ${sqlLiteral(demo3ContactV2N8n.ingressCredentialName)},
            ${sqlLiteral(demo3ContactV2N8n.callbackCredentialName)},
-           ${sqlLiteral(demo3ContactV2N8n.lushaCredentialName)}
+           ${sqlLiteral(demo3ContactV2N8n.lushaCredentialName)},
+           ${sqlLiteral(demo3ContactV2N8n.apolloCredentialName)}
          )
 )
 SELECT json_build_object(
@@ -565,16 +608,13 @@ function exactOwner(rows, expected, description) {
   return matches[0];
 }
 
-function assertNoRuntimeActivity(metadata) {
+function assertNoActiveExecutions(metadata) {
   if (metadata.activeExecutionCount !== 0) {
     fail("n8n has active executions; no import is allowed");
   }
-  if (metadata.v2WebhookRegistrationCount !== 0) {
-    fail("the v2 workflow has a webhook registration while inactive");
-  }
 }
 
-function inspectApprovedMetadata(metadata) {
+function inspectApprovedMetadata(metadata, workflowState) {
   if (
     !Array.isArray(metadata?.v1Rows) ||
     !Array.isArray(metadata?.v2Rows) ||
@@ -582,7 +622,7 @@ function inspectApprovedMetadata(metadata) {
   ) {
     fail("n8n metadata shape is invalid");
   }
-  assertNoRuntimeActivity(metadata);
+  assertNoActiveExecutions(metadata);
 
   const v1 = exactOwner(
     metadata.v1Rows,
@@ -616,8 +656,28 @@ function inspectApprovedMetadata(metadata) {
     fail("Lusha credential ID metadata is invalid");
   }
 
+  const apolloRows = metadata.credentialRows.filter(
+    (row) => row.name === demo3ContactV2N8n.apolloCredentialName,
+  );
+  const apollo = exactOwner(
+    apolloRows,
+    {
+      id: apolloRows[0]?.id,
+      name: demo3ContactV2N8n.apolloCredentialName,
+      type: demo3ContactV2N8n.credentialType,
+      projectId: v1.projectId,
+      role: "credential:owner",
+    },
+    "Apollo credential",
+  );
+  if (!/^[A-Za-z0-9_-]{1,128}$/.test(apollo.id)) {
+    fail("Apollo credential ID metadata is invalid");
+  }
+
   const existingV2CredentialRows = metadata.credentialRows.filter(
-    (row) => row.name !== demo3ContactV2N8n.lushaCredentialName,
+    (row) =>
+      row.name !== demo3ContactV2N8n.lushaCredentialName &&
+      row.name !== demo3ContactV2N8n.apolloCredentialName,
   );
   for (const expected of [
     {
@@ -647,10 +707,18 @@ function inspectApprovedMetadata(metadata) {
   }
 
   if (metadata.v2Rows.length > 0) {
-    assertImportedWorkflow(metadata, v1.projectId, lusha);
+    assertWorkflow(
+      metadata,
+      v1.projectId,
+      lusha,
+      apollo,
+      workflowState,
+    );
+  } else if (!workflowState.startsWith("inactive")) {
+    fail("the published v2 workflow is missing");
   }
 
-  return { projectId: v1.projectId, lusha };
+  return { projectId: v1.projectId, lusha, apollo };
 }
 
 function normalizedBindings(bindings) {
@@ -659,7 +727,13 @@ function normalizedBindings(bindings) {
   );
 }
 
-function assertImportedWorkflow(metadata, projectId, lusha) {
+function assertWorkflow(
+  metadata,
+  projectId,
+  lusha,
+  apollo,
+  workflowState,
+) {
   const workflow = exactOwner(
     metadata.v2Rows,
     {
@@ -670,8 +744,30 @@ function assertImportedWorkflow(metadata, projectId, lusha) {
     },
     "v2 workflow",
   );
-  if (workflow.active !== false || workflow.activeVersionId !== null) {
-    fail("v2 workflow is not fully inactive");
+  const fullyInactive =
+    workflow.active === false &&
+    workflow.activeVersionId === null &&
+    metadata.v2WebhookRegistrationCount === 0;
+  const unpublished =
+    workflow.active === false &&
+    (workflow.activeVersionId === null ||
+      (typeof workflow.activeVersionId === "string" &&
+        /^[A-Za-z0-9_-]{1,128}$/.test(workflow.activeVersionId))) &&
+    (metadata.v2WebhookRegistrationCount === 0 ||
+      metadata.v2WebhookRegistrationCount === 1);
+  const published =
+    workflow.active === true &&
+    typeof workflow.activeVersionId === "string" &&
+    /^[A-Za-z0-9_-]{1,128}$/.test(workflow.activeVersionId) &&
+    metadata.v2WebhookRegistrationCount === 1;
+  const requiresInactive = workflowState.startsWith("inactive");
+  const validInactiveState =
+    workflowState === "inactive" ? fullyInactive : unpublished;
+  if (
+    (requiresInactive && !validInactiveState) ||
+    (!requiresInactive && !published)
+  ) {
+    fail(`v2 workflow is not in the required ${workflowState} state`);
   }
   if (
     workflow.settings?.saveDataSuccessExecution !== "none" ||
@@ -680,14 +776,61 @@ function assertImportedWorkflow(metadata, projectId, lusha) {
   ) {
     fail("v2 workflow execution-data settings are unsafe");
   }
-  const expectedBindings = expectedDemo3ContactV2Bindings(lusha);
+  const currentBindings = expectedDemo3ContactV2Bindings(lusha, apollo);
+  const prospectingBindings = currentBindings.map((binding) =>
+    binding[0] === "Lusha Decision Makers Priority Fallback v2"
+      ? ["Lusha Prospecting Priority Contacts v2", ...binding.slice(1)]
+      : binding,
+  );
+  const legacyBindings = currentBindings.map((binding) =>
+    binding[0] === "Lusha Decision Makers Priority Fallback v2"
+      ? ["Lusha Decision Makers v2", ...binding.slice(1)]
+      : binding,
+  );
+  const withoutApollo = (bindings) =>
+    bindings.filter((binding) => !String(binding[0]).startsWith("Apollo "));
+  const actualBindings = JSON.stringify(normalizedBindings(workflow.bindings));
+  const allowedBindings =
+    workflowState.endsWith("before")
+      ? [
+          currentBindings,
+          withoutApollo(currentBindings),
+          withoutApollo(prospectingBindings),
+          withoutApollo(legacyBindings),
+        ]
+      : [currentBindings];
   if (
-    JSON.stringify(normalizedBindings(workflow.bindings)) !==
-    JSON.stringify(normalizedBindings(expectedBindings))
+    !allowedBindings.some(
+      (bindings) =>
+        actualBindings === JSON.stringify(normalizedBindings(bindings)),
+    )
   ) {
     fail("v2 workflow credential bindings are not exact");
   }
+  const allowedProviderUrls =
+    workflowState.endsWith("before")
+      ? [
+          "https://api.lusha.com/v3/contacts/decision-makers",
+          "https://api.lusha.com/v3/contacts/prospecting",
+        ]
+      : ["https://api.lusha.com/v3/contacts/decision-makers"];
+  const currentProviderArtifact =
+    workflow.nodeCount === 29 &&
+    workflow.apolloOrganizationUrl ===
+      "https://api.apollo.io/api/v1/organizations/enrich" &&
+    workflow.apolloPeopleSearchUrl ===
+      "https://api.apollo.io/api/v1/mixed_people/api_search" &&
+    workflow.apolloRevealUrl ===
+      "https://api.apollo.io/api/v1/people/match";
+  const previousProviderArtifact =
+    workflowState.endsWith("before") &&
+    workflow.nodeCount === 19 &&
+    workflow.apolloOrganizationUrl === null &&
+    workflow.apolloPeopleSearchUrl === null &&
+    workflow.apolloRevealUrl === null;
   if (
+    (!currentProviderArtifact && !previousProviderArtifact) ||
+    !allowedProviderUrls.includes(workflow.previewProviderUrl) ||
     workflow.previewCallbackUrl !== demo3ContactV2N8n.previewCallbackUrl ||
     workflow.companySearchCallbackUrl !==
       demo3ContactV2N8n.companySearchCallbackUrl ||
@@ -697,7 +840,31 @@ function assertImportedWorkflow(metadata, projectId, lusha) {
   ) {
     fail("v2 workflow endpoint metadata is not exact");
   }
-  assertNoRuntimeActivity(metadata);
+  assertNoActiveExecutions(metadata);
+}
+
+function assertImportedWorkflow(metadata, projectId, lusha, apollo) {
+  assertWorkflow(metadata, projectId, lusha, apollo, "inactive");
+}
+
+function assertReplacementWorkflow(metadata, projectId, lusha, apollo) {
+  assertWorkflow(
+    metadata,
+    projectId,
+    lusha,
+    apollo,
+    "inactive-current",
+  );
+}
+
+function assertPublishedWorkflow(metadata, projectId, lusha, apollo) {
+  assertWorkflow(
+    metadata,
+    projectId,
+    lusha,
+    apollo,
+    "published-current",
+  );
 }
 
 function assertImportedCredentials(metadata, projectId) {
@@ -751,6 +918,136 @@ function importJson(kind, value, projectId) {
   });
 }
 
+function runN8nCli(args, description) {
+  return kubectl(
+    [
+      "-n",
+      demo3ContactV2N8n.namespace,
+      "exec",
+      `deployment/${demo3ContactV2N8n.deployment}`,
+      "--request-timeout=60s",
+      "--",
+      "n8n",
+      ...args,
+    ],
+    description,
+    { timeout: 120_000 },
+  );
+}
+
+function exportPublishedWorkflow() {
+  const raw = runN8nCli(
+    [
+      "export:workflow",
+      `--id=${demo3ContactV2N8n.workflowId}`,
+      "--published",
+    ],
+    "could not export the published v2 workflow for rollback",
+  );
+  let exported;
+  try {
+    exported = JSON.parse(raw);
+  } catch {
+    fail("published v2 rollback export is invalid");
+  }
+  if (
+    !Array.isArray(exported) ||
+    exported.length !== 1 ||
+    exported[0]?.id !== demo3ContactV2N8n.workflowId ||
+    exported[0]?.name !== demo3ContactV2N8n.workflowName ||
+    exported[0]?.active !== true ||
+    !Array.isArray(exported[0]?.nodes) ||
+    ![19, 29].includes(exported[0].nodes.length)
+  ) {
+    fail("published v2 rollback export does not match the approved workflow");
+  }
+  return exported[0];
+}
+
+function unpublishWorkflow() {
+  runN8nCli(
+    ["unpublish:workflow", `--id=${demo3ContactV2N8n.workflowId}`],
+    "could not unpublish the exact v2 workflow",
+  );
+}
+
+function publishWorkflow() {
+  runN8nCli(
+    ["publish:workflow", `--id=${demo3ContactV2N8n.workflowId}`],
+    "could not publish the exact v2 workflow",
+  );
+}
+
+function rollbackPublishedWorkflow({
+  rollbackWorkflow,
+  projectId,
+  database,
+  lusha,
+  apollo,
+}) {
+  unpublishWorkflow();
+  importJson(
+    "workflow",
+    { ...rollbackWorkflow, active: false },
+    projectId,
+  );
+  publishWorkflow();
+  const restored = readN8nMetadata(database);
+  assertWorkflow(
+    restored,
+    projectId,
+    lusha,
+    apollo,
+    "published-before",
+  );
+}
+
+function replacePublishedWorkflow({
+  workflow,
+  projectId,
+  database,
+  lusha,
+  apollo,
+}) {
+  const rollbackWorkflow = exportPublishedWorkflow();
+  let mutationStarted = false;
+  try {
+    mutationStarted = true;
+    unpublishWorkflow();
+    const unpublished = readN8nMetadata(database);
+    assertWorkflow(
+      unpublished,
+      projectId,
+      lusha,
+      apollo,
+      "inactive-before",
+    );
+
+    importJson("workflow", workflow, projectId);
+    const imported = readN8nMetadata(database);
+    assertReplacementWorkflow(imported, projectId, lusha, apollo);
+
+    publishWorkflow();
+    const published = readN8nMetadata(database);
+    assertPublishedWorkflow(published, projectId, lusha, apollo);
+  } catch (replacementError) {
+    if (mutationStarted) {
+      try {
+        rollbackPublishedWorkflow({
+          rollbackWorkflow,
+          projectId,
+          database,
+          lusha,
+          apollo,
+        });
+      } catch {
+        fail("published replacement failed and automatic rollback also failed");
+      }
+    }
+    throw replacementError;
+  }
+}
+
 function acquireOperatorLock() {
   let descriptor;
   try {
@@ -778,13 +1075,19 @@ function main() {
   assertClusterTarget(configuration);
   const n8nDatabase = inspectN8nRuntime();
   const before = readN8nMetadata(n8nDatabase);
-  const approved = inspectApprovedMetadata(before);
+  const publishedMode =
+    mode === "preflight-published" || mode === "replace-published";
+  const approved = inspectApprovedMetadata(
+    before,
+    publishedMode ? "published-before" : "inactive",
+  );
   const workflow = renderDemo3ContactV2Workflow(
     referenceWorkflow,
     approved.lusha,
+    approved.apollo,
   );
 
-  if (mode === "preflight") {
+  if (mode === "preflight-inactive" || mode === "preflight-published") {
     console.log(
       "Demo 3 contact v2 n8n preflight passed; no cluster or n8n mutation was attempted.",
     );
@@ -794,29 +1097,50 @@ function main() {
   const releaseLock = acquireOperatorLock();
   try {
     const immediatelyBefore = readN8nMetadata(n8nDatabase);
-    const current = inspectApprovedMetadata(immediatelyBefore);
+    const current = inspectApprovedMetadata(
+      immediatelyBefore,
+      publishedMode ? "published-before" : "inactive",
+    );
     if (
       current.projectId !== approved.projectId ||
-      current.lusha.id !== approved.lusha.id
+      current.lusha.id !== approved.lusha.id ||
+      current.apollo.id !== approved.apollo.id
     ) {
       fail("approved n8n metadata changed after preflight");
     }
 
-    importJson("credentials", credentials, approved.projectId);
-    const afterCredentials = readN8nMetadata(n8nDatabase);
-    assertNoRuntimeActivity(afterCredentials);
-    assertImportedCredentials(afterCredentials, approved.projectId);
+    if (mode === "import-inactive") {
+      importJson("credentials", credentials, approved.projectId);
+      const afterCredentials = readN8nMetadata(n8nDatabase);
+      assertNoActiveExecutions(afterCredentials);
+      assertImportedCredentials(afterCredentials, approved.projectId);
 
-    importJson("workflow", workflow, approved.projectId);
-    const afterWorkflow = readN8nMetadata(n8nDatabase);
-    assertImportedCredentials(afterWorkflow, approved.projectId);
-    assertImportedWorkflow(afterWorkflow, approved.projectId, approved.lusha);
+      importJson("workflow", workflow, approved.projectId);
+      const afterWorkflow = readN8nMetadata(n8nDatabase);
+      assertImportedCredentials(afterWorkflow, approved.projectId);
+      assertImportedWorkflow(
+        afterWorkflow,
+        approved.projectId,
+        approved.lusha,
+        approved.apollo,
+      );
+    } else {
+      replacePublishedWorkflow({
+        workflow,
+        projectId: approved.projectId,
+        database: n8nDatabase,
+        lusha: approved.lusha,
+        apollo: approved.apollo,
+      });
+    }
   } finally {
     releaseLock();
   }
 
   console.log(
-    "Demo 3 contact v2 credentials and workflow were prepared inactive; no workflow was published or executed.",
+    mode === "import-inactive"
+      ? "Demo 3 contact v2 credentials and workflow were prepared inactive; no workflow was published or executed."
+      : "Demo 3 contact v2 published workflow was replaced with rollback protection; no workflow execution was requested.",
   );
 }
 

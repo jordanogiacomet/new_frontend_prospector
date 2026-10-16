@@ -51,10 +51,24 @@ Non-analysis terminal path:
   approved read-only column grant
 - a value-free Demo 3 read confirmed that current rows in this destination
   have both stored action and stored reason
-- a future “Fora da análise” reader should reuse exact current
-  projection/run/provenance integrity and the Demo 3 correlated-batch boundary,
-  while selecting only this explicit terminal result
+- `src/server/repositories/outside-analysis-repository.ts` reuses one exact
+  current projection/run/provenance CTE and the Demo 3 correlated-batch
+  boundary while selecting only this explicit terminal result
 - UI copy should say “Fora da análise” or “Decisão pelo CRM”, not “Falhou” or
   “Descartado”, and must display the stored reason without recalculation
+- the list links to `/leads/outside-analysis/:cnpj`; its GET detail applies the
+  same CTE, binds the normalized CNPJ and fails closed on zero/multiple eligible
+  projections
+- the detail page is read-only and exposes only the already approved company,
+  location, sector, stored action/reason, decision date and import provenance;
+  it never opens public analysis or starts commercial/contact actions
 
-Updated: 2026-07-23
+Runtime detail:
+- release `demo3-preprod-20260813-outside-analysis-detail-001` is active
+- value-free authenticated smoke confirmed 401 anonymously, 200 for list/API/
+  page, exact DTO allowlist, non-empty current view and 400 for invalid CNPJ
+- one app pod and one PostgreSQL pod are ready with zero container restarts
+- no producer write, migration, n8n/provider call or real-value evidence was
+  introduced
+
+Updated: 2026-08-13

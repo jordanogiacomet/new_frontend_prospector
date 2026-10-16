@@ -1,4 +1,5 @@
 import { UNAVAILABLE_LABEL } from "../../lib/formatters";
+import { getRiskFlagLabel } from "../../lib/lead-labels";
 import type {
   LeadDetail,
   LeadInsightCollection,
@@ -89,15 +90,19 @@ function InsightState({ collection, kind }: InsightStateProps) {
                 ? "Sem riscos registrados"
                 : "Sem sinais registrados",
           description: hasItems
-            ? `A análise armazenada contém ${subject} aprovados para esta visualização.`
-            : `A análise armazenada contém uma coleção vazia de ${subject}.`,
+            ? isRisks
+              ? "A análise registrou os seguintes pontos de atenção."
+              : "A análise registrou os seguintes sinais positivos."
+            : isRisks
+              ? "Esta análise não registra riscos. Isso não garante ausência de risco."
+              : "Esta análise não registra sinais positivos.",
         }
       : collection.status === "missing"
         ? {
             label: "Dados ausentes",
             description: isRisks
-              ? "Nenhuma informação de risco foi armazenada para esta análise."
-              : "Nenhuma informação de sinal positivo foi armazenada para esta análise.",
+              ? "Não há informação sobre riscos nesta análise."
+              : "Não há informação sobre sinais positivos nesta análise.",
           }
         : collection.status === "unavailable"
           ? {
@@ -105,8 +110,8 @@ function InsightState({ collection, kind }: InsightStateProps) {
               description: `Não foi possível consultar os ${subject} desta análise.`,
             }
           : {
-              label: "Retido por política",
-              description: `O conteúdo de ${subject} não foi aprovado para exibição.`,
+              label: "Conteúdo protegido",
+              description: `Os ${subject} não podem ser exibidos conforme a política de privacidade.`,
             };
 
   return (
@@ -128,7 +133,7 @@ function InsightState({ collection, kind }: InsightStateProps) {
               key={item}
               className="border-l-2 border-current pl-3"
             >
-              {item}
+              {isRisks ? getRiskFlagLabel(item) : item}
             </li>
           ))}
         </ul>
@@ -147,14 +152,14 @@ function EvidenceState({ evidence }: EvidenceStateProps) {
             ? "Evidências registradas"
             : "Sem evidências registradas",
           description: hasContent
-            ? "A análise armazenada contém evidências aprovadas para esta visualização."
-            : "A análise armazenada contém uma coleção vazia de evidências.",
+            ? "Estas fontes apoiam a análise e estão disponíveis para consulta."
+            : "Esta análise não registra evidências.",
         }
       : evidence.status === "missing"
       ? {
           label: "Evidências ausentes",
           description:
-            "Nenhuma evidência foi armazenada para esta análise.",
+            "Não há informação sobre evidências nesta análise.",
         }
       : evidence.status === "unavailable"
         ? {
@@ -163,9 +168,9 @@ function EvidenceState({ evidence }: EvidenceStateProps) {
               "Não foi possível consultar as evidências desta análise.",
           }
         : {
-            label: "Retido por política",
+            label: "Conteúdo protegido",
             description:
-              "As evidências desta análise não foram aprovadas para exibição.",
+              "As evidências não podem ser exibidas conforme a política de privacidade.",
           };
 
   return (
@@ -218,13 +223,13 @@ export function LeadInsights({ lead }: LeadInsightsProps) {
       >
         <div className="max-w-3xl">
           <p className="text-xs font-bold tracking-[0.16em] text-[oklch(45%_0.105_174)] uppercase">
-            Dados armazenados
+            Informações disponíveis
           </p>
           <h2
             id="lead-facts-heading"
             className="mt-2 font-serif text-3xl tracking-[-0.03em]"
           >
-            Fatos armazenados
+            Dados da empresa
           </h2>
         </div>
 
@@ -234,7 +239,7 @@ export function LeadInsights({ lead }: LeadInsightsProps) {
               id="business-facts-heading"
               className="font-serif text-2xl tracking-[-0.025em]"
             >
-              Fatos empresariais
+              Identificação da empresa
             </h3>
             <dl className="mt-5 grid gap-x-7 gap-y-5 sm:grid-cols-2">
               <FactItem
@@ -263,7 +268,7 @@ export function LeadInsights({ lead }: LeadInsightsProps) {
               id="fiscal-facts-heading"
               className="font-serif text-2xl tracking-[-0.025em]"
             >
-              Fatos fiscais
+              Porte e regime tributário
             </h3>
             <dl className="mt-5 grid gap-y-5">
               <FactItem
@@ -286,7 +291,7 @@ export function LeadInsights({ lead }: LeadInsightsProps) {
             id="commercial-facts-heading"
             className="font-serif text-2xl tracking-[-0.025em]"
           >
-            Fatos comerciais
+            Dados comerciais
           </h3>
           <dl className="mt-5 grid gap-x-7 gap-y-5 sm:grid-cols-3">
             <FactItem

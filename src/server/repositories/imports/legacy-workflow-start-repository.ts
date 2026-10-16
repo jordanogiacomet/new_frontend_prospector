@@ -23,6 +23,7 @@ export interface RecordLegacyWorkflowStartInput {
   readonly organizationId: string;
   readonly importBatchId: string;
   readonly occurredAt: Date;
+  readonly sourceRow?: number | null;
 }
 
 export type RecordLegacyWorkflowStartResult =
@@ -91,8 +92,25 @@ export async function recordLegacyWorkflowStart(
       );
     }
 
+    let receivedCompaniesRecorded = 0;
+
+    if (input.sourceRow !== undefined && input.sourceRow !== null) {
+      for (const submission of submissions) {
+        const received = await client.query<{ readonly source_row: string | number }>(
+          buildInsertReceivedCompanyStatement(
+            input,
+            submission.submission_id,
+            input.sourceRow,
+          ),
+        );
+        receivedCompaniesRecorded += received.length;
+      }
+    }
+
     return {
-      kind: missing.length === 0 ? "replayed" : "recorded",
+      kind: missing.length === 0 && receivedCompaniesRecorded === 0
+        ? "replayed"
+        : "recorded",
       submissionCount: submissions.length,
     };
   });
@@ -171,11 +189,45 @@ function validateInput(input: RecordLegacyWorkflowStartInput): void {
   requireText(input.importBatchId, 128);
 
   if (
+    input.sourceRow !== undefined &&
+    input.sourceRow !== null &&
+    (!Number.isSafeInteger(input.sourceRow) || input.sourceRow < 1)
+  ) {
+    throw new LegacyWorkflowStartRepositoryInputError();
+  }
+
+  if (
     !(input.occurredAt instanceof Date) ||
     !Number.isFinite(input.occurredAt.getTime())
   ) {
     throw new LegacyWorkflowStartRepositoryInputError();
   }
+}
+
+function buildInsertReceivedCompanyStatement(
+  input: RecordLegacyWorkflowStartInput,
+  submissionId: string,
+  sourceRow: number,
+): SqlStatement {
+  return {
+    text: `
+      INSERT INTO prospecting_app.import_received_companies (
+        organization_id,
+        submission_id,
+        source_row,
+        received_at
+      )
+      VALUES ($1, $2, $3, $4)
+      ON CONFLICT (organization_id, submission_id, source_row)
+      DO NOTHING
+      RETURNING source_row`,
+    values: [
+      input.organizationId,
+      submissionId,
+      sourceRow,
+      input.occurredAt,
+    ],
+  };
 }
 
 function requireText(value: unknown, maximumLength: number): void {

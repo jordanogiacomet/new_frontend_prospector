@@ -1,13 +1,18 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
+import { usePrivateCapabilities } from "../auth/private-capabilities";
+import { PrivateReadAccessState } from "../auth/private-read-access-state";
 import {
   UNAVAILABLE_LABEL,
   formatBrazilianDate,
 } from "../../lib/formatters";
-import { getLeadActionLabel } from "../../lib/lead-labels";
+import {
+  formatDecisionReason,
+  getLeadActionLabel,
+} from "../../lib/lead-labels";
 import type { LeadHistoryItem } from "../../types/leads";
 
 const retainedHistoryCompleteness = "retained_only";
@@ -44,6 +49,7 @@ type HistoryRequestState =
       status: "success";
       history: LeadHistoryItem[];
       metadata: LeadHistoryMetadata;
+      refreshFailed?: boolean;
     }
   | {
       requestKey: string;
@@ -56,6 +62,14 @@ type HistoryRequestState =
   | {
       requestKey: string;
       status: "malformed";
+    }
+  | {
+      requestKey: string;
+      status: "auth_required";
+    }
+  | {
+      requestKey: string;
+      status: "access_denied";
     };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -117,7 +131,14 @@ function isLeadHistoryEnvelope(
 }
 
 export function LeadHistory({ cnpj }: LeadHistoryProps) {
+  const { hasPermission } = usePrivateCapabilities();
+  const canReadLeads = hasPermission("leads:read");
   const requestKey = cnpj;
+  const refreshRef = useRef<(() => Promise<void>) | null>(null);
+  const refreshInFlight = useRef(false);
+  const [refreshKey, setRefreshKey] = useState<string | null>(null);
+  const refreshing = refreshKey === requestKey;
+  const [refreshResultKey, setRefreshResultKey] = useState<string | null>(null);
   const [requestState, setRequestState] =
     useState<HistoryRequestState>(() => ({
       requestKey,
@@ -129,11 +150,21 @@ export function LeadHistory({ cnpj }: LeadHistoryProps) {
       : { requestKey, status: "loading" };
 
   useEffect(() => {
+    if (!canReadLeads) return;
+
     const abortController = new AbortController();
     let requestInFlight = false;
+    let accessStopped = false;
+
+    function showReadFailure(status: "error" | "unavailable" | "malformed"): void {
+      if (abortController.signal.aborted) return;
+      setRequestState((previous) => previous.requestKey === requestKey && previous.status === "success"
+        ? { ...previous, refreshFailed: true }
+        : { requestKey, status });
+    }
 
     async function loadHistory(): Promise<void> {
-      if (requestInFlight) {
+      if (requestInFlight || accessStopped) {
         return;
       }
 
@@ -154,20 +185,20 @@ export function LeadHistory({ cnpj }: LeadHistoryProps) {
             },
           );
         } catch {
-          if (!abortController.signal.aborted) {
-            setRequestState({ requestKey, status: "error" });
-          }
+          showReadFailure("error");
           return;
         }
 
         if (!response.ok) {
-          if (!abortController.signal.aborted) {
-            setRequestState({
-              requestKey,
-              status:
-                response.status === 503 ? "unavailable" : "error",
-            });
+          if (response.status === 401 || response.status === 403) {
+            accessStopped = true;
+            window.clearInterval(refreshIntervalId);
+            if (!abortController.signal.aborted) {
+              setRequestState({ requestKey, status: response.status === 401 ? "auth_required" : "access_denied" });
+            }
+            return;
           }
+          showReadFailure(response.status === 503 ? "unavailable" : "error");
           return;
         }
 
@@ -176,29 +207,26 @@ export function LeadHistory({ cnpj }: LeadHistoryProps) {
         try {
           payload = await response.json();
         } catch {
-          if (!abortController.signal.aborted) {
-            setRequestState({ requestKey, status: "malformed" });
-          }
+          showReadFailure("malformed");
           return;
         }
 
-        if (!abortController.signal.aborted) {
-          setRequestState(
-            isLeadHistoryEnvelope(payload)
-              ? {
-                  requestKey,
-                  status: "success",
-                  history: payload.data,
-                  metadata: payload.meta,
-                }
-              : { requestKey, status: "malformed" },
-          );
+        if (!isLeadHistoryEnvelope(payload)) {
+          showReadFailure("malformed");
+        } else if (!abortController.signal.aborted) {
+          setRequestState({ requestKey, status: "success", history: payload.data, metadata: payload.meta });
+          if (refreshInFlight.current) setRefreshResultKey(requestKey);
         }
       } finally {
         requestInFlight = false;
+        if (!abortController.signal.aborted) {
+          refreshInFlight.current = false;
+          setRefreshKey((previous) => previous === requestKey ? null : previous);
+        }
       }
     }
 
+    refreshRef.current = loadHistory;
     void loadHistory();
     const refreshIntervalId = window.setInterval(() => {
       if (document.visibilityState === "visible") {
@@ -209,8 +237,18 @@ export function LeadHistory({ cnpj }: LeadHistoryProps) {
     return () => {
       window.clearInterval(refreshIntervalId);
       abortController.abort();
+      refreshRef.current = null;
+      refreshInFlight.current = false;
     };
-  }, [cnpj, requestKey]);
+  }, [cnpj, requestKey, canReadLeads]);
+
+  function refreshHistory(): void {
+    if (refreshRef.current === null || refreshInFlight.current) return;
+    refreshInFlight.current = true;
+    setRefreshKey(requestKey);
+    setRefreshResultKey(null);
+    void refreshRef.current();
+  }
 
   return (
     <section
@@ -227,8 +265,13 @@ export function LeadHistory({ cnpj }: LeadHistoryProps) {
         Histórico de decisões
       </h2>
 
+      {canReadLeads && currentState.status !== "auth_required" && currentState.status !== "access_denied" ? <button type="button" onClick={refreshHistory} disabled={refreshing || currentState.status === "loading"} aria-busy={refreshing} className="ui-action ui-action--quiet mt-4">{refreshing ? "Atualizando histórico…" : "Atualizar histórico"}</button> : null}
+      <p role="status" className="mt-3 text-sm">{refreshResultKey === requestKey && !refreshing ? "Histórico atualizado." : ""}</p>
+      {currentState.status === "success" && currentState.refreshFailed ? <p role="alert" className="mt-4 border-l-2 border-[oklch(69%_0.11_77)] pl-4 text-sm leading-6">Não foi possível atualizar o histórico. O motivo não foi informado. Você está vendo a última consulta confirmada. Use Atualizar histórico para consultar novamente.</p> : null}
       <div className="mt-6">
-        <HistoryContent cnpj={cnpj} state={currentState} />
+        {!canReadLeads
+          ? <PrivateReadAccessState status="access_denied" headingLevel="h3" />
+          : <HistoryContent cnpj={cnpj} state={currentState} />}
       </div>
     </section>
   );
@@ -240,6 +283,10 @@ interface HistoryContentProps {
 }
 
 function HistoryContent({ cnpj, state }: HistoryContentProps) {
+  if (state.status === "auth_required" || state.status === "access_denied") {
+    return <PrivateReadAccessState status={state.status} headingLevel="h3" />;
+  }
+
   if (state.status === "loading") {
     return (
       <div
@@ -261,7 +308,7 @@ function HistoryContent({ cnpj, state }: HistoryContentProps) {
         status
         label="Histórico indisponível"
         title="Histórico indisponível"
-        description="O histórico não está disponível no momento."
+        description="O histórico não está disponível no momento. Use Atualizar histórico para consultar novamente mais tarde."
       />
     );
   }
@@ -272,7 +319,7 @@ function HistoryContent({ cnpj, state }: HistoryContentProps) {
         alert
         label="Erro ao carregar histórico"
         title="Falha na consulta"
-        description="Não foi possível carregar o histórico agora."
+        description="Não foi possível carregar o histórico agora. O motivo não foi informado. Use Atualizar histórico para consultar novamente."
       />
     );
   }
@@ -283,7 +330,7 @@ function HistoryContent({ cnpj, state }: HistoryContentProps) {
         alert
         label="Resposta de histórico inválida"
         title="Histórico indisponível"
-        description="O histórico recebido não pôde ser apresentado com segurança."
+        description="O histórico recebido não pôde ser apresentado com segurança. Use Atualizar histórico para consultar novamente."
       />
     );
   }
@@ -379,30 +426,38 @@ function HistoryItem({
         />
         <HistoryField
           label="Motivo da recomendação"
-          value={item.recommendedActionReason ?? UNAVAILABLE_LABEL}
-        />
-        <HistoryField
-          label="Identificador da decisão"
-          testId="history-decision-id"
-          value={item.decision_id}
-        />
-        <HistoryField
-          label="Execução da análise"
-          value={item.lead_run_id}
-        />
-        <HistoryField
-          label="Lote de importação"
-          value={item.import_batch_id ?? UNAVAILABLE_LABEL}
-        />
-        <HistoryField
-          label="Linha de origem"
-          value={
-            item.source_row === null
-              ? UNAVAILABLE_LABEL
-              : String(item.source_row)
-          }
+          value={formatDecisionReason(item.recommendedActionReason)}
         />
       </dl>
+
+      <details className="mt-5 border-t border-[oklch(88%_0.02_82)] pt-3">
+        <summary className="ui-action ui-action--quiet cursor-pointer">
+          Identificação da análise
+        </summary>
+        <dl className="mt-4 grid gap-x-8 gap-y-5 sm:grid-cols-2 xl:grid-cols-3">
+          <HistoryField
+            label="Identificador da decisão"
+            testId="history-decision-id"
+            value={item.decision_id}
+          />
+          <HistoryField
+            label="Execução da análise"
+            value={item.lead_run_id}
+          />
+          <HistoryField
+            label="Lote de importação"
+            value={item.import_batch_id ?? UNAVAILABLE_LABEL}
+          />
+          <HistoryField
+            label="Linha de origem"
+            value={
+              item.source_row === null
+                ? UNAVAILABLE_LABEL
+                : String(item.source_row)
+            }
+          />
+        </dl>
+      </details>
     </article>
   );
 }

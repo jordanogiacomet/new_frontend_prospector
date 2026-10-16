@@ -1,7 +1,8 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { OutsideAnalysisCompany } from "../../../../types/leads";
+import { PrivateCapabilitiesProvider } from "../../../../components/auth/private-capabilities";
 
 const { navigationState } = vi.hoisted(() => ({
   navigationState: { query: "" },
@@ -12,6 +13,10 @@ vi.mock("next/navigation", () => ({
 }));
 
 import OutsideAnalysisPage from "./page";
+
+function authorizedPage() {
+  return <PrivateCapabilitiesProvider permissions={["leads:read"]}><OutsideAnalysisPage /></PrivateCapabilitiesProvider>;
+}
 
 const fetchMock = vi.fn();
 const syntheticCompany: OutsideAnalysisCompany = {
@@ -62,8 +67,61 @@ describe("outside-analysis page", () => {
     vi.stubGlobal("fetch", fetchMock);
   });
 
-  it("shows the current view and a distinct loading state", () => {
+  it("denies missing read permission before any request", () => {
     render(<OutsideAnalysisPage />);
+    expect(screen.getByRole("heading", { name: "Acesso não autorizado" })).toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it.each([401, 403])("removes previous results and stops polling after HTTP %i", async (status) => {
+    const intervalSpy = vi.spyOn(window, "setInterval");
+    const visibilitySpy = vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+    try {
+      fetchMock
+        .mockResolvedValueOnce(respondWithJson(successfulResponse([syntheticCompany])))
+        .mockResolvedValueOnce(respondWithJson({ error: { message: "private detail" } }, status));
+      render(authorizedPage());
+      await screen.findByText(syntheticCompany.companyName!);
+      const refresh = intervalSpy.mock.calls.find(([, delay]) => delay === 5_000)?.[0];
+      if (typeof refresh !== "function") throw new Error("Expected the outside-analysis refresh callback.");
+      await act(async () => refresh());
+      expect(await screen.findByRole("heading", { name: status === 401 ? "Sua sessão expirou" : "Acesso não autorizado" })).toBeInTheDocument();
+      expect(screen.queryByText(syntheticCompany.companyName!)).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /Atualizar|Tentar novamente/ })).not.toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: "Entrar novamente" }) !== null).toBe(status === 401);
+      await act(async () => refresh());
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(document.body).not.toHaveTextContent("private detail");
+    } finally {
+      intervalSpy.mockRestore();
+      visibilitySpy.mockRestore();
+    }
+  });
+
+  it("preserves the last confirmed list during an unavailable refresh and recovers with GET", async () => {
+    fetchMock
+      .mockResolvedValueOnce(respondWithJson(successfulResponse([syntheticCompany])))
+      .mockResolvedValueOnce(respondWithJson({}, 503))
+      .mockResolvedValueOnce(respondWithJson(successfulResponse([{ ...syntheticCompany, companyName: "Consulta atualizada" }])));
+    render(authorizedPage());
+    await screen.findByText(syntheticCompany.companyName!);
+    fireEvent.click(screen.getByRole("button", { name: "Atualizar lista" }));
+    expect(await screen.findByText(/Exibindo a última consulta disponível/)).toBeInTheDocument();
+    expect(screen.getByText(syntheticCompany.companyName!)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Atualizar lista" }));
+    expect(await screen.findByText("Consulta atualizada")).toBeInTheDocument();
+    expect(fetchMock.mock.calls.every(([, init]) => init.method === "GET")).toBe(true);
+  });
+
+  it("rejects malformed company entries before rendering a table", async () => {
+    fetchMock.mockResolvedValue(respondWithJson({ data: [null], meta: { page: 1, pageSize: 20, total: 1, totalPages: 1 } }));
+    render(authorizedPage());
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+  });
+
+  it("shows the current view and a distinct loading state", () => {
+    render(authorizedPage());
 
     expect(
       screen.getByRole("link", { name: "Fora da análise" }),
@@ -90,7 +148,7 @@ describe("outside-analysis page", () => {
       ),
     );
 
-    render(<OutsideAnalysisPage />);
+    render(authorizedPage());
 
     expect(
       await screen.findByRole("table", {
@@ -100,6 +158,10 @@ describe("outside-analysis page", () => {
     expect(
       screen.getByText("Empresa Sintética Fora da Análise"),
     ).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Ver decisão do CRM" })).toHaveAttribute(
+      "href",
+      `/leads/outside-analysis/${syntheticCompany.cnpj}?returnTo=${encodeURIComponent("/leads/outside-analysis?page=2&pageSize=1")}`,
+    );
     expect(fetchMock).toHaveBeenCalledExactlyOnceWith(
       "/api/leads/outside-analysis?page=2&pageSize=1",
       expect.objectContaining({
@@ -120,7 +182,7 @@ describe("outside-analysis page", () => {
       respondWithJson(successfulResponse([syntheticCompany])),
     );
 
-    const { unmount } = render(<OutsideAnalysisPage />);
+    const { unmount } = render(authorizedPage());
 
     await screen.findByText("Empresa Sintética Fora da Análise");
     const refreshCall = setIntervalSpy.mock.calls.find(
@@ -187,7 +249,7 @@ describe("outside-analysis page", () => {
       respondWithJson(successfulResponse([])),
     );
 
-    render(<OutsideAnalysisPage />);
+    render(authorizedPage());
 
     expect(
       await screen.findByRole("heading", {
@@ -212,7 +274,7 @@ describe("outside-analysis page", () => {
       ),
     );
 
-    render(<OutsideAnalysisPage />);
+    render(authorizedPage());
 
     expect(
       await screen.findByRole("heading", {
@@ -244,7 +306,7 @@ describe("outside-analysis page", () => {
       ),
     );
 
-    const firstRender = render(<OutsideAnalysisPage />);
+    const firstRender = render(authorizedPage());
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Não foi possível carregar as decisões do CRM agora.",
@@ -255,7 +317,7 @@ describe("outside-analysis page", () => {
     fetchMock.mockRejectedValueOnce(
       new Error("socket database.internal ECONNRESET"),
     );
-    render(<OutsideAnalysisPage />);
+    render(authorizedPage());
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Não foi possível carregar as decisões do CRM agora.",
@@ -271,7 +333,7 @@ describe("outside-analysis page", () => {
       }),
     );
 
-    render(<OutsideAnalysisPage />);
+    render(authorizedPage());
 
     expect(await screen.findByRole("alert")).toBeInTheDocument();
     expect(screen.queryByRole("table")).not.toBeInTheDocument();
@@ -295,7 +357,7 @@ describe("outside-analysis page", () => {
       ),
     );
 
-    render(<OutsideAnalysisPage />);
+    render(authorizedPage());
 
     const rows = await screen.findAllByRole("row");
     expect(rows[1]).toHaveTextContent("Segunda na ordem do servidor");

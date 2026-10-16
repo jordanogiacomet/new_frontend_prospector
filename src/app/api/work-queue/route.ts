@@ -72,7 +72,7 @@ const brazilianUfs = [
   "TO",
 ] as const;
 
-const approvedProducerPriorities = ["B", "C", "E", "R"] as const;
+const approvedProducerPriorities = ["B", "C", "D", "E", "R"] as const;
 
 interface WorkQueueQuery {
   readonly page: number;
@@ -84,26 +84,51 @@ interface WorkQueueQuery {
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
     const authorization = await requirePermission("commercial:read");
-    requireCommercialFeatureEnabled();
+    const environment = getServerEnv();
+    requireCommercialFeatureEnabled(environment.FEATURE_COMMERCIAL_ENABLED);
 
     const query = parseWorkQueueQuery(request.nextUrl.searchParams);
-    const result = isDemoDataEnabled()
+    const demoDataEnabled = isDemoDataEnabled();
+    const canReadApproachDrafts =
+      authorization.actor.permissions.includes("leads:read") &&
+      authorization.actor.permissions.includes("sensitive:read");
+    const approachPreparationEnabled =
+      !demoDataEnabled &&
+      canReadApproachDrafts &&
+      environment.FEATURE_AI_APPROACH_ENABLED &&
+      environment.OPENAI_API_KEY !== undefined &&
+      environment.OPENAI_APPROACH_MODEL !== undefined;
+    const approachAutoGenerationEnabled =
+      approachPreparationEnabled && environment.FEATURE_AI_APPROACH_AUTO_QUEUE_ENABLED;
+    const result = demoDataEnabled
       ? listDemoCommercialWorkQueue({
           page: query.page,
           pageSize: query.pageSize,
           filters: query.filters,
           sort: query.sort,
         })
-      : await listCommercialWorkQueue(
-          {
-            actor: { organizationId: authorization.actor.organizationId },
-            page: query.page,
-            pageSize: query.pageSize,
-            filters: query.filters,
-            sort: query.sort,
-          },
-          await resolveLeadReadVisibility(authorization.actor),
-        );
+      : canReadApproachDrafts
+        ? await listCommercialWorkQueue(
+            {
+              actor: { organizationId: authorization.actor.organizationId },
+              page: query.page,
+              pageSize: query.pageSize,
+              filters: query.filters,
+              sort: query.sort,
+            },
+            await resolveLeadReadVisibility(authorization.actor),
+            { includeApproachDrafts: true, now: new Date() },
+          )
+        : await listCommercialWorkQueue(
+            {
+              actor: { organizationId: authorization.actor.organizationId },
+              page: query.page,
+              pageSize: query.pageSize,
+              filters: query.filters,
+              sort: query.sort,
+            },
+            await resolveLeadReadVisibility(authorization.actor),
+          );
 
     return NextResponse.json(
       paginatedSuccessResponse(result.items, {
@@ -111,6 +136,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         pageSize: result.pageSize,
         total: result.total,
         provenance: result.provenance,
+        approachAutoGenerationEnabled,
+        approachPreparationEnabled,
       }),
       { headers: privateNoStoreHeaders },
     );
@@ -124,8 +151,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   }
 }
 
-function requireCommercialFeatureEnabled(): void {
-  if (!getServerEnv().FEATURE_COMMERCIAL_ENABLED) {
+function requireCommercialFeatureEnabled(enabled: boolean): void {
+  if (!enabled) {
     throw new SafeApiError("ACCESS_DENIED");
   }
 }

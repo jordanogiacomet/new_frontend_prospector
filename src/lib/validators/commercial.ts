@@ -4,6 +4,8 @@ import {
   commercialActivityTypes,
   commercialOutcomes,
   commercialStages,
+  qualificationContactChannels,
+  qualificationContactOutcomes,
 } from "../../types/commercial";
 
 import { leadRunIdPattern } from "./lead-query";
@@ -112,6 +114,12 @@ const nullableOptionalDateTimeSchema = dateTimeSchema.nullable().optional();
 export const commercialStageSchema = z.enum(commercialStages);
 export const commercialOutcomeSchema = z.enum(commercialOutcomes);
 export const commercialActivityTypeSchema = z.enum(commercialActivityTypes);
+export const qualificationContactChannelSchema = z.enum(
+  qualificationContactChannels,
+);
+export const qualificationContactOutcomeSchema = z.enum(
+  qualificationContactOutcomes,
+);
 
 export const organizationIdSchema = presentTextSchema(128);
 export const subjectSchema = presentTextSchema(256);
@@ -165,6 +173,72 @@ export const createLeadNoteRequestSchema = strictCommercialRequestObject({
   body: noteBodySchema,
 });
 
+const qualificationCadenceMutationSchema = z
+  .discriminatedUnion("action", [
+    z.strictObject({
+      action: z.literal("start"),
+      start_at: dateTimeSchema,
+      interval_days: z.int().min(1).max(30),
+    }),
+    z.strictObject({
+      action: z.literal("record_contact"),
+      contact_number: z.union([
+        z.literal(1),
+        z.literal(2),
+        z.literal(3),
+        z.literal(4),
+      ]),
+      occurred_at: dateTimeSchema,
+      channel: qualificationContactChannelSchema,
+      outcome: qualificationContactOutcomeSchema,
+      summary: activitySummarySchema,
+      next_contact_at: dateTimeSchema.optional(),
+    }),
+  ])
+  .superRefine((request, context) => {
+    if (request.action !== "record_contact") {
+      return;
+    }
+
+    if (request.outcome === "FOLLOW_UP_LATER") {
+      if (
+        request.contact_number === 4 ||
+        request.next_contact_at === undefined ||
+        Date.parse(request.next_contact_at) <= Date.parse(request.occurred_at)
+      ) {
+        context.addIssue({
+          code: "custom",
+          path: ["next_contact_at"],
+          message: "A later next contact is required before the fourth step",
+        });
+      }
+    } else if (request.next_contact_at !== undefined) {
+      context.addIssue({
+        code: "custom",
+        path: ["next_contact_at"],
+        message: "A next contact date is allowed only for follow-up later",
+      });
+    }
+
+    if (
+      request.outcome === "OTHER_RESPONSE" &&
+      (request.summary === null ||
+        request.summary === undefined ||
+        !isPresentTrimmedText(request.summary, 1000))
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["summary"],
+        message: "A present summary is required for another response",
+      });
+    }
+  });
+
+export const qualificationCadenceMutationRequestSchema = z.preprocess(
+  rejectServerControlledRequestFields,
+  qualificationCadenceMutationSchema,
+);
+
 export type CreateLeadWorkspaceRequestInput = z.infer<
   typeof createLeadWorkspaceRequestSchema
 >;
@@ -176,4 +250,7 @@ export type CreateLeadActivityRequestInput = z.infer<
 >;
 export type CreateLeadNoteRequestInput = z.infer<
   typeof createLeadNoteRequestSchema
+>;
+export type QualificationCadenceMutationRequestInput = z.infer<
+  typeof qualificationCadenceMutationRequestSchema
 >;

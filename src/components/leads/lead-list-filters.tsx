@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { formatCnpj } from "../../lib/formatters";
@@ -40,7 +40,7 @@ const BRAZILIAN_UFS = [
   "TO",
 ] as const;
 
-const APPROVED_PRIORITIES = ["B", "C", "E", "R"] as const;
+const APPROVED_PRIORITIES = ["B", "C", "D", "E", "R"] as const;
 const APPROVED_UF_SET: ReadonlySet<string> = new Set(BRAZILIAN_UFS);
 const APPROVED_PRIORITY_SET: ReadonlySet<string> = new Set(
   APPROVED_PRIORITIES,
@@ -48,14 +48,12 @@ const APPROVED_PRIORITY_SET: ReadonlySet<string> = new Set(
 
 type FilterKey = "cnpj" | "uf" | "priority";
 
-interface CnpjDraft {
-  source: string | null;
-  value: string;
-}
-
-interface CnpjValidationError {
-  message: string;
-  source: string | null;
+interface FilterDraft {
+  source: string;
+  cnpj: string;
+  uf: string;
+  priority: string;
+  cnpjError: string | null;
 }
 
 function getNormalizedCnpj(value: string | null): string | undefined {
@@ -70,6 +68,21 @@ function getNormalizedCnpj(value: string | null): string | undefined {
 function getCnpjControlValue(value: string | null): string {
   const normalizedCnpj = getNormalizedCnpj(value);
   return normalizedCnpj === undefined ? "" : formatCnpj(normalizedCnpj);
+}
+
+function getFilterDraft(source: string): FilterDraft {
+  const params = new URLSearchParams(source);
+  const uf = params.get("uf");
+  const priority = params.get("priority");
+
+  return {
+    source,
+    cnpj: getCnpjControlValue(params.get("cnpj")),
+    uf: uf !== null && APPROVED_UF_SET.has(uf) ? uf : "",
+    priority:
+      priority !== null && APPROVED_PRIORITY_SET.has(priority) ? priority : "",
+    cnpjError: null,
+  };
 }
 
 function getApprovedParams(searchParams: URLSearchParams): URLSearchParams {
@@ -112,20 +125,13 @@ export function LeadListFilters() {
   const currentCnpj = searchParams.get("cnpj");
   const currentUf = searchParams.get("uf");
   const currentPriority = searchParams.get("priority");
-  const [cnpjDraft, setCnpjDraft] = useState<CnpjDraft>(() => ({
-    source: currentCnpj,
-    value: getCnpjControlValue(currentCnpj),
-  }));
-  const [cnpjValidationError, setCnpjValidationError] =
-    useState<CnpjValidationError | null>(null);
-  const cnpjInput =
-    cnpjDraft.source === currentCnpj
-      ? cnpjDraft.value
-      : getCnpjControlValue(currentCnpj);
-  const cnpjError =
-    cnpjValidationError?.source === currentCnpj
-      ? cnpjValidationError.message
-      : null;
+  const source = searchParams.toString();
+  const [draft, setDraft] = useState<FilterDraft>(() => getFilterDraft(source));
+  const cnpjInputRef = useRef<HTMLInputElement>(null);
+
+  if (draft.source !== source) {
+    setDraft(getFilterDraft(source));
+  }
 
   function navigate(
     update: (params: URLSearchParams) => void,
@@ -135,40 +141,42 @@ export function LeadListFilters() {
     router.replace(`${pathname}?${params.toString()}`);
   }
 
-  function handleCnpjSubmit(event: FormEvent<HTMLFormElement>): void {
+  function handleFilterSubmit(event: FormEvent<HTMLFormElement>): void {
     event.preventDefault();
 
-    if (cnpjInput.trim() === "") {
-      setCnpjValidationError(null);
-      navigate((params) => params.delete("cnpj"));
+    const cnpj = draft.cnpj.trim();
+    const result = cnpj === "" ? null : cnpjSchema.safeParse(cnpj);
+
+    if (result !== null && !result.success) {
+      setDraft((current) => ({
+        ...current,
+        cnpjError: "Informe um CNPJ completo com 14 dígitos.",
+      }));
+      cnpjInputRef.current?.focus();
       return;
     }
 
-    const result = cnpjSchema.safeParse(cnpjInput.trim());
+    setDraft((current) => ({ ...current, cnpjError: null }));
+    navigate((params) => {
+      if (result === null) params.delete("cnpj");
+      else params.set("cnpj", result.data);
 
-    if (!result.success) {
-      setCnpjValidationError({
-        message: "Informe um CNPJ completo com 14 dígitos.",
-        source: currentCnpj,
-      });
-      return;
-    }
+      if (draft.uf === "") params.delete("uf");
+      else params.set("uf", draft.uf);
 
-    setCnpjValidationError(null);
-    navigate((params) => params.set("cnpj", result.data));
+      if (draft.priority === "") params.delete("priority");
+      else params.set("priority", draft.priority);
+    });
   }
 
-  function handleExactFilterChange(
-    key: Exclude<FilterKey, "cnpj">,
-    value: string,
-  ): void {
+  function applyPriorityShortcut(value: string): void {
     navigate((params) => {
       if (value === "") {
-        params.delete(key);
+        params.delete("priority");
         return;
       }
 
-      params.set(key, value);
+      params.set("priority", value);
     });
   }
 
@@ -190,124 +198,172 @@ export function LeadListFilters() {
   const hasPriorityFilter = currentPriority !== null;
   const hasActiveFilters =
     hasCnpjFilter || hasUfFilter || hasPriorityFilter;
-  const selectedUf =
-    currentUf !== null && APPROVED_UF_SET.has(currentUf) ? currentUf : "";
   const selectedPriority =
     currentPriority !== null && APPROVED_PRIORITY_SET.has(currentPriority)
       ? currentPriority
       : "";
+  const appliedDraft = getFilterDraft(source);
+  const hasUnappliedFilters =
+    (getNormalizedCnpj(draft.cnpj.trim()) ?? draft.cnpj.trim()) !==
+      (getNormalizedCnpj(appliedDraft.cnpj) ?? "") ||
+    draft.uf !== appliedDraft.uf ||
+    draft.priority !== appliedDraft.priority;
 
   return (
     <section
       aria-labelledby="lead-filter-heading"
-      className="border-y border-[oklch(82%_0.025_82)] py-6"
+      className="border-y border-[oklch(82%_0.025_82)] py-4"
     >
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <p className="text-xs font-bold tracking-[0.16em] text-[oklch(45%_0.105_174)] uppercase">
-            Consulta exata
-          </p>
           <h2
             id="lead-filter-heading"
-            className="mt-1 font-serif text-2xl tracking-[-0.025em]"
+            className="text-lg font-semibold tracking-[-0.02em]"
           >
             Refinar resultados
           </h2>
         </div>
         <p className="max-w-sm text-sm leading-6 text-[oklch(43%_0.03_252)]">
-          Use um identificador completo ou uma única classificação.
+          Filtre por CNPJ, estado ou prioridade.
         </p>
       </div>
 
-      <div className="mt-6 grid gap-5 lg:grid-cols-[minmax(18rem,1.5fr)_minmax(8rem,0.65fr)_minmax(10rem,0.8fr)] lg:items-start">
-        <form onSubmit={handleCnpjSubmit}>
-          <label
-            htmlFor="lead-filter-cnpj"
-            className="text-sm font-bold text-[oklch(29%_0.04_252)]"
+      <div role="group" aria-label="Atalhos de revisão" className="mt-3 flex flex-wrap gap-2">
+        {[
+          { value: "B", label: "Ver prioridade B" },
+          { value: "C", label: "Ver prioridade C" },
+          { value: "R", label: "Ver prioridade R" },
+          { value: "", label: "Todas as prioridades" },
+        ].map(({ value, label }) => (
+          <button
+            key={value}
+            type="button"
+            aria-pressed={selectedPriority === value}
+            className={`ui-action ${selectedPriority === value ? "ui-action--primary" : "ui-action--secondary"}`}
+            onClick={() => applyPriorityShortcut(value)}
           >
-            CNPJ exato
-          </label>
-          <div className="mt-2 flex">
-            <input
-              id="lead-filter-cnpj"
-              name="cnpj"
-              type="text"
-              inputMode="numeric"
-              autoComplete="off"
-              value={cnpjInput}
-              aria-invalid={cnpjError === null ? undefined : true}
-              aria-describedby={
-                cnpjError === null ? "lead-filter-cnpj-hint" : "lead-filter-cnpj-error"
-              }
-              onChange={(event) => {
-                setCnpjDraft({
-                  source: currentCnpj,
-                  value: event.target.value,
-                });
-                setCnpjValidationError(null);
-              }}
-              className="min-h-12 min-w-0 flex-1 border border-r-0 border-[oklch(70%_0.035_82)] bg-[oklch(99%_0.006_82)] px-4 text-base outline-none transition-colors placeholder:text-[oklch(60%_0.025_252)] focus-visible:border-[oklch(45%_0.105_174)] focus-visible:ring-2 focus-visible:ring-[oklch(45%_0.105_174/0.24)] motion-reduce:transition-none"
-              placeholder="00.000.000/0000-00"
-            />
-            <button
-              type="submit"
-              className="min-h-12 shrink-0 bg-[oklch(24%_0.045_252)] px-5 text-sm font-bold text-[oklch(97%_0.012_82)] transition-colors hover:bg-[oklch(31%_0.055_252)] focus-visible:z-10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[oklch(45%_0.105_174)] active:bg-[oklch(19%_0.04_252)] motion-reduce:transition-none"
+            {label}
+          </button>
+        ))}
+      </div>
+      <p className="mt-2 max-w-3xl text-sm leading-6 text-[oklch(43%_0.03_252)]">
+        A prioridade orienta a revisão; confira a recomendação antes de decidir.
+      </p>
+
+      <form
+        onSubmit={handleFilterSubmit}
+        aria-label="Filtros de empresas"
+        className="mt-4"
+      >
+        <div className="grid gap-4 lg:grid-cols-[minmax(18rem,1.5fr)_minmax(8rem,0.65fr)_minmax(10rem,0.8fr)] lg:items-start">
+          <div>
+            <label
+              htmlFor="lead-filter-cnpj"
+              className="text-sm font-bold text-[oklch(29%_0.04_252)]"
             >
-              Aplicar CNPJ
+              CNPJ exato
+            </label>
+            <div className="mt-2 flex">
+              <input
+                ref={cnpjInputRef}
+                id="lead-filter-cnpj"
+                name="cnpj"
+                type="text"
+                inputMode="numeric"
+                autoComplete="off"
+                value={draft.cnpj}
+                aria-invalid={draft.cnpjError === null ? undefined : true}
+                aria-describedby={
+                  draft.cnpjError === null ? "lead-filter-cnpj-hint" : "lead-filter-cnpj-error"
+                }
+                onChange={(event) => {
+                  setDraft((current) => ({
+                    ...current,
+                    cnpj: event.target.value,
+                    cnpjError: null,
+                  }));
+                }}
+                className="min-h-12 min-w-0 flex-1 border border-[oklch(70%_0.035_82)] bg-[oklch(99%_0.006_82)] px-4 text-base outline-none transition-colors placeholder:text-[oklch(60%_0.025_252)] focus-visible:border-[oklch(45%_0.105_174)] focus-visible:ring-2 focus-visible:ring-[oklch(45%_0.105_174/0.24)] motion-reduce:transition-none"
+                placeholder="00.000.000/0000-00"
+              />
+            </div>
+            {draft.cnpjError === null ? (
+              <p
+                id="lead-filter-cnpj-hint"
+                className="mt-2 text-xs leading-5 text-[oklch(48%_0.025_252)]"
+              >
+                Informe os 14 dígitos, com ou sem pontuação.
+              </p>
+            ) : (
+              <p
+                id="lead-filter-cnpj-error"
+                role="alert"
+                className="mt-2 text-xs font-semibold leading-5 text-[oklch(48%_0.16_28)]"
+              >
+                {draft.cnpjError}
+              </p>
+            )}
+          </div>
+
+          <FilterSelect
+            id="lead-filter-uf"
+            label="Estado (UF)"
+            value={draft.uf}
+            onChange={(value) => setDraft((current) => ({ ...current, uf: value }))}
+          >
+            <option value="">Todos os estados</option>
+            {BRAZILIAN_UFS.map((uf) => (
+              <option key={uf} value={uf}>
+                {uf}
+              </option>
+            ))}
+          </FilterSelect>
+
+          <FilterSelect
+            id="lead-filter-priority"
+            label="Prioridade"
+            value={draft.priority}
+            onChange={(value) => setDraft((current) => ({ ...current, priority: value }))}
+          >
+            <option value="">Todas as prioridades</option>
+            {APPROVED_PRIORITIES.map((priority) => (
+              <option key={priority} value={priority}>
+                {getPriorityLabel(priority)}
+              </option>
+            ))}
+          </FilterSelect>
+        </div>
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+          <p aria-live="polite" className="max-w-2xl text-sm leading-6 text-[oklch(43%_0.03_252)]">
+            {hasUnappliedFilters
+              ? "Há filtros ainda não aplicados. A lista mantém os critérios anteriores."
+              : "Escolha os filtros e clique em Aplicar filtros, ou pressione Enter."}
+          </p>
+          <div className="flex flex-wrap items-center gap-3">
+            {hasUnappliedFilters ? (
+              <button
+                type="button"
+                className="ui-action ui-action--quiet"
+                onClick={() => {
+                  setDraft(getFilterDraft(source));
+                  cnpjInputRef.current?.focus();
+                }}
+              >
+                Descartar alterações dos filtros
+              </button>
+            ) : null}
+            <button type="submit" className="ui-action ui-action--primary">
+              Aplicar filtros
             </button>
           </div>
-          {cnpjError === null ? (
-            <p
-              id="lead-filter-cnpj-hint"
-              className="mt-2 text-xs leading-5 text-[oklch(48%_0.025_252)]"
-            >
-              Informe os 14 dígitos, com ou sem pontuação.
-            </p>
-          ) : (
-            <p
-              id="lead-filter-cnpj-error"
-              role="alert"
-              className="mt-2 text-xs font-semibold leading-5 text-[oklch(48%_0.16_28)]"
-            >
-              {cnpjError}
-            </p>
-          )}
-        </form>
-
-        <FilterSelect
-          id="lead-filter-uf"
-          label="UF"
-          value={selectedUf}
-          onChange={(value) => handleExactFilterChange("uf", value)}
-        >
-          <option value="">Todas</option>
-          {BRAZILIAN_UFS.map((uf) => (
-            <option key={uf} value={uf}>
-              {uf}
-            </option>
-          ))}
-        </FilterSelect>
-
-        <FilterSelect
-          id="lead-filter-priority"
-          label="Prioridade"
-          value={selectedPriority}
-          onChange={(value) => handleExactFilterChange("priority", value)}
-        >
-          <option value="">Todas</option>
-          {APPROVED_PRIORITIES.map((priority) => (
-            <option key={priority} value={priority}>
-              {getPriorityLabel(priority)}
-            </option>
-          ))}
-        </FilterSelect>
-      </div>
+        </div>
+      </form>
 
       {hasActiveFilters ? (
         <div
           role="region"
           aria-label="Filtros ativos"
-          className="mt-6 flex flex-wrap items-center gap-2 border-t border-[oklch(88%_0.02_82)] pt-5"
+          className="mt-4 flex flex-wrap items-center gap-2 border-t border-[oklch(88%_0.02_82)] pt-3"
         >
           <span className="mr-1 text-xs font-bold tracking-[0.12em] text-[oklch(48%_0.025_252)] uppercase">
             Ativos
@@ -327,19 +383,19 @@ export function LeadListFilters() {
 
           {hasUfFilter ? (
             <ActiveFilter
-              label={`UF: ${
+              label={`Estado: ${
                 currentUf !== null && APPROVED_UF_SET.has(currentUf)
                   ? currentUf
                   : UNKNOWN_DOMAIN_LABEL
               }`}
-              removeLabel="Remover filtro UF"
+              removeLabel="Remover filtro Estado"
               onRemove={() => clearFilter("uf")}
             />
           ) : null}
 
           {hasPriorityFilter ? (
             <ActiveFilter
-              label={`Prioridade: ${getPriorityLabel(currentPriority)}`}
+              label={getPriorityLabel(currentPriority)}
               removeLabel="Remover filtro Prioridade"
               onRemove={() => clearFilter("priority")}
             />
@@ -381,14 +437,24 @@ function FilterSelect({
       >
         {label}
       </label>
-      <select
-        id={id}
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className="mt-2 min-h-12 w-full appearance-none border border-[oklch(70%_0.035_82)] bg-[oklch(99%_0.006_82)] px-4 text-base outline-none transition-colors focus-visible:border-[oklch(45%_0.105_174)] focus-visible:ring-2 focus-visible:ring-[oklch(45%_0.105_174/0.24)] motion-reduce:transition-none"
-      >
-        {children}
-      </select>
+      <div className="relative mt-2">
+        <select
+          id={id}
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          className="min-h-12 w-full appearance-none border border-[oklch(70%_0.035_82)] bg-[oklch(99%_0.006_82)] pr-10 pl-4 text-base outline-none transition-colors focus-visible:border-[oklch(45%_0.105_174)] focus-visible:ring-2 focus-visible:ring-[oklch(45%_0.105_174/0.24)] motion-reduce:transition-none"
+        >
+          {children}
+        </select>
+        <svg
+          aria-hidden="true"
+          viewBox="0 0 16 16"
+          fill="none"
+          className="pointer-events-none absolute top-1/2 right-4 size-4 -translate-y-1/2 text-[oklch(43%_0.03_252)]"
+        >
+          <path d="m4 6 4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </div>
     </div>
   );
 }

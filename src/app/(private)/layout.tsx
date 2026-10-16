@@ -2,6 +2,9 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { getServerAuthorization, signOut } from "../../server/auth";
+import { PrivateCapabilitiesProvider } from "../../components/auth/private-capabilities";
+import { ImportCompanyNoticesProvider } from "../../components/imports/import-company-notices";
+import { isDemoDataEnabled } from "../../server/demo/mode";
 import { PrivateNavigation } from "./private-navigation";
 
 export const dynamic = "force-dynamic";
@@ -33,24 +36,18 @@ export default async function PrivateLayout({
   }
 
   const permissions = authorization.actor.permissions;
+  const showDemoNotice = isDemoDataEnabled();
   const showLeads = permissions.includes("leads:read");
-  const showCommercial = permissions.includes("commercial:read");
   const showImports =
     permissions.includes("imports:read") ||
     permissions.includes("imports:create");
   const showCosts = permissions.includes("costs:read");
-  const homeHref = showLeads
-    ? "/leads"
-    : showCommercial
-      ? "/work-queue"
-      : showImports
-        ? "/imports"
-        : showCosts
-          ? "/costs"
-          : "/login";
+  const importsHref = permissions.includes("imports:create")
+    ? "/imports"
+    : "/imports/batches";
 
   return (
-    <div className="min-h-svh bg-[oklch(97%_0.012_82)] text-[oklch(24%_0.035_252)] lg:grid lg:grid-cols-[18rem_minmax(0,1fr)]">
+    <div className="min-h-svh bg-[oklch(97%_0.012_82)] text-[oklch(24%_0.035_252)] lg:grid lg:grid-cols-[15rem_minmax(0,1fr)]">
       <a
         href="#conteudo-principal"
         className="fixed left-4 top-4 z-50 -translate-y-24 bg-[oklch(97%_0.012_82)] px-4 py-3 text-sm font-bold text-[oklch(24%_0.035_252)] transition-transform focus:translate-y-0 focus:outline-2 focus:outline-offset-2 focus:outline-[oklch(77%_0.09_174)] motion-reduce:transition-none"
@@ -58,25 +55,29 @@ export default async function PrivateLayout({
         Pular para o conteúdo principal
       </a>
 
-      <header className="flex border-b border-[oklch(35%_0.05_246)] bg-[oklch(22%_0.052_246)] px-5 py-5 text-[oklch(94%_0.018_85)] sm:px-8 lg:min-h-svh lg:flex-col lg:border-b-0 lg:border-r lg:px-7 lg:py-8">
-        <div className="flex w-full flex-wrap items-center gap-x-8 gap-y-5 lg:block">
+      <header className="flex flex-wrap border-b border-[oklch(35%_0.05_246)] bg-[oklch(22%_0.052_246)] px-5 py-5 text-[oklch(94%_0.018_85)] sm:px-8 lg:sticky lg:top-0 lg:h-svh lg:flex-col lg:flex-nowrap lg:overflow-y-auto lg:border-b-0 lg:border-r lg:px-7 lg:py-8">
+        <div className="flex w-full flex-wrap items-center gap-x-8 gap-y-4 lg:block">
           <Link
-            href={homeHref}
+            href="/inicio"
+            aria-label="Prospecta, página inicial"
             className="flex min-h-11 items-center gap-3 text-sm font-semibold tracking-[0.1em] uppercase focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[oklch(77%_0.09_174)]"
           >
             <BrandMark />
-            <span>Inteligência comercial</span>
+            <span>
+              <span className="block text-base tracking-[0.12em]">Prospecta</span>
+              <span className="mt-1 block text-[0.6rem] tracking-[0.08em] text-[oklch(84%_0.025_246)]">Inteligência comercial</span>
+            </span>
           </Link>
 
           <PrivateNavigation
-            showCommercial={showCommercial}
+            importsHref={importsHref}
             showCosts={showCosts}
             showImports={showImports}
             showLeads={showLeads}
           />
         </div>
 
-        <div className="mt-6 ml-auto flex items-center gap-4 border-l border-[oklch(38%_0.045_246)] pl-5 lg:mt-auto lg:ml-0 lg:block lg:border-t lg:border-l-0 lg:pt-6 lg:pl-0">
+        <div className="mt-4 flex w-full items-center justify-between gap-4 lg:mt-auto lg:block lg:border-t lg:border-[oklch(38%_0.045_246)] lg:pt-6">
           <p className="flex items-center gap-2 text-xs font-semibold text-[oklch(84%_0.025_246)]">
             <span
               aria-hidden="true"
@@ -99,9 +100,20 @@ export default async function PrivateLayout({
       <main
         id="conteudo-principal"
         tabIndex={-1}
-        className="min-w-0 px-5 py-8 focus:outline-none sm:px-8 sm:py-10 lg:px-[clamp(3rem,6vw,6rem)] lg:py-12"
+        className="min-w-0 px-5 py-6 focus:outline-none sm:px-8 sm:py-8 lg:px-[clamp(1.5rem,3vw,3rem)] lg:py-9"
       >
-        {children}
+        <PrivateCapabilitiesProvider permissions={permissions}>
+          {showDemoNotice ? (
+            <p
+              role="status"
+              aria-label="Ambiente de demonstração"
+              className="mb-6 border-l-2 border-[var(--prospecta-accent)] bg-[var(--prospecta-accent-soft)] px-4 py-3 text-sm leading-6 text-[var(--prospecta-accent-dark)]"
+            >
+              Demonstração com dados fictícios. Disponível somente para consulta.
+            </p>
+          ) : null}
+          <ImportCompanyNoticesProvider>{children}</ImportCompanyNoticesProvider>
+        </PrivateCapabilitiesProvider>
       </main>
     </div>
   );

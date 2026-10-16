@@ -36,6 +36,7 @@ describe("login page", () => {
     expect(
       screen.getByRole("heading", { name: "Acesso corporativo" }),
     ).toBeInTheDocument();
+    expect(screen.getByText("Prospecta · painel interno")).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "Entrar com acesso corporativo" }),
     ).toBeInTheDocument();
@@ -45,7 +46,7 @@ describe("login page", () => {
     );
   });
 
-  it("starts only the approved provider flow with the leads destination", async () => {
+  it("starts only the approved provider flow with the private guide destination", async () => {
     render(await LoginPage({ searchParams: Promise.resolve({}) }));
 
     fireEvent.submit(
@@ -58,11 +59,11 @@ describe("login page", () => {
       expect(signInMock).toHaveBeenCalledTimes(1);
     });
     expect(signInMock).toHaveBeenCalledWith("organization-oidc", {
-      redirectTo: "/leads",
+      redirectTo: "/inicio",
     });
   });
 
-  it("redirects an already authorized session to the leads page", async () => {
+  it("redirects an already authorized session to the private guide", async () => {
     getServerAuthorizationMock.mockResolvedValue({ status: "authorized" });
     redirectMock.mockImplementation(() => {
       throw new Error("NEXT_REDIRECT");
@@ -72,7 +73,7 @@ describe("login page", () => {
       LoginPage({ searchParams: Promise.resolve({}) }),
     ).rejects.toThrow("NEXT_REDIRECT");
     expect(redirectMock).toHaveBeenCalledTimes(1);
-    expect(redirectMock).toHaveBeenCalledWith("/leads");
+    expect(redirectMock).toHaveBeenCalledWith("/inicio");
   });
 
   it("replaces internal authentication errors with safe generic copy", async () => {

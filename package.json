@@ -2,17 +2,25 @@
   "name": "read-only-lead-browser",
   "version": "0.1.0",
   "private": true,
+  "packageManager": "pnpm@10.34.4",
+  "engines": {
+    "node": ">=22.18.0 <23"
+  },
   "scripts": {
     "dev": "next dev",
+    "demo:safe": "node scripts/demo-safe.mjs",
+    "check:config": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --conditions=react-server scripts/check-config.mjs",
     "demo2": "node scripts/demo2.mjs",
     "demo2:k8s": "node scripts/deploy-demo2-k8s.mjs",
     "demo3:k8s": "node scripts/deploy-demo3-k8s.mjs",
     "demo3:contact-v2:n8n": "node scripts/prepare-demo3-contact-v2-n8n.mjs",
     "build": "next build",
-    "start": "next start",
+    "build:safe": "node scripts/build-safe.mjs",
+    "start": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --conditions=react-server scripts/start-mvp.mjs",
     "lint": "eslint",
     "typecheck": "next typegen && tsc --noEmit -p tsconfig.typecheck.json",
     "test": "vitest run",
+    "test:scripts": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --conditions=react-server --test scripts/*.test.mjs",
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "test:contract": "vitest run --config vitest.contract.config.ts"
   },

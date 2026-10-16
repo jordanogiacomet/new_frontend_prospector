@@ -1,4 +1,7 @@
+"use client";
+
 import Link from "next/link";
+import { useState } from "react";
 
 import {
   UNAVAILABLE_LABEL,
@@ -12,9 +15,10 @@ import {
   getPriorityLabel,
   getTrustStatusLabel,
 } from "../../lib/lead-labels";
+import { appendReturnTo } from "../../lib/navigation-return";
 import type { LeadSummary } from "../../types/leads";
 
-type ApprovedPriority = "B" | "C" | "E" | "R";
+type ApprovedPriority = "B" | "C" | "D" | "E" | "R";
 
 interface LeadTableFilters {
   cnpj?: string;
@@ -98,10 +102,16 @@ export function LeadTable({
   pagination,
   filters = {},
 }: LeadTableProps) {
+  const [showDetails, setShowDetails] = useState(false);
   const resultLabel =
     pagination.total === 1
       ? "1 resultado"
       : `${pagination.total} resultados`;
+  const returnTo = buildPageHref(
+    pagination.page,
+    pagination.pageSize,
+    filters,
+  );
 
   return (
     <section aria-label="Resultados da consulta">
@@ -109,29 +119,39 @@ export function LeadTable({
         <h2 className="font-serif text-2xl tracking-[-0.025em]">
           Empresas analisadas
         </h2>
-        <p className="text-sm font-semibold text-[oklch(43%_0.03_252)]">
-          {resultLabel}
-        </p>
+        <div className="flex flex-wrap items-center gap-4">
+          <p className="text-sm font-semibold text-[oklch(43%_0.03_252)]">
+            {resultLabel}
+          </p>
+          <button
+            type="button"
+            aria-pressed={showDetails}
+            className="ui-action ui-action--secondary"
+            onClick={() => setShowDetails((current) => !current)}
+          >
+            {showDetails ? "Usar visão resumida" : "Detalhar informações"}
+          </button>
+        </div>
       </div>
 
       <div className="overflow-x-auto">
         <table
           aria-label="Resultados de leads"
-          className="w-full min-w-[78rem] border-collapse text-left"
+          className={`responsive-data-table w-full border-collapse text-left ${showDetails ? "md:min-w-[78rem]" : "md:min-w-[44rem]"}`}
         >
           <thead>
             <tr className="border-b border-[oklch(72%_0.035_82)]">
               {[
                 "Empresa",
-                "CNPJ",
+                ...(showDetails ? ["CNPJ"] : []),
                 "Cidade / UF",
-                "Setor",
+                ...(showDetails ? ["Setor"] : []),
                 "Pontuação",
                 "Prioridade",
                 "Ação recomendada",
                 "Status de confiança",
                 "Última análise",
-                "Lote de importação",
+                ...(showDetails ? ["Lote de importação"] : []),
               ].map((column) => (
                 <th
                   key={column}
@@ -159,42 +179,62 @@ export function LeadTable({
                   key={lead.decision_id}
                   className="border-b border-[oklch(88%_0.02_82)] align-top transition-colors hover:bg-[oklch(95%_0.025_82)] motion-reduce:transition-none"
                 >
-                  <td className="max-w-64 py-5 pr-3">
-                    <p className="font-bold leading-5">
-                      {lead.companyName ?? UNAVAILABLE_LABEL}
-                    </p>
-                    <Link
-                      href={`/leads/${encodeURIComponent(lead.cnpj)}?leadRunId=${encodeURIComponent(lead.lead_run_id)}`}
-                      aria-label={`Abrir análise de ${detailLabel}`}
-                      className="mt-2 inline-flex min-h-8 items-center border-b border-[oklch(45%_0.105_174)] text-xs font-bold text-[oklch(37%_0.095_174)] transition-colors hover:border-[oklch(24%_0.035_252)] hover:text-[oklch(24%_0.035_252)] focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-[oklch(45%_0.105_174)] motion-reduce:transition-none"
-                    >
-                      Abrir análise
-                      <span aria-hidden="true" className="ml-1">
-                        →
-                      </span>
-                    </Link>
+                  <td data-label="Empresa" className="max-w-64 py-5 pr-3">
+                    <div>
+                      <p className="font-bold leading-5">
+                        {lead.companyName ?? UNAVAILABLE_LABEL}
+                      </p>
+                      {!showDetails ? (
+                        <div className="mt-2 space-y-1 text-xs leading-5 text-[oklch(43%_0.03_252)]">
+                          <p>{formattedCnpj}</p>
+                          <p>{lead.sector ?? UNAVAILABLE_LABEL}</p>
+                        </div>
+                      ) : null}
+                      <Link
+                        href={appendReturnTo(
+                          `/leads/${encodeURIComponent(lead.cnpj)}?leadRunId=${encodeURIComponent(lead.lead_run_id)}`,
+                          returnTo,
+                        )}
+                        aria-label={`Abrir análise de ${detailLabel}`}
+                        className="ui-action ui-action--quiet mt-2 text-xs"
+                      >
+                        Abrir análise
+                        <span aria-hidden="true" className="ml-1">
+                          →
+                        </span>
+                      </Link>
+                    </div>
                   </td>
-                  <td className="px-3 py-5 text-sm whitespace-nowrap">
-                    {formattedCnpj}
-                  </td>
-                  <td className="max-w-48 px-3 py-5 text-sm leading-5">
+                  {showDetails ? (
+                    <td data-label="CNPJ" className="px-3 py-5 text-sm whitespace-nowrap">
+                      {formattedCnpj}
+                    </td>
+                  ) : null}
+                  <td data-label="Cidade / UF" className="max-w-48 px-3 py-5 text-sm leading-5">
                     {formatLocation(lead.city, lead.uf)}
                   </td>
-                  <td className="max-w-56 px-3 py-5 text-sm leading-5">
-                    {lead.sector ?? UNAVAILABLE_LABEL}
+                  {showDetails ? (
+                    <td data-label="Setor" className="max-w-56 px-3 py-5 text-sm leading-5">
+                      {lead.sector ?? UNAVAILABLE_LABEL}
+                    </td>
+                  ) : null}
+                  <td data-label="Pontuação" className="px-3 py-5">
+                    <div className="flex items-baseline">
+                      <span className="font-serif text-2xl leading-none">
+                        {formatScore(lead.score)}
+                      </span>
+                      {lead.score === null ? null : (
+                        <span className="ml-1 text-xs text-[oklch(43%_0.03_252)]">/100</span>
+                      )}
+                    </div>
                   </td>
-                  <td className="px-3 py-5">
-                    <span className="font-serif text-2xl leading-none">
-                      {formatScore(lead.score)}
-                    </span>
-                  </td>
-                  <td className="px-3 py-5">
+                  <td data-label="Prioridade" className="px-3 py-5">
                     <Badge label={priorityLabel} />
                   </td>
-                  <td className="max-w-48 px-3 py-5">
+                  <td data-label="Ação recomendada" className="max-w-48 px-3 py-5">
                     <Badge label={actionLabel} />
                   </td>
-                  <td className="max-w-48 px-3 py-5">
+                  <td data-label="Confiança" className="max-w-48 px-3 py-5">
                     <div className="flex flex-col items-start gap-2">
                       <Badge label={trustLabel} />
                       {lead.confidenceIndicator === "low" ? (
@@ -202,19 +242,21 @@ export function LeadTable({
                       ) : null}
                     </div>
                   </td>
-                  <td className="px-3 py-5 text-sm whitespace-nowrap">
+                  <td data-label="Última análise" className="px-3 py-5 text-sm whitespace-nowrap">
                     {formatBrazilianDate(lead.lastAnalysisAt)}
                   </td>
-                  <td className="py-5 pl-3 text-sm last:pr-0">
-                    <span className="block max-w-48 break-all">
-                      {lead.import_batch_id ?? UNAVAILABLE_LABEL}
-                    </span>
-                    {lead.source_row === null ? null : (
-                      <span className="mt-1 block text-xs text-[oklch(48%_0.025_252)]">
-                        Linha {lead.source_row}
+                  {showDetails ? (
+                    <td data-label="Importação" className="py-5 pl-3 text-sm last:pr-0">
+                      <span className="block max-w-48 break-all">
+                        {lead.import_batch_id ?? UNAVAILABLE_LABEL}
                       </span>
-                    )}
-                  </td>
+                      {lead.source_row === null ? null : (
+                        <span className="mt-1 block text-xs text-[oklch(48%_0.025_252)]">
+                          Linha {lead.source_row}
+                        </span>
+                      )}
+                    </td>
+                  ) : null}
                 </tr>
               );
             })}

@@ -9,11 +9,62 @@ import {
   contactRevealCallbackSchema,
 } from "./contact-enrichment-v2-contract";
 import {
+  normalizeCompanyPhoneFallback,
   normalizeContactCandidates,
+  normalizeContactProfileUpdate,
   normalizeRevealedChannels,
 } from "./contact-data-policy";
 
 describe("contact data policy", () => {
+  it("allows only a last-resort Apollo organization phone with unknown contactability", () => {
+    const callback = contactPreviewCallbackSchema.parse({
+      contract_version: CONTACT_PREVIEW_CONTRACT_VERSION,
+      request_id: "00000000-0000-4000-8000-000000000800",
+      status: "PREVIEW_AVAILABLE",
+      occurred_at: "2026-08-11T12:00:00.000Z",
+      candidates: [],
+      company_phone: {
+        number: "+551133334444",
+        provider_source: "APOLLO",
+        contactability: "UNKNOWN",
+      },
+    });
+
+    expect(normalizeCompanyPhoneFallback(callback)).toEqual({
+      value: "+551133334444",
+      source: "APOLLO",
+      contactability: "UNKNOWN",
+    });
+    expect(() =>
+      contactPreviewCallbackSchema.parse({
+        ...callback,
+        company_phone: {
+          ...callback.company_phone,
+          do_not_call: false,
+        },
+      }),
+    ).toThrow();
+    expect(() =>
+      contactPreviewCallbackSchema.parse({
+        ...callback,
+        candidates: [
+          {
+            provider_contact_id: "provider-synthetic-phone-conflict",
+            provider_source: "APOLLO",
+            full_name: "Pessoa Sintética",
+            job_title: "Controller",
+            departments: ["Finance"],
+            seniority: "Director",
+            location: { city: null, state: null, country: null },
+            linkedin_url: null,
+            can_reveal_work_email: false,
+            can_reveal_business_phone: false,
+          },
+        ],
+      }),
+    ).toThrow();
+  });
+
   it("allows only an approved LinkedIn profile and exact preview fields", () => {
     const callback = contactPreviewCallbackSchema.parse({
       contract_version: CONTACT_PREVIEW_CONTRACT_VERSION,
@@ -23,6 +74,7 @@ describe("contact data policy", () => {
       candidates: [
         {
           provider_contact_id: "provider-synthetic-1",
+          provider_source: "APOLLO",
           full_name: "Pessoa Sintética",
           job_title: "Direção financeira",
           departments: ["Finance", "Finance"],
@@ -37,6 +89,7 @@ describe("contact data policy", () => {
 
     expect(normalizeContactCandidates(callback)).toEqual([
       expect.objectContaining({
+        providerSource: "APOLLO",
         fullName: "Pessoa Sintética",
         departments: ["Finance"],
         linkedinUrl: "https://www.linkedin.com/in/pessoa-sintetica",
@@ -58,6 +111,7 @@ describe("contact data policy", () => {
       status: "REVEAL_AVAILABLE",
       occurred_at: "2026-07-31T12:00:00.000Z",
       provider_contact_id: "provider-synthetic-2",
+      provider_source: "LUSHA",
       emails: [
         { email: "work@example.test", type: "work", confidence: "A", update_date: "2026-07-01" },
         { email: "private@example.test", type: "private", confidence: null, update_date: null },
@@ -80,5 +134,36 @@ describe("contact data policy", () => {
     expect(JSON.stringify(result)).not.toContain("private@example.test");
     expect(JSON.stringify(result)).not.toContain("+5511999999999");
   });
-});
 
+  it("admits only the selected Apollo profile name and an approved LinkedIn URL", () => {
+    const callback = contactRevealCallbackSchema.parse({
+      contract_version: CONTACT_REVEAL_CONTRACT_VERSION,
+      request_id: "00000000-0000-4000-8000-000000000821",
+      reveal_request_id: "00000000-0000-4000-8000-000000000822",
+      status: "REVEAL_EMPTY",
+      occurred_at: "2026-07-31T12:00:00.000Z",
+      provider_contact_id: "apollo-person-synthetic",
+      provider_source: "APOLLO",
+      profile_update: {
+        full_name: "Pessoa Apollo Sintética",
+        linkedin_url: "https://www.linkedin.com/in/pessoa-apollo-sintetica",
+      },
+      emails: [],
+      phones: [],
+    });
+
+    expect(normalizeContactProfileUpdate(callback)).toEqual({
+      fullName: "Pessoa Apollo Sintética",
+      linkedinUrl: "https://www.linkedin.com/in/pessoa-apollo-sintetica",
+    });
+    expect(
+      normalizeContactProfileUpdate({
+        ...callback,
+        profile_update: {
+          ...callback.profile_update!,
+          linkedin_url: "https://tracker.example.test/profile",
+        },
+      }),
+    ).toEqual({ fullName: "Pessoa Apollo Sintética", linkedinUrl: null });
+  });
+});

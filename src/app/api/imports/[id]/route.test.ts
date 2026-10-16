@@ -11,9 +11,13 @@ import type {
   GetImportBatchDetailResult,
 } from "../../../../server/imports/batch-read-service";
 import type { BatchSummary } from "../../../../types/imports";
+import type { listImportReceivedCompanies } from "../../../../server/repositories/imports/import-received-companies-repository";
+import type { listProcessedImportCompanies } from "../../../../server/repositories/imports/processed-import-companies-repository";
+import type { resolveLeadReadVisibility } from "../../../../server/leads/lead-read-visibility";
 
 type ImportsFeatureEnvironment = {
   readonly FEATURE_IMPORTS_ENABLED: boolean;
+  readonly FEATURE_BATCH_OBSERVATION_ENABLED?: boolean;
   readonly DEMO3_LOCAL_RUNTIME_ENABLED?: boolean;
 };
 
@@ -28,6 +32,12 @@ const mocks = vi.hoisted(() => ({
         dependencies?: BatchReadServiceDependencies,
       ) => Promise<GetImportBatchDetailResult>
     >(),
+  listImportReceivedCompanies: vi.fn<typeof listImportReceivedCompanies>(),
+  listProcessedImportCompanies: vi.fn<typeof listProcessedImportCompanies>(),
+  resolveLeadReadVisibility: vi.fn<typeof resolveLeadReadVisibility>(),
+  isDemoDataEnabled: vi.fn<() => boolean>(),
+  getDemoImportBatchDetail:
+    vi.fn<(id: string) => GetImportBatchDetailResult>(),
 }));
 
 vi.mock("server-only", () => ({}));
@@ -40,6 +50,23 @@ vi.mock("../../../../server/env", () => ({
 }));
 vi.mock("../../../../server/imports/batch-read-service", () => ({
   getImportBatchDetail: mocks.getImportBatchDetail,
+}));
+vi.mock(
+  "../../../../server/repositories/imports/import-received-companies-repository",
+  () => ({ listImportReceivedCompanies: mocks.listImportReceivedCompanies }),
+);
+vi.mock(
+  "../../../../server/repositories/imports/processed-import-companies-repository",
+  () => ({ listProcessedImportCompanies: mocks.listProcessedImportCompanies }),
+);
+vi.mock("../../../../server/leads/lead-read-visibility", () => ({
+  resolveLeadReadVisibility: mocks.resolveLeadReadVisibility,
+}));
+vi.mock("../../../../server/demo/mode", () => ({
+  isDemoDataEnabled: mocks.isDemoDataEnabled,
+}));
+vi.mock("../../../../server/demo/prospecta-demo-data", () => ({
+  getDemoImportBatchDetail: mocks.getDemoImportBatchDetail,
 }));
 
 import { SafeApiError } from "../../../../server/api/errors";
@@ -173,13 +200,26 @@ function routeSource(): string {
 }
 
 beforeEach(() => {
-  vi.clearAllMocks();
+  vi.resetAllMocks();
   mocks.requireApiSession.mockResolvedValue(authorizationContext);
   mocks.getServerEnv.mockReturnValue({
     FEATURE_IMPORTS_ENABLED: true,
+    FEATURE_BATCH_OBSERVATION_ENABLED: true,
     DEMO3_LOCAL_RUNTIME_ENABLED: false,
   });
   mocks.getImportBatchDetail.mockResolvedValue(foundResult());
+  mocks.listImportReceivedCompanies.mockResolvedValue({
+    companies: [],
+    page: 1,
+    pageSize: 100,
+    total: 0,
+  });
+  mocks.listProcessedImportCompanies.mockResolvedValue({
+    companies: [], page: 1, pageSize: 100, total: 0,
+  });
+  mocks.resolveLeadReadVisibility.mockResolvedValue({});
+  mocks.isDemoDataEnabled.mockReturnValue(false);
+  mocks.getDemoImportBatchDetail.mockReturnValue(foundResult());
   vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
     throw new Error("Unexpected external fetch.");
   });
@@ -213,6 +253,7 @@ describe("GET /api/imports/:id", () => {
     });
     expect(mocks.getServerEnv).not.toHaveBeenCalled();
     expect(mocks.getImportBatchDetail).not.toHaveBeenCalled();
+    expect(mocks.listImportReceivedCompanies).not.toHaveBeenCalled();
     expectPrivateNoStore(response);
   });
 
@@ -232,6 +273,7 @@ describe("GET /api/imports/:id", () => {
     });
     expect(mocks.getServerEnv).not.toHaveBeenCalled();
     expect(mocks.getImportBatchDetail).not.toHaveBeenCalled();
+    expect(mocks.listImportReceivedCompanies).not.toHaveBeenCalled();
     expectPrivateNoStore(response);
   });
 
@@ -250,6 +292,7 @@ describe("GET /api/imports/:id", () => {
       },
     });
     expect(mocks.getImportBatchDetail).not.toHaveBeenCalled();
+    expect(mocks.listImportReceivedCompanies).not.toHaveBeenCalled();
     expectPrivateNoStore(response);
   });
 
@@ -293,6 +336,7 @@ describe("GET /api/imports/:id", () => {
         },
       });
       expect(mocks.getImportBatchDetail).not.toHaveBeenCalled();
+      expect(mocks.listImportReceivedCompanies).not.toHaveBeenCalled();
       expectPrivateNoStore(response);
     },
   );
@@ -382,6 +426,491 @@ describe("GET /api/imports/:id", () => {
     expect(await response.json()).toEqual({
       data: batch,
     });
+  });
+
+  it("preserves the original response without reading company facts unless requested", async () => {
+    const response = await get({
+      url: `${routeUrl}/${submissionId}?pageSize=invalid&pageSize=0&unknown=ignored`,
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ data: batchSummary() });
+    expect(mocks.listImportReceivedCompanies).not.toHaveBeenCalled();
+    expect(mocks.resolveLeadReadVisibility).not.toHaveBeenCalled();
+    expect(mocks.listProcessedImportCompanies).not.toHaveBeenCalled();
+  });
+
+  it("appends only paginated receipt facts scoped to the verified organization", async () => {
+    const company = {
+      source_row: 5,
+      receivedAt: "2026-07-08T10:02:00.000Z",
+    };
+    mocks.listImportReceivedCompanies.mockResolvedValueOnce({
+      companies: [Object.assign({}, company, {
+        cnpj_normalizado: "00000000000000",
+        name: "Synthetic withheld company name",
+        payload: { private: "withheld" },
+      })],
+      page: 2,
+      pageSize: 4,
+      total: 7,
+    });
+
+    const response = await get({
+      url: `${routeUrl}/${submissionId}?receivedCompaniesPage=2&pageSize=4`,
+      headers: { "X-Organization-Id": "org-from-header" },
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      data: batchSummary(),
+      meta: {
+        receivedCompanies: {
+          available: true,
+          data: [company],
+          page: 2,
+          pageSize: 4,
+          total: 7,
+        },
+      },
+    });
+    expect(mocks.requireApiSession).toHaveBeenCalledWith("imports:read");
+    expect(mocks.listImportReceivedCompanies).toHaveBeenCalledExactlyOnceWith({
+      organizationId,
+      submissionId,
+      page: 2,
+      pageSize: 4,
+    });
+    expectPrivateNoStore(response);
+  });
+
+  it("uses a bounded default receipt page size and preserves confirmed empty results", async () => {
+    const response = await get({
+      url: `${routeUrl}/${submissionId}?receivedCompaniesPage=1`,
+    });
+
+    expect(response.status).toBe(200);
+    expect(mocks.listImportReceivedCompanies).toHaveBeenCalledExactlyOnceWith({
+      organizationId,
+      submissionId,
+      page: 1,
+      pageSize: 100,
+    });
+    expect(await response.json()).toEqual({
+      data: batchSummary(),
+      meta: {
+        receivedCompanies: {
+          available: true,
+          data: [],
+          page: 1,
+          pageSize: 100,
+          total: 0,
+        },
+      },
+    });
+  });
+
+  it("allows the maximum receipt pagination bounds", async () => {
+    const response = await get({
+      url: `${routeUrl}/${submissionId}?receivedCompaniesPage=10000&pageSize=100`,
+    });
+
+    expect(response.status).toBe(200);
+    expect(mocks.listImportReceivedCompanies).toHaveBeenCalledExactlyOnceWith({
+      organizationId,
+      submissionId,
+      page: 10_000,
+      pageSize: 100,
+    });
+  });
+
+  it.each([
+    ["blank page", "receivedCompaniesPage=", "receivedCompaniesPage"],
+    ["zero page", "receivedCompaniesPage=0", "receivedCompaniesPage"],
+    ["negative page", "receivedCompaniesPage=-1", "receivedCompaniesPage"],
+    ["fractional page", "receivedCompaniesPage=1.5", "receivedCompaniesPage"],
+    ["exponent page", "receivedCompaniesPage=1e2", "receivedCompaniesPage"],
+    ["page above maximum", "receivedCompaniesPage=10001", "receivedCompaniesPage"],
+    ["unsafe page", "receivedCompaniesPage=9007199254740993", "receivedCompaniesPage"],
+    ["duplicated page", "receivedCompaniesPage=1&receivedCompaniesPage=2", "receivedCompaniesPage"],
+    ["blank page size", "receivedCompaniesPage=1&pageSize=", "pageSize"],
+    ["zero page size", "receivedCompaniesPage=1&pageSize=0", "pageSize"],
+    ["page size above maximum", "receivedCompaniesPage=1&pageSize=101", "pageSize"],
+    ["duplicated page size", "receivedCompaniesPage=1&pageSize=1&pageSize=2", "pageSize"],
+    ["unknown field", "receivedCompaniesPage=1&unknown=1", "unknown"],
+    ["organization injection", "receivedCompaniesPage=1&organizationId=other-org", "organizationId"],
+  ])("rejects invalid receipt queries before database work: %s", async (_label, query, field) => {
+    const response = await get({
+      url: `${routeUrl}/${submissionId}?${query}`,
+    });
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({
+      error: {
+        code: "VALIDATION_ERROR",
+        details: [{ field, message: "Valor inválido." }],
+      },
+    });
+    expect(mocks.getImportBatchDetail).not.toHaveBeenCalled();
+    expect(mocks.listImportReceivedCompanies).not.toHaveBeenCalled();
+    expectPrivateNoStore(response);
+  });
+
+  it("checks authorization and feature gates before receipt query validation", async () => {
+    const url = `${routeUrl}/${submissionId}?receivedCompaniesPage=invalid`;
+    mocks.requireApiSession.mockRejectedValueOnce(
+      new SafeApiError("AUTHENTICATION_REQUIRED"),
+    );
+    const unauthorized = await get({ url });
+
+    expect(unauthorized.status).toBe(401);
+    expect(mocks.getServerEnv).not.toHaveBeenCalled();
+    mocks.getServerEnv.mockReturnValueOnce({ FEATURE_IMPORTS_ENABLED: false });
+    const disabled = await get({ url });
+
+    expect(disabled.status).toBe(403);
+    expect(mocks.getImportBatchDetail).not.toHaveBeenCalled();
+    expect(mocks.listImportReceivedCompanies).not.toHaveBeenCalled();
+  });
+
+  it("verifies the scoped submission before reading received companies", async () => {
+    const events: string[] = [];
+    mocks.requireApiSession.mockImplementationOnce(async () => {
+      events.push("auth");
+      return authorizationContext;
+    });
+    mocks.getServerEnv.mockImplementationOnce(() => {
+      events.push("feature");
+      return { FEATURE_IMPORTS_ENABLED: true };
+    });
+    mocks.getImportBatchDetail.mockImplementationOnce(async () => {
+      events.push("detail");
+      return foundResult();
+    });
+    mocks.listImportReceivedCompanies.mockImplementationOnce(async () => {
+      events.push("receipts");
+      return { companies: [], page: 1, pageSize: 100, total: 0 };
+    });
+
+    const response = await get({
+      url: `${routeUrl}/${submissionId}?receivedCompaniesPage=1`,
+    });
+
+    expect(response.status).toBe(200);
+    expect(events).toEqual(["auth", "feature", "detail", "receipts"]);
+  });
+
+  it("withholds received companies when a submission is missing or belongs to another organization", async () => {
+    mocks.getImportBatchDetail.mockResolvedValueOnce(notFoundResult());
+
+    const response = await get({
+      url: `${routeUrl}/${submissionId}?receivedCompaniesPage=1`,
+    });
+
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({
+      error: {
+        code: "IMPORT_SUBMISSION_NOT_FOUND",
+        message: "Importação não encontrada.",
+      },
+    });
+    expect(mocks.listImportReceivedCompanies).not.toHaveBeenCalled();
+    expectPrivateNoStore(response);
+  });
+
+  it.each([false, true])("marks synthetic demo receipt facts unavailable without repository reads (Demo 3: %s)", async (demo3) => {
+    mocks.isDemoDataEnabled.mockReturnValue(true);
+    mocks.getServerEnv.mockReturnValue({
+      FEATURE_IMPORTS_ENABLED: true,
+      DEMO3_LOCAL_RUNTIME_ENABLED: demo3,
+    });
+
+    const response = await get({
+      url: `${routeUrl}/${submissionId}?receivedCompaniesPage=3&pageSize=25`,
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      data: batchSummary(),
+      meta: {
+        receivedCompanies: {
+          available: false,
+          data: [],
+          page: 3,
+          pageSize: 25,
+          total: null,
+        },
+      },
+    });
+    expect(mocks.listImportReceivedCompanies).not.toHaveBeenCalled();
+    expectPrivateNoStore(response);
+  });
+
+  it("maps unavailable receipt facts to a safe 503 without fabricating an empty result", async () => {
+    mocks.listImportReceivedCompanies.mockRejectedValueOnce(
+      new SafeApiError("DATA_SOURCE_UNAVAILABLE"),
+    );
+
+    const response = await get({
+      url: `${routeUrl}/${submissionId}?receivedCompaniesPage=1`,
+    });
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({
+      error: {
+        code: "DATA_SOURCE_UNAVAILABLE",
+        message: "Não foi possível consultar os dados agora.",
+      },
+    });
+    expectPrivateNoStore(response);
+  });
+
+  it("returns only scoped individual processing facts and preserves nullable batch counts", async () => {
+    const batch = batchSummary({ import_batch_id: importBatchId });
+    const company = { source_row: 2, processedAt: "2026-07-08T10:04:00.000Z" };
+    const visibility = { includeTestRunsFromImportBatchIds: [importBatchId] };
+    mocks.getImportBatchDetail.mockResolvedValueOnce(foundResult(batch));
+    mocks.resolveLeadReadVisibility.mockResolvedValueOnce(visibility);
+    mocks.listProcessedImportCompanies.mockResolvedValueOnce({
+      companies: [Object.assign({}, company, {
+        cnpj_normalizado: "00000000000000", name: "Withheld synthetic name",
+        result: "INSERIDO_VALIDATION", payload: { private: "withheld" },
+      })],
+      page: 2, pageSize: 4, total: 5,
+    });
+
+    const response = await get({
+      url: `${routeUrl}/${submissionId}?processedCompaniesPage=2&pageSize=4`,
+      headers: { "X-Organization-Id": "org-from-header" },
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      data: batch,
+      meta: { processedCompanies: {
+        available: true, data: [company], page: 2, pageSize: 4, total: 5,
+        factSource: "producer_current_company_results_v1",
+      } },
+    });
+    expect(mocks.requireApiSession).toHaveBeenCalledExactlyOnceWith("imports:read");
+    expect(mocks.getImportBatchDetail).toHaveBeenCalledExactlyOnceWith({ organizationId, submissionId });
+    expect(mocks.resolveLeadReadVisibility).toHaveBeenCalledExactlyOnceWith(actor);
+    expect(mocks.listProcessedImportCompanies).toHaveBeenCalledExactlyOnceWith(
+      { importBatchId, page: 2, pageSize: 4 }, visibility,
+    );
+    expect(mocks.listImportReceivedCompanies).not.toHaveBeenCalled();
+    expectPrivateNoStore(response);
+  });
+
+  it("defaults individual processing page size to 100 and preserves confirmed empty results", async () => {
+    const batch = batchSummary({ import_batch_id: importBatchId });
+    mocks.getImportBatchDetail.mockResolvedValueOnce(foundResult(batch));
+
+    const response = await get({ url: `${routeUrl}/${submissionId}?processedCompaniesPage=1` });
+
+    expect(response.status).toBe(200);
+    expect(mocks.listProcessedImportCompanies).toHaveBeenCalledExactlyOnceWith(
+      { importBatchId, page: 1, pageSize: 100 }, {},
+    );
+    expect(await response.json()).toEqual({
+      data: batch,
+      meta: { processedCompanies: {
+        available: true, data: [], page: 1, pageSize: 100, total: 0,
+        factSource: "producer_current_company_results_v1",
+      } },
+    });
+  });
+
+  it("allows the maximum individual-processing pagination bounds", async () => {
+    mocks.getImportBatchDetail.mockResolvedValueOnce(
+      foundResult(batchSummary({ import_batch_id: importBatchId })),
+    );
+
+    const response = await get({
+      url: `${routeUrl}/${submissionId}?processedCompaniesPage=10000&pageSize=100`,
+    });
+
+    expect(response.status).toBe(200);
+    expect(mocks.listProcessedImportCompanies).toHaveBeenCalledExactlyOnceWith(
+      { importBatchId, page: 10_000, pageSize: 100 }, {},
+    );
+  });
+
+  it.each([
+    ["unknown correlation", false, false, true, null],
+    ["disabled observations", false, false, false, importBatchId],
+    ["synthetic demo", true, false, true, importBatchId],
+    ["Demo 3 with demo data", true, true, true, importBatchId],
+  ] as const)("withholds processing facts without a permitted source: %s", async (_label, demo, demo3, observations, batchId) => {
+    const batch = batchSummary({ import_batch_id: batchId });
+    mocks.getServerEnv.mockReturnValueOnce({
+      FEATURE_IMPORTS_ENABLED: true,
+      FEATURE_BATCH_OBSERVATION_ENABLED: observations,
+      DEMO3_LOCAL_RUNTIME_ENABLED: demo3,
+    });
+    mocks.isDemoDataEnabled.mockReturnValue(demo);
+    mocks.getImportBatchDetail.mockResolvedValueOnce(foundResult(batch));
+    mocks.getDemoImportBatchDetail.mockReturnValueOnce(foundResult(batch));
+
+    const response = await get({ url: `${routeUrl}/${submissionId}?processedCompaniesPage=3&pageSize=25` });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      data: batch,
+      meta: { processedCompanies: {
+        available: false, data: [], page: 3, pageSize: 25, total: null,
+        factSource: "producer_current_company_results_v1",
+      } },
+    });
+    expect(mocks.resolveLeadReadVisibility).not.toHaveBeenCalled();
+    expect(mocks.listProcessedImportCompanies).not.toHaveBeenCalled();
+    expect(mocks.listImportReceivedCompanies).not.toHaveBeenCalled();
+    expectPrivateNoStore(response);
+  });
+
+  it.each([
+    ["blank page", "processedCompaniesPage=", "processedCompaniesPage"],
+    ["zero page", "processedCompaniesPage=0", "processedCompaniesPage"],
+    ["negative page", "processedCompaniesPage=-1", "processedCompaniesPage"],
+    ["fractional page", "processedCompaniesPage=1.5", "processedCompaniesPage"],
+    ["exponent page", "processedCompaniesPage=1e2", "processedCompaniesPage"],
+    ["page above maximum", "processedCompaniesPage=10001", "processedCompaniesPage"],
+    ["unsafe page", "processedCompaniesPage=9007199254740993", "processedCompaniesPage"],
+    ["duplicated page", "processedCompaniesPage=1&processedCompaniesPage=2", "processedCompaniesPage"],
+    ["blank page size", "processedCompaniesPage=1&pageSize=", "pageSize"],
+    ["zero page size", "processedCompaniesPage=1&pageSize=0", "pageSize"],
+    ["page size above maximum", "processedCompaniesPage=1&pageSize=101", "pageSize"],
+    ["duplicated page size", "processedCompaniesPage=1&pageSize=1&pageSize=2", "pageSize"],
+    ["unknown field", "processedCompaniesPage=1&unknown=1", "unknown"],
+    ["organization injection", "processedCompaniesPage=1&organizationId=other-org", "organizationId"],
+    ["conflicting views", "processedCompaniesPage=1&receivedCompaniesPage=1", "processedCompaniesPage"],
+  ])("rejects invalid individual-processing queries before any read: %s", async (_label, query, field) => {
+    const response = await get({ url: `${routeUrl}/${submissionId}?${query}` });
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ error: {
+      code: "VALIDATION_ERROR", details: [{ field, message: "Valor inválido." }],
+    } });
+    expect(mocks.getImportBatchDetail).not.toHaveBeenCalled();
+    expect(mocks.resolveLeadReadVisibility).not.toHaveBeenCalled();
+    expect(mocks.listProcessedImportCompanies).not.toHaveBeenCalled();
+    expect(mocks.listImportReceivedCompanies).not.toHaveBeenCalled();
+    expectPrivateNoStore(response);
+  });
+
+  it("validates processing access and IDs before resolving visibility or querying a producer", async () => {
+    const url = `${routeUrl}/${submissionId}?processedCompaniesPage=invalid`;
+    mocks.requireApiSession.mockRejectedValueOnce(new SafeApiError("AUTHENTICATION_REQUIRED"));
+    const unauthorized = await get({ url });
+    expect(unauthorized.status).toBe(401);
+    expect(mocks.getServerEnv).not.toHaveBeenCalled();
+    mocks.getServerEnv.mockReturnValueOnce({ FEATURE_IMPORTS_ENABLED: false });
+    const disabled = await get({ url });
+    expect(disabled.status).toBe(403);
+    const invalidId = await get({ id: "invalid", url: `${routeUrl}/invalid?processedCompaniesPage=1` });
+    expect(invalidId.status).toBe(400);
+    expect(mocks.getImportBatchDetail).not.toHaveBeenCalled();
+    expect(mocks.resolveLeadReadVisibility).not.toHaveBeenCalled();
+    expect(mocks.listProcessedImportCompanies).not.toHaveBeenCalled();
+  });
+
+  it("denies processing reads without imports permission before any source work", async () => {
+    mocks.requireApiSession.mockRejectedValueOnce(new SafeApiError("ACCESS_DENIED"));
+
+    const response = await get({
+      url: `${routeUrl}/${submissionId}?processedCompaniesPage=invalid`,
+    });
+
+    expect(response.status).toBe(403);
+    expect(mocks.requireApiSession).toHaveBeenCalledExactlyOnceWith("imports:read");
+    expect(mocks.getServerEnv).not.toHaveBeenCalled();
+    expect(mocks.getImportBatchDetail).not.toHaveBeenCalled();
+    expect(mocks.resolveLeadReadVisibility).not.toHaveBeenCalled();
+    expect(mocks.listProcessedImportCompanies).not.toHaveBeenCalled();
+    expectPrivateNoStore(response);
+  });
+
+  it("requires a scoped app submission before reading individual producer results", async () => {
+    mocks.getImportBatchDetail.mockResolvedValueOnce(notFoundResult());
+
+    const response = await get({ url: `${routeUrl}/${submissionId}?processedCompaniesPage=1` });
+
+    expect(response.status).toBe(404);
+    expect(mocks.resolveLeadReadVisibility).not.toHaveBeenCalled();
+    expect(mocks.listProcessedImportCompanies).not.toHaveBeenCalled();
+    expectPrivateNoStore(response);
+  });
+
+  it("reads scoped batch, actor visibility, and individual facts in order", async () => {
+    const events: string[] = [];
+    mocks.getImportBatchDetail.mockImplementationOnce(async () => {
+      events.push("scoped-batch");
+      return foundResult(batchSummary({ import_batch_id: importBatchId }));
+    });
+    mocks.resolveLeadReadVisibility.mockImplementationOnce(async () => {
+      events.push("visibility"); return {};
+    });
+    mocks.listProcessedImportCompanies.mockImplementationOnce(async () => {
+      events.push("producer");
+      return { companies: [], page: 1, pageSize: 100, total: 0 };
+    });
+
+    const response = await get({ url: `${routeUrl}/${submissionId}?processedCompaniesPage=1` });
+
+    expect(response.status).toBe(200);
+    expect(events).toEqual(["scoped-batch", "visibility", "producer"]);
+  });
+
+  it("maps unavailable individual-processing results to a safe 503 without fabrication", async () => {
+    mocks.getImportBatchDetail.mockResolvedValueOnce(foundResult(batchSummary({ import_batch_id: importBatchId })));
+    mocks.listProcessedImportCompanies.mockRejectedValueOnce(new SafeApiError("DATA_SOURCE_UNAVAILABLE"));
+
+    const response = await get({ url: `${routeUrl}/${submissionId}?processedCompaniesPage=1` });
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: {
+      code: "DATA_SOURCE_UNAVAILABLE", message: "Não foi possível consultar os dados agora.",
+    } });
+    expectPrivateNoStore(response);
+  });
+
+  it("withholds processing facts when actor visibility cannot be resolved", async () => {
+    mocks.getImportBatchDetail.mockResolvedValueOnce(
+      foundResult(batchSummary({ import_batch_id: importBatchId })),
+    );
+    mocks.resolveLeadReadVisibility.mockRejectedValueOnce(new SafeApiError("DATA_SOURCE_UNAVAILABLE"));
+
+    const response = await get({
+      url: `${routeUrl}/${submissionId}?processedCompaniesPage=1`,
+    });
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: {
+      code: "DATA_SOURCE_UNAVAILABLE", message: "Não foi possível consultar os dados agora.",
+    } });
+    expect(mocks.listProcessedImportCompanies).not.toHaveBeenCalled();
+    expectPrivateNoStore(response);
+  });
+
+  it("maps unexpected processing failures without exposing source or actor details", async () => {
+    mocks.getImportBatchDetail.mockResolvedValueOnce(
+      foundResult(batchSummary({ import_batch_id: importBatchId })),
+    );
+    mocks.listProcessedImportCompanies.mockRejectedValueOnce(
+      new Error(`SELECT private_payload FROM internal_table ${organizationId} ${actor.subject} secret-token`),
+    );
+
+    const response = await get({
+      url: `${routeUrl}/${submissionId}?processedCompaniesPage=1`,
+    });
+    const serialized = JSON.stringify(await response.json());
+
+    expect(response.status).toBe(500);
+    expect(serialized).toContain("UNEXPECTED_ERROR");
+    for (const fragment of ["SELECT", "private_payload", "internal_table", organizationId, actor.subject, "secret-token"]) {
+      expect(serialized).not.toContain(fragment);
+    }
+    expectPrivateNoStore(response);
   });
 
   it("maps missing or cross-organization ids to a safe closed 404", async () => {

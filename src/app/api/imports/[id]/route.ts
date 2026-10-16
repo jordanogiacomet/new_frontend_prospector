@@ -14,6 +14,13 @@ import {
   getImportBatchDetail,
   type GetImportBatchDetailResult,
 } from "../../../../server/imports/batch-read-service";
+import { resolveLeadReadVisibility } from "../../../../server/leads/lead-read-visibility";
+import { listImportReceivedCompanies } from "../../../../server/repositories/imports/import-received-companies-repository";
+import { listProcessedImportCompanies } from "../../../../server/repositories/imports/processed-import-companies-repository";
+
+const maximumPage = 10_000;
+const defaultCompaniesPageSize = 100;
+const maximumPageSize = 100;
 
 const privateNoStoreHeaders = {
   "Cache-Control": "private, no-store",
@@ -25,8 +32,14 @@ interface ImportDetailRouteContext {
   }>;
 }
 
+interface ImportCompaniesQuery {
+  readonly kind: "received" | "processed";
+  readonly page: number;
+  readonly pageSize: number;
+}
+
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   context: ImportDetailRouteContext,
 ): Promise<NextResponse> {
   try {
@@ -34,6 +47,9 @@ export async function GET(
     const environment = requireImportsFeatureEnabled();
 
     const { id } = parseImportDetailParams(await context.params);
+    const companiesQuery = parseImportCompaniesQuery(
+      request.nextUrl.searchParams,
+    );
     const result =
       environment.DEMO3_LOCAL_RUNTIME_ENABLED && isDemoDataEnabled()
       ? await getImportBatchDetail(
@@ -54,6 +70,54 @@ export async function GET(
       return importBatchNotFoundResponse(result);
     }
 
+    if (companiesQuery?.kind === "processed") {
+      const { page, pageSize } = companiesQuery;
+      const importBatchId = result.batch.import_batch_id;
+      const processedCompanies =
+        !environment.FEATURE_BATCH_OBSERVATION_ENABLED ||
+        importBatchId === null ||
+        isDemoDataEnabled()
+          ? {
+              available: false,
+              data: [],
+              page,
+              pageSize,
+              total: null,
+              factSource: "producer_current_company_results_v1",
+            }
+          : await readProcessedCompanies(
+              { importBatchId, page, pageSize },
+              await resolveLeadReadVisibility(authorization.actor),
+            );
+
+      return NextResponse.json(
+        successResponse(result.batch, { processedCompanies }),
+        { headers: privateNoStoreHeaders },
+      );
+    }
+
+    if (companiesQuery?.kind === "received") {
+      const receivedCompanies = isDemoDataEnabled()
+        ? {
+            available: false,
+            data: [],
+            page: companiesQuery.page,
+            pageSize: companiesQuery.pageSize,
+            total: null,
+          }
+        : await readReceivedCompanies({
+            organizationId: authorization.actor.organizationId,
+            submissionId: id,
+            page: companiesQuery.page,
+            pageSize: companiesQuery.pageSize,
+          });
+
+      return NextResponse.json(
+        successResponse(result.batch, { receivedCompanies }),
+        { headers: privateNoStoreHeaders },
+      );
+    }
+
     return NextResponse.json(successResponse(result.batch), {
       headers: privateNoStoreHeaders,
     });
@@ -65,6 +129,117 @@ export async function GET(
       headers: privateNoStoreHeaders,
     });
   }
+}
+
+async function readProcessedCompanies(
+  input: Parameters<typeof listProcessedImportCompanies>[0],
+  options: Parameters<typeof listProcessedImportCompanies>[1],
+) {
+  const result = await listProcessedImportCompanies(input, options);
+
+  return {
+    available: true,
+    data: result.companies.map((company) => ({
+      source_row: company.source_row,
+      processedAt: company.processedAt,
+    })),
+    page: result.page,
+    pageSize: result.pageSize,
+    total: result.total,
+    factSource: "producer_current_company_results_v1",
+  };
+}
+
+async function readReceivedCompanies(input: {
+  readonly organizationId: string;
+  readonly submissionId: string;
+  readonly page: number;
+  readonly pageSize: number;
+}) {
+  const result = await listImportReceivedCompanies(input);
+
+  return {
+    available: true,
+    data: result.companies.map((company) => ({
+      source_row: company.source_row,
+      receivedAt: company.receivedAt,
+    })),
+    page: result.page,
+    pageSize: result.pageSize,
+    total: result.total,
+  };
+}
+
+function parseImportCompaniesQuery(
+  searchParams: URLSearchParams,
+): ImportCompaniesQuery | null {
+  const receivedRequested = searchParams.has("receivedCompaniesPage");
+  const processedRequested = searchParams.has("processedCompaniesPage");
+
+  if (receivedRequested && processedRequested) {
+    throw validationError("processedCompaniesPage");
+  }
+
+  if (!receivedRequested && !processedRequested) {
+    return null;
+  }
+
+  const field = processedRequested
+    ? "processedCompaniesPage"
+    : "receivedCompaniesPage";
+
+  for (const key of searchParams.keys()) {
+    if (key !== field && key !== "pageSize") {
+      throw validationError(key);
+    }
+
+    if (searchParams.getAll(key).length > 1) {
+      throw validationError(key);
+    }
+  }
+
+  return {
+    kind: processedRequested ? "processed" : "received",
+    page: parsePositiveIntegerQuery(
+      searchParams.get(field),
+      field,
+      1,
+      maximumPage,
+    ),
+    pageSize: parsePositiveIntegerQuery(
+      searchParams.get("pageSize"),
+      "pageSize",
+      defaultCompaniesPageSize,
+      maximumPageSize,
+    ),
+  };
+}
+
+function parsePositiveIntegerQuery(
+  value: string | null,
+  field: string,
+  fallback: number,
+  maximum: number,
+): number {
+  if (value === null) {
+    return fallback;
+  }
+
+  if (!/^\d+$/.test(value)) {
+    throw validationError(field);
+  }
+
+  const parsed = Number(value);
+
+  if (
+    !Number.isSafeInteger(parsed) ||
+    parsed < 1 ||
+    parsed > maximum
+  ) {
+    throw validationError(field);
+  }
+
+  return parsed;
 }
 
 function requireImportsFeatureEnabled(): ReturnType<typeof getServerEnv> {

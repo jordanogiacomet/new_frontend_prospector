@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import type { LeadSummary } from "../../types/leads";
@@ -40,7 +40,7 @@ function renderTable(
   filters: {
     cnpj?: string;
     uf?: string;
-    priority?: "B" | "C" | "E" | "R";
+    priority?: "B" | "C" | "D" | "E" | "R";
   } = {},
 ) {
   return render(
@@ -53,8 +53,20 @@ function renderTable(
 }
 
 describe("lead results table", () => {
-  it("renders every required business column", () => {
+  it("starts with a compact business view and keeps company identification visible", () => {
     renderTable();
+
+    const table = screen.getByRole("table", { name: "Resultados de leads" });
+    expect(within(table).getAllByRole("columnheader")).toHaveLength(7);
+    expect(within(table).getByText("12.345.678/0001-95")).toBeInTheDocument();
+    expect(within(table).getByText("Serviços de tecnologia")).toBeInTheDocument();
+    expect(within(table).queryByText("batch-synthetic-001")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Detalhar informações" })).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("reveals every retained column on demand and returns to the compact view", () => {
+    renderTable();
+    fireEvent.click(screen.getByRole("button", { name: "Detalhar informações" }));
 
     const table = screen.getByRole("table", {
       name: "Resultados de leads",
@@ -76,10 +88,16 @@ describe("lead results table", () => {
         within(table).getByRole("columnheader", { name: column }),
       ).toBeInTheDocument();
     });
+
+    expect(within(table).getByText("batch-synthetic-001")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Usar visão resumida" })).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(screen.getByRole("button", { name: "Usar visão resumida" }));
+    expect(within(table).getAllByRole("columnheader")).toHaveLength(7);
   });
 
   it("formats CNPJ, score, date, location, and source row for Brazilian display", () => {
     renderTable();
+    fireEvent.click(screen.getByRole("button", { name: "Detalhar informações" }));
 
     const row = screen.getByRole("row", { name: /Empresa Horizonte/ });
     expect(row).toHaveTextContent("12.345.678/0001-95");
@@ -115,7 +133,7 @@ describe("lead results table", () => {
     });
 
     const row = screen.getAllByRole("row")[1];
-    expect(within(row).getAllByText("Não disponível")).toHaveLength(8);
+    expect(within(row).getAllByText("Não disponível")).toHaveLength(7);
     expect(row).not.toHaveTextContent(/\b0\b/);
   });
 
@@ -166,7 +184,24 @@ describe("lead results table", () => {
       }),
     ).toHaveAttribute(
       "href",
-      `/leads/12345678000195?leadRunId=${leadRunId}`,
+      `/leads/12345678000195?leadRunId=${leadRunId}&returnTo=%2Fleads%3Fpage%3D1%26pageSize%3D20`,
+    );
+  });
+
+  it("carries the exact filtered page into the lead return link", () => {
+    renderTable(
+      completeLead,
+      { page: 3, pageSize: 10, total: 40, totalPages: 4 },
+      { uf: "PE", priority: "C" },
+    );
+
+    expect(
+      screen.getByRole("link", {
+        name: "Abrir análise de Empresa Horizonte",
+      }),
+    ).toHaveAttribute(
+      "href",
+      `/leads/12345678000195?leadRunId=${leadRunId}&returnTo=%2Fleads%3Fpage%3D3%26pageSize%3D10%26uf%3DPE%26priority%3DC`,
     );
   });
 

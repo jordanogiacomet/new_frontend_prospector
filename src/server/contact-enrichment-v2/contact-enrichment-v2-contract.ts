@@ -2,6 +2,31 @@ import "server-only";
 
 import { z } from "zod";
 
+import { CONTACT_SEARCH_DIAGNOSTIC_CODES } from "../../types/contact-enrichment";
+import { contactProviderSourceSchema } from "./contact-provider-reference";
+
+export const contactSearchDiagnosticsSchema = z
+  .array(z.strictObject({
+    provider: contactProviderSourceSchema,
+    stage: z.enum(["COMPANY_SEARCH", "CONTACT_PREVIEW", "COMPANY_MATCH"]),
+    code: z.enum(CONTACT_SEARCH_DIAGNOSTIC_CODES),
+  }))
+  .min(1)
+  .max(4)
+  .superRefine((diagnostics, context) => {
+    const stages = new Set<string>();
+    for (const [index, diagnostic] of diagnostics.entries()) {
+      const key = `${diagnostic.provider}:${diagnostic.stage}`;
+      if (stages.has(key) ||
+        (diagnostic.code === "NO_RELEVANT_MATCHES" && diagnostic.stage !== "CONTACT_PREVIEW") ||
+        (diagnostic.provider === "LUSHA" && diagnostic.stage === "COMPANY_MATCH") ||
+        (diagnostic.provider === "APOLLO" && diagnostic.stage === "COMPANY_SEARCH")) {
+        context.addIssue({ code: "custom", path: [index], message: "Invalid diagnostic stage." });
+      }
+      stages.add(key);
+    }
+  });
+
 export const CONTACT_PREVIEW_CONTRACT_VERSION =
   "prospecta-contact-enrichment-preview-v2" as const;
 export const CONTACT_REVEAL_CONTRACT_VERSION =
@@ -72,6 +97,7 @@ export const contactPreviewByCompanyIdN8nRequestSchema = z.strictObject({
   idempotency_key: exactText(128),
   cnpj_normalizado: z.string().regex(/^[0-9]{14}$/),
   provider_company_id: exactText(256),
+  fallback_company_domain: companyDomainSchema.nullable().optional().default(null),
 });
 
 export const contactPreviewByCompanyIdN8nResponseSchema = z.strictObject({
@@ -136,6 +162,7 @@ export const contactCompanySearchCallbackSchema = z
     ]),
     occurred_at: z.iso.datetime({ offset: true }),
     matches: z.array(contactCompanyMatchCallbackSchema).max(5),
+    search_diagnostics: contactSearchDiagnosticsSchema.optional(),
   })
   .superRefine((value, context) => {
     const expectsMatches = value.status === "SEARCH_AVAILABLE";
@@ -146,6 +173,10 @@ export const contactCompanySearchCallbackSchema = z
         message: "Company-match presence must match terminal status.",
       });
     }
+    if (value.search_diagnostics?.some((diagnostic) =>
+      diagnostic.provider !== "LUSHA" || diagnostic.stage !== "COMPANY_SEARCH")) {
+      context.addIssue({ code: "custom", path: ["search_diagnostics"], message: "Invalid company-search diagnostic." });
+    }
   });
 
 export type ContactCompanySearchCallback = z.infer<
@@ -154,6 +185,7 @@ export type ContactCompanySearchCallback = z.infer<
 
 export const contactCandidateCallbackSchema = z.strictObject({
   provider_contact_id: exactText(256),
+  provider_source: contactProviderSourceSchema.optional().default("LUSHA"),
   full_name: exactText(200),
   job_title: optionalText(200),
   departments: z.array(exactText(100)).max(5),
@@ -166,6 +198,12 @@ export const contactCandidateCallbackSchema = z.strictObject({
   linkedin_url: z.url().max(500).nullable(),
   can_reveal_work_email: z.boolean(),
   can_reveal_business_phone: z.boolean(),
+});
+
+export const contactCompanyPhoneCallbackSchema = z.strictObject({
+  number: exactText(32).regex(/^\+[1-9][0-9]{7,14}$/),
+  provider_source: z.literal("APOLLO"),
+  contactability: z.literal("UNKNOWN"),
 });
 
 const previewTerminalStatus = z.enum([
@@ -182,16 +220,30 @@ export const contactPreviewCallbackSchema = z
     status: previewTerminalStatus,
     occurred_at: z.iso.datetime({ offset: true }),
     candidates: z.array(contactCandidateCallbackSchema).max(10),
+    company_phone: contactCompanyPhoneCallbackSchema.nullable().optional(),
+    search_diagnostics: contactSearchDiagnosticsSchema.optional(),
   })
   .superRefine((value, context) => {
-    const expectsCandidates = value.status === "PREVIEW_AVAILABLE";
+    const companyPhone = value.company_phone ?? null;
+    const hasAvailableResult =
+      value.candidates.length > 0 || companyPhone !== null;
 
-    if (expectsCandidates !== (value.candidates.length > 0)) {
+    if ((value.status === "PREVIEW_AVAILABLE") !== hasAvailableResult) {
       context.addIssue({
         code: "custom",
-        path: ["candidates"],
-        message: "Candidate presence must match terminal status.",
+        path: ["status"],
+        message: "Preview result presence must match terminal status.",
       });
+    }
+    if (value.candidates.length > 0 && companyPhone !== null) {
+      context.addIssue({
+        code: "custom",
+        path: ["company_phone"],
+        message: "Company phone is allowed only when no candidate was found.",
+      });
+    }
+    if (value.search_diagnostics?.some((diagnostic) => diagnostic.stage === "COMPANY_SEARCH")) {
+      context.addIssue({ code: "custom", path: ["search_diagnostics"], message: "Invalid contact-preview diagnostic." });
     }
   });
 
@@ -219,6 +271,7 @@ export const contactRevealN8nRequestSchema = z.strictObject({
   reveal_request_id: z.uuid(),
   idempotency_key: exactText(128),
   provider_contact_id: exactText(256),
+  provider_source: contactProviderSourceSchema.optional().default("LUSHA"),
   reveal: z
     .array(z.enum(["emails", "phones"]))
     .min(1)
@@ -247,6 +300,11 @@ const providerPhoneSchema = z.strictObject({
   update_date: z.iso.date().nullable(),
 });
 
+const providerProfileUpdateSchema = z.strictObject({
+  full_name: exactText(200),
+  linkedin_url: z.url().max(500).nullable(),
+});
+
 export const contactRevealCallbackSchema = z
   .strictObject({
     contract_version: z.literal(CONTACT_REVEAL_CONTRACT_VERSION),
@@ -260,6 +318,8 @@ export const contactRevealCallbackSchema = z
     ]),
     occurred_at: z.iso.datetime({ offset: true }),
     provider_contact_id: exactText(256),
+    provider_source: contactProviderSourceSchema.optional().default("LUSHA"),
+    profile_update: providerProfileUpdateSchema.nullable().optional().default(null),
     emails: z.array(providerEmailSchema).max(10),
     phones: z.array(providerPhoneSchema).max(10),
   })

@@ -115,6 +115,7 @@ async function setupDatabases(): Promise<void> {
 
   await appPool.query(`
     CREATE SCHEMA IF NOT EXISTS prospecting_app;
+    DROP TABLE IF EXISTS prospecting_app.import_submission_events;
     DROP TABLE IF EXISTS prospecting_app.import_submissions;
     CREATE TABLE prospecting_app.import_submissions (
       organization_id text NOT NULL,

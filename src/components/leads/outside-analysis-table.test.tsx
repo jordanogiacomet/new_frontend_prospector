@@ -83,6 +83,21 @@ describe("outside-analysis table", () => {
     );
   });
 
+  it("presents an approved technical reason term in business language", () => {
+    renderTable({
+      ...completeCompany,
+      decisionReason:
+        "Histórico CRM encontrado: REENGAJAR_COM_HISTORICO. Revisão humana obrigatória.",
+    });
+
+    expect(document.body).toHaveTextContent(
+      "Histórico CRM encontrado: Reengajar com histórico. Revisão humana obrigatória.",
+    );
+    expect(document.body).not.toHaveTextContent(
+      "REENGAJAR_COM_HISTORICO",
+    );
+  });
+
   it("uses safe fallbacks without exposing an unknown stored action", () => {
     renderTable({
       ...completeCompany,
@@ -105,6 +120,12 @@ describe("outside-analysis table", () => {
   it("does not offer a public analysis link for a CRM decision", () => {
     renderTable();
 
+    expect(
+      screen.getByRole("link", { name: "Ver decisão do CRM" }),
+    ).toHaveAttribute(
+      "href",
+      `/leads/outside-analysis/${completeCompany.cnpj}?returnTo=${encodeURIComponent("/leads/outside-analysis?page=1&pageSize=20")}`,
+    );
     expect(
       screen.queryByRole("link", { name: /abrir análise/i }),
     ).not.toBeInTheDocument();
@@ -131,6 +152,10 @@ describe("outside-analysis table", () => {
       "/leads/outside-analysis?page=3&pageSize=10",
     );
     expect(screen.getByText("Página 2 de 3")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Ver decisão do CRM" })).toHaveAttribute(
+      "href",
+      `/leads/outside-analysis/${completeCompany.cnpj}?returnTo=${encodeURIComponent("/leads/outside-analysis?page=2&pageSize=10")}`,
+    );
   });
 
   it("disables pagination at the first and last pages", () => {

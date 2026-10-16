@@ -70,7 +70,12 @@ describe("Demo 3 contact v2 n8n inactive preparation", () => {
             name: "Lusha API V3 Demo3",
             type: "httpHeaderAuth",
           };
-          const workflow = n8nModule.renderDemo3ContactV2Workflow(reference, lusha);
+          const apollo = {
+            id: "SyntheticApolloCredential",
+            name: "Apollo API Demo3",
+            type: "httpHeaderAuth",
+          };
+          const workflow = n8nModule.renderDemo3ContactV2Workflow(reference, lusha, apollo);
           const credentials = n8nModule.renderDemo3ContactV2Credentials(derived);
           const node = (name) => workflow.nodes.find((candidate) => candidate.name === name);
 
@@ -105,12 +110,24 @@ describe("Demo 3 contact v2 n8n inactive preparation", () => {
             "PCEv2IngressD3",
           );
           assert.equal(
-            node("Lusha Decision Makers v2").credentials.httpHeaderAuth.id,
+            node("Lusha Decision Makers Priority Fallback v2").credentials.httpHeaderAuth.id,
             lusha.id,
           );
           assert.equal(
             node("Lusha Enrich Selected Contact v2").credentials.httpHeaderAuth.id,
             lusha.id,
+          );
+          assert.equal(
+            node("Apollo Organization Enrichment v1").credentials.httpHeaderAuth.id,
+            apollo.id,
+          );
+          assert.equal(
+            node("Apollo People Search Fallback v1").credentials.httpHeaderAuth.id,
+            apollo.id,
+          );
+          assert.equal(
+            node("Apollo Enrich Selected Contact v1").credentials.httpHeaderAuth.id,
+            apollo.id,
           );
           assert.equal(
             node("Callback Prospecta Preview v2").credentials.httpHeaderAuth.id,
@@ -131,7 +148,7 @@ describe("Demo 3 contact v2 n8n inactive preparation", () => {
     expect(output).toBe("ok");
   });
 
-  it("defaults to a read-only preflight and exposes no activation path", () => {
+  it("defaults to read-only preflight and limits published replacement to the exact workflow", () => {
     const operator = readRepositoryFile(
       "scripts/prepare-demo3-contact-v2-n8n.mjs",
     );
@@ -143,9 +160,11 @@ describe("Demo 3 contact v2 n8n inactive preparation", () => {
     expect(packageJson).toContain(
       '"demo3:contact-v2:n8n": "node scripts/prepare-demo3-contact-v2-n8n.mjs"',
     );
-    expect(operator).toContain('["--preflight", "--import-inactive"]');
     expect(operator).toContain(
-      'flags[0] === "--import-inactive" ? "import" : "preflight"',
+      '["--preflight", "--preflight-published", "--import-inactive", "--replace-published"]',
+    );
+    expect(operator).toContain(
+      '"--replace-published": "replace-published"',
     );
     expect(operator).toContain("BEGIN TRANSACTION READ ONLY");
     expect(operator).toContain('n8nDatabase.DB_TYPE !== "postgresdb"');
@@ -166,8 +185,26 @@ describe("Demo 3 contact v2 n8n inactive preparation", () => {
     expect(operator).toContain('openSync(operatorLockFile, "wx", 0o600)');
     expect(operator).toMatch(/try \{[\s\S]*importJson\("credentials"[\s\S]*importJson\("workflow"[\s\S]*finally \{[\s\S]*releaseLock\(\)/);
 
+    expect(operator).toContain('"export:workflow"');
+    expect(operator).toContain('"--published"');
+    expect(operator).toContain('"unpublish:workflow"');
+    expect(operator).toContain('"publish:workflow"');
+    expect(operator).toContain("rollbackPublishedWorkflow");
+    expect(operator).toContain("assertPublishedWorkflow");
+    expect(operator).toContain(
+      '"https://api.lusha.com/v3/contacts/decision-makers"',
+    );
+    expect(operator).toContain(
+      '"https://api.apollo.io/api/v1/organizations/enrich"',
+    );
+    expect(operator).toContain(
+      '"https://api.apollo.io/api/v1/mixed_people/api_search"',
+    );
+    expect(operator).toContain(
+      '"https://api.apollo.io/api/v1/people/match"',
+    );
     expect(`${operator}\n${n8nLibrary}`).not.toMatch(
-      /publish:workflow|unpublish:workflow|activate:workflow|update:workflow|api\.lusha\.com|32600/,
+      /activate:workflow|update:workflow|32600/,
     );
     expect(operator).not.toContain("execution_data");
     expect(operator).not.toMatch(/SELECT[\s\S]*?c\.data/i);
@@ -184,6 +221,9 @@ describe("Demo 3 contact v2 n8n inactive preparation", () => {
     expect(n8nLibrary).toContain(
       'lushaCredentialName: "Lusha API V3 Demo3"',
     );
+    expect(n8nLibrary).toContain(
+      'apolloCredentialName: "Apollo API Demo3"',
+    );
     expect(operator).toMatch(/SELECT c\.id,\s+c\.name,\s+c\.type/);
     expect(operator).toContain(
       'WHERE "stoppedAt" IS NULL AND "deletedAt" IS NULL',
@@ -193,7 +233,11 @@ describe("Demo 3 contact v2 n8n inactive preparation", () => {
     );
     expect(operator).toContain("workflow.settings?.saveDataSuccessExecution");
     expect(operator).toContain("normalizedBindings(workflow.bindings)");
+    expect(operator).toContain("withoutApollo(currentBindings)");
     expect(operator).toContain('"Lusha Prospecting Companies v2"');
+    expect(operator).toContain('"Apollo Organization Enrichment v1"');
+    expect(operator).toContain('"Apollo People Search Fallback v1"');
+    expect(operator).toContain('"Apollo Enrich Selected Contact v1"');
     expect(operator).toContain(
       '"Callback Prospecta Company Search v2"',
     );

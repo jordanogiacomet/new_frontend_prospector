@@ -1,0 +1,88 @@
+.page {
+  display: grid;
+  min-height: 100svh;
+  box-sizing: border-box;
+  align-content: center;
+  padding: clamp(1.5rem, 6vw, 5rem);
+  background: oklch(97% 0.012 82);
+  color: oklch(24% 0.035 252);
+  font-family: Arial, "Helvetica Neue", Helvetica, sans-serif;
+}
+
+.content {
+  width: 100%;
+  max-width: 42rem;
+  margin-inline: auto;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 3rem;
+  color: oklch(32% 0.09 174);
+  font-size: 0.875rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.title {
+  margin: 0;
+  font-size: clamp(2rem, 5vw, 3.25rem);
+  line-height: 1.12;
+  letter-spacing: -0.035em;
+}
+
+.description,
+.notice {
+  margin-block: 1.5rem 0;
+  font-size: 1rem;
+  line-height: 1.75;
+}
+
+.description {
+  color: oklch(43% 0.03 252);
+}
+
+.notice {
+  border-left: 2px solid oklch(45% 0.105 174);
+  padding-left: 1rem;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 2rem;
+}
+
+.action {
+  display: inline-flex;
+  min-height: 2.75rem;
+  box-sizing: border-box;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid oklch(45% 0.105 174);
+  padding: 0.7rem 1rem;
+  background: transparent;
+  color: oklch(32% 0.09 174);
+  font: 700 0.875rem/1.25 Arial, sans-serif;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.primary {
+  border-color: oklch(24% 0.035 252);
+  background: oklch(24% 0.035 252);
+  color: oklch(97% 0.012 82);
+}
+
+.action:focus-visible {
+  outline: 2px solid oklch(45% 0.105 174);
+  outline-offset: 3px;
+}
+
+.action:hover {
+  border-color: oklch(24% 0.035 252);
+}

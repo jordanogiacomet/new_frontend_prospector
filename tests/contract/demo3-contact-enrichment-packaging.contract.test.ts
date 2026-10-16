@@ -9,6 +9,8 @@ const contactDataMigrationPath =
   "db/app/010_contact_data_governance_forward.sql";
 const companyResolutionMigrationPath =
   "db/app/011_contact_company_resolution_forward.sql";
+const companyPhoneFallbackMigrationPath =
+  "db/app/012_contact_company_phone_fallback_forward.sql";
 const appGrantsPath = "db/app/003_app_schema_grants.sql";
 
 function readRepositoryFile(path: string): string {
@@ -24,6 +26,7 @@ describe("Demo 3 contact enrichment packaging", () => {
     expect(dockerIgnore).toContain(`!${migrationPath}`);
     expect(dockerIgnore).toContain(`!${contactDataMigrationPath}`);
     expect(dockerIgnore).toContain(`!${companyResolutionMigrationPath}`);
+    expect(dockerIgnore).toContain(`!${companyPhoneFallbackMigrationPath}`);
     expect(dockerfile).toMatch(
       /COPY db\/app\/009_contact_enrichment_ledger_forward\.sql \/docker-entrypoint-initdb\.d\/[0-9]+-contact-enrichment-ledger\.sql/,
     );
@@ -33,9 +36,13 @@ describe("Demo 3 contact enrichment packaging", () => {
     expect(dockerfile).toMatch(
       /COPY db\/app\/011_contact_company_resolution_forward\.sql \/docker-entrypoint-initdb\.d\/[0-9]+-contact-company-resolution\.sql/,
     );
+    expect(dockerfile).toMatch(
+      /COPY db\/app\/012_contact_company_phone_fallback_forward\.sql \/docker-entrypoint-initdb\.d\/[0-9]+-contact-company-phone-fallback\.sql/,
+    );
     expect(deployScript).toContain(migrationPath);
     expect(deployScript).toContain(contactDataMigrationPath);
     expect(deployScript).toContain(companyResolutionMigrationPath);
+    expect(deployScript).toContain(companyPhoneFallbackMigrationPath);
     expect(deployScript).toContain(
       "contact_enrichment_requests_org_idempotency_hash_uk",
     );
@@ -44,6 +51,9 @@ describe("Demo 3 contact enrichment packaging", () => {
     );
     expect(deployScript).toContain(
       "contact_company_search_requests_org_idempotency_uk",
+    );
+    expect(deployScript).toContain(
+      "contact_company_phone_fallbacks_expiry_idx",
     );
     expect(deployScript.indexOf(migrationPath)).toBeLessThan(
       deployScript.indexOf(
@@ -60,6 +70,9 @@ describe("Demo 3 contact enrichment packaging", () => {
       `COPY ${appGrantsPath} /docker-entrypoint-initdb.d/050-app-grants.sql`,
     );
     expect(dockerfile.indexOf(contactDataMigrationPath)).toBeLessThan(
+      dockerfile.indexOf(appGrantsPath),
+    );
+    expect(dockerfile.indexOf(companyPhoneFallbackMigrationPath)).toBeLessThan(
       dockerfile.indexOf(appGrantsPath),
     );
     expect(grants).toMatch(

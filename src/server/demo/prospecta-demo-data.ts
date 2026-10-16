@@ -633,6 +633,7 @@ function toDemoCommercialWorkQueueItem(
   const workspace = demoCommercialWorkspaces[lead.cnpj] ?? null;
 
   return {
+    approachDraft: null,
     companyDomain: null,
     producerLead: toLeadSummary(lead),
     workspace,

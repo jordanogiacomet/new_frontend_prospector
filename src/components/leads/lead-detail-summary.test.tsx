@@ -87,7 +87,7 @@ describe("lead detail identity and recommendation summary", () => {
     renderSummary();
 
     const decision = screen.getByRole("region", {
-      name: "Recomendação da análise",
+      name: "Avaliação comercial",
     });
 
     expect(decision).toHaveTextContent("Prospectar com cautela");
@@ -99,7 +99,7 @@ describe("lead detail identity and recommendation summary", () => {
     renderSummary();
 
     const decision = screen.getByRole("region", {
-      name: "Recomendação da análise",
+      name: "Avaliação comercial",
     });
 
     expect(decision).toHaveTextContent("87");
@@ -108,6 +108,20 @@ describe("lead detail identity and recommendation summary", () => {
     );
     expect(decision).not.toHaveTextContent("81");
     expect(decision).not.toHaveTextContent("74");
+  });
+
+  it("presents a technical CRM reason as an executive summary", () => {
+    renderSummary({
+      ...completeLead,
+      recommendedActionReason:
+        "Histórico CRM encontrado, mas match não encerrou a validação pública: ENRIQUECER_E_REABORDAR_COM_CONTEXTO. Dívida ativa indicada no cadastro sem confirmação pública aceita; revisão humana obrigatória.",
+    });
+
+    const reason = screen.getByTestId("lead-recommendation-reason");
+    expect(reason).toHaveTextContent(
+      "Esta empresa já possui histórico no CRM, mas os dados públicos ainda precisam ser confirmados. Há também uma indicação não confirmada de dívida ativa. Revise essas informações antes de retomar o contato.",
+    );
+    expect(reason).not.toHaveTextContent(/match|validação pública|ENRIQUECER_/i);
   });
 
   it("keeps missing action, reason, and score explicitly unavailable", () => {
@@ -119,7 +133,7 @@ describe("lead detail identity and recommendation summary", () => {
     });
 
     const decision = screen.getByRole("region", {
-      name: "Recomendação da análise",
+      name: "Avaliação comercial",
     });
 
     expect(
@@ -127,7 +141,7 @@ describe("lead detail identity and recommendation summary", () => {
     ).toHaveTextContent("Não disponível");
     expect(
       within(decision).getByTestId("lead-recommendation-reason"),
-    ).toHaveTextContent("Não disponível");
+    ).toHaveTextContent("O motivo da recomendação não está disponível nesta consulta.");
     expect(within(decision).getByTestId("lead-score")).toHaveTextContent(
       "Não disponível",
     );
@@ -182,7 +196,7 @@ describe("lead detail identity and recommendation summary", () => {
 
     expect(warning).toHaveTextContent("Baixa confiança");
     expect(warning).toHaveTextContent(
-      "Considere validar os dados antes da abordagem.",
+      "Valide os dados e os pontos de atenção antes de decidir pela abordagem.",
     );
     expect(screen.queryByText("Confiança não mapeada")).toBeNull();
   });
@@ -198,7 +212,7 @@ describe("lead detail identity and recommendation summary", () => {
 
     expect(status).toHaveTextContent("Confiança não mapeada");
     expect(status).toHaveTextContent(
-      "Não foi possível classificar a confiança com os valores armazenados.",
+      "A confiança desta análise não está classificada. Revise os fundamentos disponíveis antes de decidir.",
     );
     expect(screen.queryByRole("alert")).toBeNull();
     expect(screen.queryByText("Baixa confiança")).toBeNull();
@@ -210,5 +224,64 @@ describe("lead detail identity and recommendation summary", () => {
     expect(screen.getByText("Confiança normal")).toBeInTheDocument();
     expect(screen.queryByRole("alert")).toBeNull();
     expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it.each([
+    ["PROSPECTAR", "Prospecção recomendada", "Revise o motivo e os fundamentos"],
+    ["PROSPECTAR_COM_CAUTELA", "Prospecção recomendada com cautela", "Revise os pontos de atenção"],
+    ["NUTRIR", "Manter em acompanhamento", "quando reavaliar a oportunidade"],
+    ["NAO_ABORDAR", "Prospecção não recomendada", "não abordar esta empresa"],
+    ["REVISAO_HUMANA", "Revisão comercial necessária", "antes de decidir se deve prospectar"],
+  ])("presents the recorded %s action as the commercial conclusion", (action, conclusion, guidance) => {
+    renderSummary({ ...completeLead, recommendedAction: action });
+
+    const assessment = screen.getByRole("region", { name: "Avaliação comercial" });
+    expect(within(assessment).getByRole("heading", { name: conclusion })).toBeInTheDocument();
+    expect(assessment).toHaveTextContent(guidance);
+    expect(assessment).toHaveTextContent("Data da análise: 15/06/2026");
+    expect(screen.getByTestId("lead-recommendation-reason")).toHaveTextContent(completeLead.recommendedActionReason!);
+    expect(within(assessment).queryByRole("button")).not.toBeInTheDocument();
+    expect(within(assessment).queryByRole("link")).not.toBeInTheDocument();
+  });
+
+  it.each([null, "CONTATAR_AGORA", "prospectar", "__proto__"])(
+    "does not approve prospecting when the action is absent or unmapped (%s)",
+    (action) => {
+      renderSummary({ ...completeLead, recommendedAction: action, score: 100, priority: "B", trustStatus: "Aprovada" });
+
+      expect(screen.getByRole("heading", { name: "Recomendação indisponível" })).toBeInTheDocument();
+      expect(screen.getByTestId("lead-score")).toHaveTextContent("100");
+      expect(screen.queryByRole("heading", { name: "Prospecção recomendada" })).not.toBeInTheDocument();
+      expect(document.body).toHaveTextContent("A pontuação e a prioridade, isoladamente, não definem se deve prospectar.");
+    },
+  );
+
+  it("preserves a no-approach conclusion despite a high score, approved trust and an empty risk collection", () => {
+    renderSummary({
+      ...completeLead, recommendedAction: "NAO_ABORDAR", score: 100, priority: "B",
+      trustStatus: "Aprovada", finalVerdict: "REVISAO_HUMANA",
+      riskFlags: { status: "available", items: [] },
+    });
+
+    expect(screen.getByRole("heading", { name: "Prospecção não recomendada" })).toBeInTheDocument();
+    expect(screen.getByTestId("lead-recommended-action")).toHaveTextContent("Não abordar");
+    expect(screen.getByTestId("lead-score")).toHaveTextContent("100");
+    expect(document.body).not.toHaveTextContent(/empresa validada|adequação confirmada|prospecção autorizada/i);
+  });
+
+  it("keeps low confidence explicit without replacing the stored prospecting action", () => {
+    renderSummary({ ...completeLead, recommendedAction: "PROSPECTAR", confidenceIndicator: "low" });
+
+    expect(screen.getByRole("heading", { name: "Prospecção recomendada" })).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent("Valide os dados e os pontos de atenção antes de decidir pela abordagem.");
+  });
+
+  it.each([null, "", "   "])("keeps a missing or blank reason explicit without inventing a justification (%s)", (reason) => {
+    renderSummary({ ...completeLead, recommendedActionReason: reason });
+
+    expect(screen.getByRole("heading", { name: "Prospecção recomendada com cautela" })).toBeInTheDocument();
+    expect(screen.getByTestId("lead-recommendation-reason")).toHaveTextContent("O motivo da recomendação não está disponível nesta consulta.");
+    expect(document.body).not.toHaveTextContent("Há aderência comercial");
+    expect(document.body).not.toHaveTextContent(/informações pendentes|empresa validada/);
   });
 });

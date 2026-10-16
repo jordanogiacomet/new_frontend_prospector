@@ -6,12 +6,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
   getServerAuthorizationMock,
+  isDemoDataEnabledMock,
   pathnameState,
   redirectMock,
   signOutMock,
 } = vi.hoisted(
   () => ({
     getServerAuthorizationMock: vi.fn(),
+    isDemoDataEnabledMock: vi.fn(),
     pathnameState: { value: "/leads" },
     redirectMock: vi.fn(),
     signOutMock: vi.fn(),
@@ -23,6 +25,10 @@ vi.mock("server-only", () => ({}));
 vi.mock("../../server/auth", () => ({
   getServerAuthorization: getServerAuthorizationMock,
   signOut: signOutMock,
+}));
+
+vi.mock("../../server/demo/mode", () => ({
+  isDemoDataEnabled: isDemoDataEnabledMock,
 }));
 
 vi.mock("next/navigation", () => ({
@@ -83,6 +89,8 @@ function listAppSurface(directory: string, appRoot: string): string[] {
 describe("private application shell", () => {
   beforeEach(() => {
     getServerAuthorizationMock.mockReset();
+    isDemoDataEnabledMock.mockReset();
+    isDemoDataEnabledMock.mockReturnValue(false);
     pathnameState.value = "/leads";
     redirectMock.mockReset();
     redirectMock.mockImplementation(() => {
@@ -162,9 +170,6 @@ describe("private application shell", () => {
       name: "Navegação principal",
     });
     const leadsLink = screen.getByRole("link", { name: "Leads" });
-    const workQueueLink = screen.getByRole("link", {
-      name: "Fila comercial",
-    });
     const importsLink = screen.getByRole("link", { name: "Importações" });
     const signOutButton = screen.getByRole("button", { name: "Sair" });
     const skipLink = screen.getByRole("link", {
@@ -172,16 +177,14 @@ describe("private application shell", () => {
     });
 
     expect(navigation).toContainElement(leadsLink);
-    expect(navigation).toContainElement(workQueueLink);
     expect(navigation).toContainElement(importsLink);
     expect(leadsLink).toHaveAttribute("href", "/leads");
-    expect(workQueueLink).toHaveAttribute("href", "/work-queue");
-    expect(importsLink).toHaveAttribute("href", "/imports");
+    expect(navigation.querySelector('a[href="/work-queue"]')).toBeNull();
+    expect(importsLink).toHaveAttribute("href", "/imports/batches");
     expect(
       screen.queryByRole("link", { name: "Custos" }),
     ).not.toBeInTheDocument();
     expect(leadsLink).toHaveAttribute("aria-current", "page");
-    expect(workQueueLink).not.toHaveAttribute("aria-current");
     expect(importsLink).not.toHaveAttribute("aria-current");
     expect(skipLink).toHaveAttribute("href", "#conteudo-principal");
     expect(screen.getByText("Sessão autorizada")).toBeInTheDocument();
@@ -217,21 +220,15 @@ describe("private application shell", () => {
     expect(screen.getByText("Conteúdo privado sintético")).toBeInTheDocument();
   });
 
-  it("marks the commercial queue route as current without changing authorization", async () => {
+  it("keeps the removed pipeline out of navigation on its legacy route", async () => {
     pathnameState.value = "/work-queue";
     getServerAuthorizationMock.mockResolvedValue(authorizedSession());
 
     render(await PrivateLayout({ children: <PrivateContent /> }));
 
-    expect(
-      screen.getByRole("link", { name: "Fila comercial" }),
-    ).toHaveAttribute("aria-current", "page");
-    expect(screen.getByRole("link", { name: "Leads" })).not.toHaveAttribute(
-      "aria-current",
-    );
-    expect(
-      screen.getByRole("link", { name: "Importações" }),
-    ).not.toHaveAttribute("aria-current");
+    expect(screen.queryByRole("link", { name: "Pipeline de prospecção" })).not.toBeInTheDocument();
+    expect(screen.getByRole("navigation", { name: "Navegação principal" }).querySelector('a[href="/work-queue"]')).toBeNull();
+    expect(screen.getByText("Conteúdo privado sintético")).toBeInTheDocument();
   });
 
   it("shows the costs entry only when the server-side actor has costs read access", async () => {
@@ -261,10 +258,47 @@ describe("private application shell", () => {
 
     expect(screen.queryByRole("link", { name: "Leads" })).not.toBeInTheDocument();
     expect(
-      screen.queryByRole("link", { name: "Fila comercial" }),
+      screen.queryByRole("link", { name: "Pipeline de prospecção" }),
     ).not.toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Importações" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Importações" })).toHaveAttribute(
+      "href",
+      "/imports",
+    );
     expect(screen.queryByRole("link", { name: "Custos" })).not.toBeInTheDocument();
+  });
+
+  it("keeps historical follow-ups accessible without restoring pipeline navigation", async () => {
+    pathnameState.value = "/workspaces/11111111-1111-4111-8111-111111111111";
+    getServerAuthorizationMock.mockResolvedValue(authorizedSession());
+
+    render(await PrivateLayout({ children: <PrivateContent /> }));
+
+    expect(screen.queryByRole("link", { name: "Pipeline de prospecção" })).not.toBeInTheDocument();
+    expect(screen.getByText("Conteúdo privado sintético")).toBeInTheDocument();
+  });
+
+  it("highlights the import history for an actor with read-only import access", async () => {
+    pathnameState.value = "/imports/batches/11111111-1111-4111-8111-111111111111";
+    getServerAuthorizationMock.mockResolvedValue(authorizedSession(["imports:read"]));
+
+    render(await PrivateLayout({ children: <PrivateContent /> }));
+
+    expect(screen.getByRole("link", { name: "Importações" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("link", { name: "Prospecta, página inicial" })).toHaveAttribute("href", "/inicio");
+  });
+
+  it("opens the private guide from navigation for an actor without business-area access", async () => {
+    pathnameState.value = "/inicio";
+    getServerAuthorizationMock.mockResolvedValue(authorizedSession([]));
+
+    render(await PrivateLayout({ children: <PrivateContent /> }));
+
+    const startLink = screen.getByRole("link", { name: "Início" });
+    expect(startLink).toHaveAttribute("href", "/inicio");
+    expect(startLink).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("link", { name: "Prospecta, página inicial" })).toHaveAttribute("href", "/inicio");
+    expect(screen.queryByRole("link", { name: "Leads" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Importações" })).not.toBeInTheDocument();
   });
 
   it("signs out on the server with the login destination", async () => {
@@ -283,6 +317,87 @@ describe("private application shell", () => {
     });
   });
 
+  it("opens the compact navigation explicitly and closes it after choosing an area", async () => {
+    getServerAuthorizationMock.mockResolvedValue(authorizedSession());
+    render(await PrivateLayout({ children: <PrivateContent /> }));
+
+    const menu = screen.getByRole("button", { name: "Abrir menu de navegação" });
+    expect(menu).toHaveAttribute("aria-expanded", "false");
+    expect(menu).toHaveAttribute("aria-controls", "private-navigation-links");
+    expect(menu).toHaveTextContent("Leads");
+
+    fireEvent.click(menu);
+    expect(screen.getByRole("button", { name: "Fechar menu de navegação" })).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("link", { name: "Leads" })).toHaveAccessibleDescription("Empresas e avaliações");
+
+    fireEvent.click(screen.getByRole("link", { name: "Importações" }));
+    expect(screen.getByRole("button", { name: "Abrir menu de navegação" })).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("closes the navigation and updates its location when browser history changes areas", async () => {
+    getServerAuthorizationMock.mockResolvedValue(authorizedSession());
+    const { rerender } = render(await PrivateLayout({ children: <PrivateContent /> }));
+    fireEvent.click(screen.getByRole("button", { name: "Abrir menu de navegação" }));
+
+    pathnameState.value = "/imports/batches";
+    rerender(await PrivateLayout({ children: <PrivateContent /> }));
+
+    const menu = screen.getByRole("button", { name: "Abrir menu de navegação" });
+    expect(menu).toHaveAttribute("aria-expanded", "false");
+    expect(menu).toHaveTextContent("Importações");
+    expect(screen.getByRole("link", { name: "Importações" })).toHaveAttribute("aria-current", "page");
+
+    pathnameState.value = "/leads";
+    rerender(await PrivateLayout({ children: <PrivateContent /> }));
+    expect(screen.getByRole("button", { name: "Abrir menu de navegação" })).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("keeps the menu open for modified clicks and restores focus when choosing the current page", async () => {
+    pathnameState.value = "/inicio";
+    getServerAuthorizationMock.mockResolvedValue(authorizedSession());
+    render(await PrivateLayout({ children: <PrivateContent /> }));
+    fireEvent.click(screen.getByRole("button", { name: "Abrir menu de navegação" }));
+
+    fireEvent.click(screen.getByRole("link", { name: "Leads" }), { ctrlKey: true });
+    expect(screen.getByRole("button", { name: "Fechar menu de navegação" })).toHaveAttribute("aria-expanded", "true");
+
+    const currentPage = screen.getByRole("link", { name: "Início" });
+    currentPage.focus();
+    fireEvent.click(currentPage);
+    expect(screen.getByRole("button", { name: "Abrir menu de navegação" })).toHaveFocus();
+  });
+
+  it("keeps authenticated help available and highlights its own route", async () => {
+    pathnameState.value = "/ajuda";
+    getServerAuthorizationMock.mockResolvedValue(authorizedSession([]));
+
+    render(await PrivateLayout({ children: <PrivateContent /> }));
+
+    expect(screen.getByRole("link", { name: "Ajuda" })).toHaveAttribute("href", "/ajuda");
+    expect(screen.getByRole("link", { name: "Ajuda" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("link", { name: "Início" })).not.toHaveAttribute("aria-current");
+    expect(screen.queryByRole("link", { name: "Importações" })).not.toBeInTheDocument();
+  });
+
+  it("identifies the existing synthetic read-only demonstration explicitly", async () => {
+    isDemoDataEnabledMock.mockReturnValue(true);
+    getServerAuthorizationMock.mockResolvedValue(authorizedSession(["leads:read"]));
+
+    render(await PrivateLayout({ children: <PrivateContent /> }));
+
+    expect(screen.getByRole("status", { name: "Ambiente de demonstração" })).toHaveTextContent("Demonstração com dados fictícios. Disponível somente para consulta.");
+    expect(screen.queryByRole("link", { name: "Importações" })).not.toBeInTheDocument();
+  });
+
+  it("does not label a non-synthetic runtime as demonstration data", async () => {
+    getServerAuthorizationMock.mockResolvedValue(authorizedSession());
+
+    render(await PrivateLayout({ children: <PrivateContent /> }));
+
+    expect(isDemoDataEnabledMock).toHaveBeenCalledExactlyOnceWith();
+    expect(screen.queryByRole("status", { name: "Ambiente de demonstração" })).not.toBeInTheDocument();
+  });
+
   it("explicitly opts private routes out of shared rendering cache", () => {
     expect(dynamic).toBe("force-dynamic");
   });
@@ -294,12 +409,15 @@ describe("private application shell", () => {
     expect(
       surface.filter((file) => file.startsWith("(private)/")),
     ).toEqual([
+      "(private)/ajuda/page.tsx",
       "(private)/costs/page.tsx",
       "(private)/imports/batches/[id]/page.tsx",
       "(private)/imports/batches/page.tsx",
       "(private)/imports/page.tsx",
+      "(private)/inicio/page.tsx",
       "(private)/layout.tsx",
       "(private)/leads/[cnpj]/page.tsx",
+      "(private)/leads/outside-analysis/[cnpj]/page.tsx",
       "(private)/leads/outside-analysis/page.tsx",
       "(private)/leads/page.tsx",
       "(private)/work-queue/page.tsx",
@@ -324,14 +442,18 @@ describe("private application shell", () => {
       "api/imports/[id]/route.ts",
       "api/imports/events/route.ts",
       "api/imports/route.ts",
+      "api/leads/[cnpj]/approach-message/route.ts",
       "api/leads/[cnpj]/history/route.ts",
+      "api/leads/[cnpj]/location-map/route.ts",
       "api/leads/[cnpj]/route.ts",
+      "api/leads/outside-analysis/[cnpj]/route.ts",
       "api/leads/outside-analysis/route.ts",
       "api/leads/route.ts",
       "api/work-queue/route.ts",
       "api/workspaces/[id]/activities/route.ts",
       "api/workspaces/[id]/audit/route.ts",
       "api/workspaces/[id]/notes/route.ts",
+      "api/workspaces/[id]/qualification-cadence/route.ts",
       "api/workspaces/[id]/route.ts",
       "api/workspaces/route.ts",
     ]);

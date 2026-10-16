@@ -5,6 +5,8 @@ import {
   commercialActivityTypes,
   commercialOutcomes,
   commercialStages,
+  qualificationContactChannels,
+  qualificationContactOutcomes,
 } from "../../types/commercial";
 
 import {
@@ -16,6 +18,9 @@ import {
   createLeadNoteRequestSchema,
   createLeadWorkspaceRequestSchema,
   observedLeadRunIdSchema,
+  qualificationCadenceMutationRequestSchema,
+  qualificationContactChannelSchema,
+  qualificationContactOutcomeSchema,
   serverControlledCommercialRequestFields,
   updateLeadWorkspaceRequestSchema,
 } from "./commercial";
@@ -53,6 +58,21 @@ const validNoteRequest = {
   body: "Synthetic note body",
 };
 
+const validCadenceStartRequest = {
+  action: "start",
+  start_at: validDateTime,
+  interval_days: 3,
+};
+
+const validCadenceRecordRequest = {
+  action: "record_contact",
+  contact_number: 1,
+  occurred_at: validDateTime,
+  channel: "WHATSAPP",
+  outcome: "NO_RESPONSE",
+  summary: "Synthetic qualification contact",
+};
+
 interface RequestSchemaFixture {
   readonly name: string;
   readonly schema: ZodType<unknown>;
@@ -79,6 +99,11 @@ const requestSchemaFixtures: readonly RequestSchemaFixture[] = [
     name: "create note",
     schema: createLeadNoteRequestSchema,
     validRequest: validNoteRequest,
+  },
+  {
+    name: "mutate qualification cadence",
+    schema: qualificationCadenceMutationRequestSchema,
+    validRequest: validCadenceStartRequest,
   },
 ];
 
@@ -128,6 +153,20 @@ describe("commercial enum validators", () => {
       expect(commercialActivityTypeSchema.safeParse(activityType).success).toBe(
         false,
       );
+    },
+  );
+
+  it.each(qualificationContactChannels)(
+    "accepts approved qualification channel %s",
+    (channel) => {
+      expect(qualificationContactChannelSchema.parse(channel)).toBe(channel);
+    },
+  );
+
+  it.each(qualificationContactOutcomes)(
+    "accepts approved qualification outcome %s",
+    (outcome) => {
+      expect(qualificationContactOutcomeSchema.parse(outcome)).toBe(outcome);
     },
   );
 });
@@ -246,6 +285,87 @@ describe("commercial request schemas", () => {
         occurred_at: occurredAt,
       }).success,
     ).toBe(false);
+  });
+
+  it.each([1, 3, 30])("accepts cadence interval %i", (intervalDays) => {
+    expect(
+      qualificationCadenceMutationRequestSchema.safeParse({
+        ...validCadenceStartRequest,
+        interval_days: intervalDays,
+      }).success,
+    ).toBe(true);
+  });
+
+  it.each([0, 31, 1.5, "3"])(
+    "rejects invalid cadence interval %s",
+    (intervalDays) => {
+      expect(
+        qualificationCadenceMutationRequestSchema.safeParse({
+          ...validCadenceStartRequest,
+          interval_days: intervalDays,
+        }).success,
+      ).toBe(false);
+    },
+  );
+
+  it("requires a next contact date only when the lead asks to talk later", () => {
+    expect(
+      qualificationCadenceMutationRequestSchema.safeParse({
+        ...validCadenceRecordRequest,
+        outcome: "FOLLOW_UP_LATER",
+      }).success,
+    ).toBe(false);
+    expect(
+      qualificationCadenceMutationRequestSchema.safeParse({
+        ...validCadenceRecordRequest,
+        outcome: "FOLLOW_UP_LATER",
+        next_contact_at: "2026-07-15T12:00:00Z",
+      }).success,
+    ).toBe(true);
+    expect(
+      qualificationCadenceMutationRequestSchema.safeParse({
+        ...validCadenceRecordRequest,
+        next_contact_at: "2026-07-15T12:00:00Z",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("rejects talk-later on the fourth and out-of-range contacts", () => {
+    expect(
+      qualificationCadenceMutationRequestSchema.safeParse({
+        ...validCadenceRecordRequest,
+        contact_number: 4,
+        outcome: "FOLLOW_UP_LATER",
+        next_contact_at: "2026-07-15T12:00:00Z",
+      }).success,
+    ).toBe(false);
+    for (const contactNumber of [0, 5, 1.5]) {
+      expect(
+        qualificationCadenceMutationRequestSchema.safeParse({
+          ...validCadenceRecordRequest,
+          contact_number: contactNumber,
+        }).success,
+      ).toBe(false);
+    }
+  });
+
+  it("requires a present summary for another response", () => {
+    for (const summary of [undefined, null, "", " "]) {
+      expect(
+        qualificationCadenceMutationRequestSchema.safeParse({
+          ...validCadenceRecordRequest,
+          outcome: "OTHER_RESPONSE",
+          summary,
+        }).success,
+      ).toBe(false);
+    }
+    expect(
+      qualificationCadenceMutationRequestSchema.safeParse({
+        ...validCadenceRecordRequest,
+        outcome: "OTHER_RESPONSE",
+        summary: "O lead pediu uma informação adicional.",
+      }).success,
+    ).toBe(true);
   });
 });
 

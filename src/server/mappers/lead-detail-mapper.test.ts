@@ -292,6 +292,51 @@ describe("mapLeadDetail", () => {
     });
   });
 
+  it("keeps business report fields readable and withholds technical metadata", () => {
+    const detail = mapWithUnapprovedFields({
+      strategic_report_match_count: 1,
+      strategic_report_integrity_status: "OK",
+      strategic_report_expires_at: "2026-07-30T15:45:00.000Z",
+      strategic_report_markdown:
+        "Research Report Comercial — EMPRESA SINTÉTICA\n\n**Modelo efetivo:** MODEL_CANARY | **Modelo API:** API_CANARY | **Modo:** PIPELINE_CANARY | **Tipo:** REPORT_CANARY | **Status:** STATUS_CANARY | **Prioridade comercial:** R | **Valor de pesquisa:** C | **Fit estratégico:** 72/100 | **Confiança:** média | **Setor detectado:** manufatura_sintetica **Política solicitada:** POLICY_CANARY | **Geração efetiva:** GENERATION_CANARY | **IA concluída:** SIM | **Saída estruturada interpretada:** SIM",
+    });
+
+    expect(detail.strategicReport).toEqual({
+      status: "available",
+      content:
+        "Research Report Comercial — EMPRESA SINTÉTICA\n\nPrioridade comercial: R\nValor de pesquisa: C\nFit estratégico: 72/100\nConfiança: média\nSetor detectado: manufatura_sintetica",
+    });
+    expect(JSON.stringify(detail)).not.toMatch(
+      /MODEL_CANARY|API_CANARY|PIPELINE_CANARY|REPORT_CANARY|STATUS_CANARY|POLICY_CANARY|GENERATION_CANARY/,
+    );
+  });
+
+  it("redacts a phone and reduces an oversized report instead of withholding it", () => {
+    const phone = "(11) 99999-0000";
+    const detail = mapWithUnapprovedFields({
+      strategic_report_match_count: 1,
+      strategic_report_integrity_status: "OK",
+      strategic_report_expires_at: "2026-07-30T15:45:00.000Z",
+      strategic_report_markdown: `Contato citado: ${phone}\n\n${"Contexto comercial registrado. ".repeat(900)}`,
+    });
+
+    expect(detail.strategicReport.status).toBe("available");
+    if (detail.strategicReport.status !== "available") {
+      return;
+    }
+
+    expect(detail.strategicReport.content).not.toContain(phone);
+    expect(detail.strategicReport.content).toContain(
+      "[Telefone removido por privacidade]",
+    );
+    expect(detail.strategicReport.content).toContain(
+      "Conteúdo reduzido para exibição.",
+    );
+    expect(detail.strategicReport.content.length).toBeLessThanOrEqual(
+      12_000,
+    );
+  });
+
   it("keeps non-current, expired, or unsafe strategic reports unavailable", () => {
     const invalidHtml = mapWithUnapprovedFields({
       strategic_report_match_count: 1,
@@ -304,6 +349,12 @@ describe("mapLeadDetail", () => {
       strategic_report_integrity_status: "OK",
       strategic_report_expires_at: "2026-07-30T15:45:00.000Z",
       strategic_report_markdown: "Relatório sintético",
+    });
+    const email = mapWithUnapprovedFields({
+      strategic_report_match_count: 1,
+      strategic_report_integrity_status: "OK",
+      strategic_report_expires_at: "2026-07-30T15:45:00.000Z",
+      strategic_report_markdown: "Contato: synthetic@example.test",
     });
     const expired = mapWithUnapprovedFields({
       strategic_report_match_count: 1,
@@ -322,6 +373,10 @@ describe("mapLeadDetail", () => {
     });
     expect(expired.strategicReport).toEqual({
       status: "omitted_by_policy",
+      content: null,
+    });
+    expect(email.strategicReport).toEqual({
+      status: "unavailable",
       content: null,
     });
   });

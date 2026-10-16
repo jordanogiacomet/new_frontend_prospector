@@ -2,8 +2,9 @@
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
+import { usePrivateCapabilities } from "../../../components/auth/private-capabilities";
 import { formatUsdEstimatedCost } from "../../../lib/formatters";
 import type {
   CostCoverage,
@@ -31,9 +32,11 @@ type RequestState =
       readonly query: string;
       readonly status: "success";
       readonly response: CostOverviewEnvelope;
+      readonly refreshFailed?: boolean;
     }
   | { readonly query: string; readonly status: "unavailable" }
   | { readonly query: string; readonly status: "access-denied" }
+  | { readonly query: string; readonly status: "auth-required" }
   | { readonly query: string; readonly status: "error" };
 
 const defaultPage = 1;
@@ -188,8 +191,14 @@ function buildCostQuery(searchParams: URLSearchParams): string {
 }
 
 export default function CostOverviewPage() {
+  const { hasPermission } = usePrivateCapabilities();
+  const canReadCosts = hasPermission("costs:read");
   const searchParams = useSearchParams();
   const query = buildCostQuery(new URLSearchParams(searchParams));
+  const refreshRef = useRef<(() => Promise<void>) | null>(null);
+  const manualRefreshRef = useRef(false);
+  const [refreshState, setRefreshState] = useState<{ readonly query: string; readonly status: "idle" | "loading" | "success" }>({ query, status: "idle" });
+  const refreshing = refreshState.query === query && refreshState.status === "loading";
   const [requestState, setRequestState] = useState<RequestState>(() => ({
     query,
     status: "loading",
@@ -200,9 +209,21 @@ export default function CostOverviewPage() {
       : { query, status: "loading" };
 
   useEffect(() => {
+    if (!canReadCosts) return;
+
     const abortController = new AbortController();
+    let requestInFlight = false;
+
+    function showReadFailure(status: "unavailable" | "error"): void {
+      if (abortController.signal.aborted) return;
+      setRequestState((previous) => previous.query === query && previous.status === "success"
+        ? { ...previous, refreshFailed: true }
+        : { query, status });
+    }
 
     async function loadCosts(): Promise<void> {
+      if (requestInFlight) return;
+      requestInFlight = true;
       try {
         const response = await fetch(`/api/costs?${query}`, {
           method: "GET",
@@ -213,41 +234,53 @@ export default function CostOverviewPage() {
         });
 
         if (!response.ok) {
-          if (!abortController.signal.aborted) {
-            setRequestState({
-              query,
-              status:
-                response.status === 503
-                  ? "unavailable"
-                  : response.status === 401 || response.status === 403
-                    ? "access-denied"
-                    : "error",
-            });
+          if (response.status === 401 || response.status === 403) {
+            if (!abortController.signal.aborted) {
+              setRequestState({ query, status: response.status === 401 ? "auth-required" : "access-denied" });
+            }
+          } else {
+            showReadFailure(response.status === 503 ? "unavailable" : "error");
           }
-
           return;
         }
 
         const payload: unknown = await response.json();
 
-        if (!isCostOverviewEnvelope(payload)) {
+        if (response.status !== 200 || !isCostOverviewEnvelope(payload)) {
           throw new Error("Cost overview response is invalid.");
         }
 
         if (!abortController.signal.aborted) {
           setRequestState({ query, status: "success", response: payload });
+          if (manualRefreshRef.current) setRefreshState({ query, status: "success" });
         }
       } catch {
+        showReadFailure("error");
+      } finally {
+        requestInFlight = false;
         if (!abortController.signal.aborted) {
-          setRequestState({ query, status: "error" });
+          manualRefreshRef.current = false;
+          setRefreshState((previous) => previous.query === query && previous.status === "loading" ? { query, status: "idle" } : previous);
         }
       }
     }
 
+    refreshRef.current = loadCosts;
     void loadCosts();
 
-    return () => abortController.abort();
-  }, [query]);
+    return () => {
+      abortController.abort();
+      refreshRef.current = null;
+      manualRefreshRef.current = false;
+    };
+  }, [query, canReadCosts]);
+
+  function refreshCosts(): void {
+    if (refreshRef.current === null || manualRefreshRef.current) return;
+    manualRefreshRef.current = true;
+    setRefreshState({ query, status: "loading" });
+    void refreshRef.current();
+  }
 
   return (
     <div className="mx-auto w-full max-w-[96rem]">
@@ -255,23 +288,39 @@ export default function CostOverviewPage() {
         <p className="text-xs font-bold tracking-normal text-[oklch(45%_0.105_174)] uppercase">
           Acompanhamento de custos
         </p>
-        <h1 className="mt-4 max-w-[14ch] font-serif text-5xl leading-[0.96] tracking-normal text-balance sm:text-6xl lg:text-7xl">
+        <h1 className="operational-title mt-4">
           Custos estimados
         </h1>
         <p className="mt-6 max-w-3xl text-base leading-7 text-[oklch(43%_0.03_252)]">
-          Acompanhe a estimativa LLM em USD por execução e no conjunto atual.
-          Ela não representa uma fatura.
+          Acompanhe o custo estimado das análises em dólares (USD).
+          O valor considera o uso de inteligência artificial e não representa uma fatura.
         </p>
+        {canReadCosts && currentState.status !== "auth-required" && currentState.status !== "access-denied" ? (
+          <div className="mt-5 flex flex-wrap items-center gap-3">
+            <button type="button" onClick={refreshCosts} disabled={currentState.status === "loading" || refreshing} aria-busy={refreshing} className="ui-action ui-action--secondary">
+              {refreshing ? "Atualizando custos…" : "Atualizar custos"}
+            </button>
+            <p role="status" className="text-sm">{refreshState.query === query && refreshState.status === "success" ? "Custos atualizados." : ""}</p>
+          </div>
+        ) : null}
       </header>
 
       <div className="mt-10">
-        {currentState.status === "loading" ? <CostsLoading /> : null}
-        {currentState.status === "unavailable" ? <CostsUnavailable /> : null}
-        {currentState.status === "access-denied" ? <CostsAccessDenied /> : null}
-        {currentState.status === "error" ? <CostsError /> : null}
-        {currentState.status === "success" ? (
-          <CostsResponse response={currentState.response} />
-        ) : null}
+        {!canReadCosts ? <CostsAccessDenied /> : (
+          <>
+            {currentState.status === "loading" ? <CostsLoading /> : null}
+            {currentState.status === "unavailable" ? <CostsUnavailable /> : null}
+            {currentState.status === "access-denied" ? <CostsAccessDenied /> : null}
+            {currentState.status === "auth-required" ? <CostsSessionExpired /> : null}
+            {currentState.status === "error" ? <CostsError /> : null}
+            {currentState.status === "success" ? (
+              <>
+                {currentState.refreshFailed ? <p role="alert" className="mb-5 border-l-2 border-[oklch(69%_0.11_77)] pl-4 text-sm leading-6">Não foi possível atualizar os custos. O motivo não foi informado. Você está vendo a última consulta confirmada. Use Atualizar custos para consultar novamente.</p> : null}
+                <CostsResponse response={currentState.response} />
+              </>
+            ) : null}
+          </>
+        )}
       </div>
     </div>
   );
@@ -330,7 +379,7 @@ function CostsSummary({ meta }: { readonly meta: CostOverviewMeta }) {
           Custo estimado indisponível
         </h2>
         <p className="mt-4 max-w-2xl text-sm leading-6 text-[oklch(43%_0.03_252)]">
-          Ainda não há uma estimativa confirmada para as execuções consultadas.
+          Ainda não há uma estimativa confirmada para as análises consultadas.
         </p>
       </section>
     );
@@ -356,8 +405,8 @@ function CostsSummary({ meta }: { readonly meta: CostOverviewMeta }) {
           <dt className="sr-only">Contexto da estimativa</dt>
           <dd className="text-sm leading-6 text-[oklch(43%_0.03_252)]">
             {isPartial
-              ? "A cobertura é parcial: algumas execuções ainda não têm estimativa disponível."
-              : "Estimativa LLM em USD; não é uma fatura."}
+              ? "A cobertura é parcial: algumas análises ainda não têm estimativa disponível."
+              : "Estimativa em dólares (USD) para o uso de inteligência artificial; não é uma fatura."}
           </dd>
         </div>
       </dl>
@@ -375,8 +424,8 @@ function CostsEmpty() {
         Nenhum custo estimado disponível
       </h2>
       <p className="mt-4 max-w-xl text-sm leading-6 text-[oklch(43%_0.03_252)]">
-        Não há execuções correlacionadas para esta consulta. Nenhum gasto foi
-        inferido.
+        Não há análises vinculadas às suas importações nesta consulta.
+        A ausência de estimativa não significa que o custo foi zero.
       </p>
     </section>
   );
@@ -386,13 +435,13 @@ function CostsPageEmpty({ meta }: { readonly meta: CostOverviewMeta }) {
   return (
     <section className="border-y border-[oklch(82%_0.025_82)] py-12">
       <p className="text-xs font-bold tracking-normal text-[oklch(45%_0.105_174)] uppercase">
-        Página sem execuções
+        Página sem análises
       </p>
       <h2 className="mt-3 font-serif text-3xl tracking-normal">
-        Nenhuma execução nesta página
+        Nenhuma análise nesta página
       </h2>
       <p className="mt-4 max-w-xl text-sm leading-6 text-[oklch(43%_0.03_252)]">
-        Ajuste a paginação para consultar as demais execuções disponíveis.
+        Use a paginação para consultar as demais análises disponíveis.
       </p>
       <CostsPagination itemsOnPage={0} meta={meta} />
     </section>
@@ -407,10 +456,10 @@ function CostsTable({
   readonly meta: CostOverviewMeta;
 }) {
   return (
-    <section className="mt-8" aria-label="Custos por execução">
+    <section className="mt-8" aria-label="Custos por análise">
       <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-[oklch(82%_0.025_82)] pb-4">
         <h2 className="font-serif text-2xl tracking-normal">
-          Custos por execução
+          Custos por análise
         </h2>
         <p className="text-sm font-semibold text-[oklch(43%_0.03_252)]">
           {formatRunTotal(meta.total)}
@@ -419,12 +468,12 @@ function CostsTable({
 
       <div className="overflow-x-auto">
         <table
-          aria-label="Custos por execução"
-          className="w-full min-w-[44rem] border-collapse text-left"
+          aria-label="Custos por análise"
+          className="responsive-data-table w-full border-collapse text-left md:min-w-[44rem]"
         >
           <thead>
             <tr className="border-b border-[oklch(72%_0.035_82)]">
-              {['Execução', 'Disponibilidade', 'Custo estimado'].map((column) => (
+              {['Análise', 'Disponibilidade', 'Custo estimado'].map((column) => (
                 <th
                   key={column}
                   scope="col"
@@ -436,18 +485,26 @@ function CostsTable({
             </tr>
           </thead>
           <tbody>
-            {runs.map((run) => (
+            {runs.map((run, index) => (
               <tr
                 key={run.leadRunId}
                 className="border-b border-[oklch(88%_0.02_82)] align-top"
               >
-                <td className="max-w-80 break-all py-5 pr-3 text-sm font-semibold">
-                  {run.leadRunId}
+                <td data-label="Análise" className="max-w-80 py-5 pr-3 text-sm">
+                  <div>
+                    <p className="font-semibold">Análise {(meta.page - 1) * meta.pageSize + index + 1}</p>
+                    <details className="mt-2">
+                      <summary className="min-h-11 cursor-pointer py-2 font-semibold text-[var(--prospecta-ink-muted)]">
+                        Ver identificação
+                      </summary>
+                      <p className="mt-2 break-all text-[var(--prospecta-ink-muted)]">{run.leadRunId}</p>
+                    </details>
+                  </div>
                 </td>
-                <td className="px-3 py-5">
+                <td data-label="Disponibilidade" className="px-3 py-5">
                   <AvailabilityBadge availability={run.availability} />
                 </td>
-                <td className="py-5 pl-3 text-sm font-semibold">
+                <td data-label="Custo estimado" className="py-5 pl-3 text-sm font-semibold">
                   {formatUsdEstimatedCost(run.estimatedCostUsd)}
                 </td>
               </tr>
@@ -570,7 +627,7 @@ function CostsUnavailable() {
         Os custos não puderam ser consultados agora.
       </h2>
       <p className="mt-4 max-w-xl text-sm leading-6 text-[oklch(36%_0.055_62)]">
-        Atualize a página mais tarde. Valores ausentes não serão tratados como
+        Use Atualizar custos para consultar novamente mais tarde. Valores ausentes não serão tratados como
         zero.
       </p>
     </section>
@@ -589,6 +646,17 @@ function CostsAccessDenied() {
       <h2 className="mt-3 font-serif text-3xl tracking-normal">
         Você não tem acesso aos custos.
       </h2>
+      <p className="mt-4 text-sm leading-6">Seu perfil ou a configuração deste ambiente não permite esta consulta. Solicite ao responsável a verificação do acesso.</p>
+    </section>
+  );
+}
+
+function CostsSessionExpired() {
+  return (
+    <section role="alert" className="border-y border-[var(--prospecta-border)] py-10">
+      <h2 className="font-serif text-3xl">Sua sessão expirou</h2>
+      <p className="mt-4 text-sm text-[var(--prospecta-ink-muted)]">Entre novamente para consultar os custos.</p>
+      <Link href="/login" className="ui-action ui-action--primary mt-5">Entrar novamente</Link>
     </section>
   );
 }
@@ -606,7 +674,7 @@ function CostsError() {
         Não foi possível carregar os custos agora.
       </h2>
       <p className="mt-4 max-w-xl text-sm leading-6 text-[oklch(38%_0.045_32)]">
-        Atualize a página para tentar novamente. Se o problema continuar,
+        O motivo não foi informado. Use Atualizar custos para consultar novamente. Se o problema continuar,
         contate o suporte responsável.
       </p>
     </section>
@@ -615,8 +683,8 @@ function CostsError() {
 
 function formatRunTotal(total: number): string {
   return total === 1
-    ? "1 execução"
-    : `${numberFormatter.format(total)} execuções`;
+    ? "1 análise"
+    : `${numberFormatter.format(total)} análises`;
 }
 
 function buildPageHref(page: number, pageSize: number): string {

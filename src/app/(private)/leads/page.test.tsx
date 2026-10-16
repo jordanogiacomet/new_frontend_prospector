@@ -1,11 +1,14 @@
 import {
   act,
+  fireEvent,
   render,
   screen,
+  waitFor,
   within,
 } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { PrivateCapabilitiesProvider } from "../../../components/auth/private-capabilities";
 import type { LeadSummary } from "../../../types/leads";
 
 const { navigationState, replaceMock } = vi.hoisted(() => ({
@@ -72,6 +75,14 @@ function successfulResponse(
   };
 }
 
+function authorizedPage() {
+  return (
+    <PrivateCapabilitiesProvider permissions={["leads:read"]}>
+      <LeadListPage />
+    </PrivateCapabilitiesProvider>
+  );
+}
+
 describe("lead list page", () => {
   beforeEach(() => {
     navigationState.query = "";
@@ -81,8 +92,40 @@ describe("lead list page", () => {
     vi.stubGlobal("fetch", fetchMock);
   });
 
-  it("shows a distinct loading skeleton while the current API request is pending", () => {
+  it("denies missing read permission before any request", () => {
+
     render(<LeadListPage />);
+
+    expect(screen.getByRole("heading", { name: "Acesso não autorizado" })).toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it.each([401, 403])("gives HTTP %i an access recovery state and stops further polling", async (responseStatus) => {
+    const intervalSpy = vi.spyOn(window, "setInterval");
+    const visibilitySpy = vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+    try {
+      fetchMock.mockResolvedValue(respondWithJson({}, responseStatus));
+      render(authorizedPage());
+
+      expect(await screen.findByRole("heading", { name: responseStatus === 401 ? "Sua sessão expirou" : "Acesso não autorizado" })).toBeInTheDocument();
+      const login = screen.queryByRole("link", { name: "Entrar novamente" });
+      if (responseStatus === 401) expect(login).toHaveAttribute("href", "/login");
+      else expect(login).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /Tentar novamente|Atualizar/ })).not.toBeInTheDocument();
+      const refresh = intervalSpy.mock.calls.find(([, delay]) => delay === 5_000)?.[0];
+      if (typeof refresh === "function") {
+        await act(async () => refresh());
+        await act(async () => refresh());
+      }
+      expect(fetchMock).toHaveBeenCalledOnce();
+    } finally {
+      intervalSpy.mockRestore();
+      visibilitySpy.mockRestore();
+    }
+  });
+
+  it("shows a distinct loading skeleton while the current API request is pending", () => {
+    render(authorizedPage());
 
     expect(
       screen.getByRole("link", { name: "Para análise" }),
@@ -100,7 +143,7 @@ describe("lead list page", () => {
   });
 
   it("renders the populated server page and preserves URL filters in pagination", async () => {
-    navigationState.query = "page=2&pageSize=1&uf=SP";
+    navigationState.query = "page=2&pageSize=1&uf=SP&priority=D";
     fetchMock.mockResolvedValue(
       respondWithJson(
         successfulResponse([syntheticLead], {
@@ -112,7 +155,7 @@ describe("lead list page", () => {
       ),
     );
 
-    render(<LeadListPage />);
+    render(authorizedPage());
 
     expect(
       await screen.findByRole("table", { name: "Resultados de leads" }),
@@ -120,9 +163,9 @@ describe("lead list page", () => {
     expect(screen.getByText("Empresa Página Sintética")).toBeInTheDocument();
     expect(
       screen.getByRole("link", { name: "Página anterior" }),
-    ).toHaveAttribute("href", "/leads?page=1&pageSize=1&uf=SP");
+    ).toHaveAttribute("href", "/leads?page=1&pageSize=1&uf=SP&priority=D");
     expect(fetchMock).toHaveBeenCalledExactlyOnceWith(
-      "/api/leads?page=2&pageSize=1&uf=SP",
+      "/api/leads?page=2&pageSize=1&uf=SP&priority=D",
       expect.objectContaining({ cache: "no-store" }),
     );
   });
@@ -137,7 +180,7 @@ describe("lead list page", () => {
       respondWithJson(successfulResponse([syntheticLead])),
     );
 
-    const { unmount } = render(<LeadListPage />);
+    const { unmount } = render(authorizedPage());
 
     await screen.findByText("Empresa Página Sintética");
     const refreshCall = setIntervalSpy.mock.calls.find(
@@ -212,32 +255,120 @@ describe("lead list page", () => {
       respondWithJson(successfulResponse([])),
     );
 
-    render(<LeadListPage />);
+    render(authorizedPage());
 
     expect(
       await screen.findByRole("heading", {
         name: "Nenhuma decisão disponível",
       }),
     ).toBeInTheDocument();
-    expect(screen.getByText(/assim que houver decisões/i)).toBeInTheDocument();
+    expect(screen.getByText(/quando houver análises disponíveis/i)).toBeInTheDocument();
     expect(
       screen.queryByText(/não encontramos resultados para os filtros/i),
     ).not.toBeInTheDocument();
   });
 
-  it("shows a no-match state without clearing the active URL filters", async () => {
+  it("keeps the last results after a failed refresh and recovers with an explicit update", async () => {
+    const intervalSpy = vi.spyOn(window, "setInterval");
+    vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+    fetchMock
+      .mockResolvedValueOnce(respondWithJson(successfulResponse([syntheticLead])))
+      .mockResolvedValueOnce(respondWithJson({ error: { message: "private failure" } }, 503));
+
+    render(authorizedPage());
+    await screen.findByText("Empresa Página Sintética");
+    const refresh = intervalSpy.mock.calls.find(([, delay]) => delay === 5_000)?.[0];
+    if (typeof refresh !== "function") {
+      throw new Error("Expected the lead list refresh callback.");
+    }
+    await act(async () => refresh());
+
+    expect(await screen.findByRole("status")).toHaveTextContent("última consulta disponível");
+    expect(screen.getByText("Empresa Página Sintética")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent("private failure");
+
+    let resolveUpdate: ((response: Response) => void) | undefined;
+    fetchMock.mockReturnValueOnce(new Promise<Response>((resolve) => {
+      resolveUpdate = resolve;
+    }));
+    fireEvent.click(screen.getByRole("button", { name: "Atualizar lista" }));
+    expect(screen.getByRole("button", { name: "Atualizando…" })).toBeDisabled();
+
+    await act(async () => {
+      resolveUpdate?.(respondWithJson(successfulResponse([{ ...syntheticLead, companyName: "Empresa recuperada" }])));
+    });
+
+    expect(await screen.findByText("Empresa recuperada")).toBeInTheDocument();
+    expect(screen.queryByText(/última consulta disponível/)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Atualizar lista" })).toBeEnabled();
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    intervalSpy.mockRestore();
+  });
+
+  it.each([401, 403])("clears previous results when a refresh denies access with %i", async (status) => {
+    const intervalSpy = vi.spyOn(window, "setInterval");
+    vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+    fetchMock
+      .mockResolvedValueOnce(respondWithJson(successfulResponse([syntheticLead])))
+      .mockResolvedValueOnce(respondWithJson({ error: { code: "ACCESS_DENIED" } }, status));
+
+    render(authorizedPage());
+    await screen.findByText("Empresa Página Sintética");
+    const refresh = intervalSpy.mock.calls.find(([, delay]) => delay === 5_000)?.[0];
+    if (typeof refresh !== "function") {
+      throw new Error("Expected the lead list refresh callback.");
+    }
+    await act(async () => refresh());
+
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
+    expect(screen.queryByText("Empresa Página Sintética")).not.toBeInTheDocument();
+    intervalSpy.mockRestore();
+  });
+
+  it("retries the same filtered query from the initial safe error", async () => {
     navigationState.query = "page=2&uf=SP&priority=B";
+    fetchMock
+      .mockRejectedValueOnce(new Error("network failure"))
+      .mockResolvedValueOnce(respondWithJson(successfulResponse([syntheticLead])));
+
+    render(authorizedPage());
+    fireEvent.click(await screen.findByRole("button", { name: "Tentar novamente" }));
+
+    expect(await screen.findByText("Empresa Página Sintética")).toBeInTheDocument();
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/leads?page=2&uf=SP&priority=B", expect.any(Object));
+    expect(replaceMock).not.toHaveBeenCalled();
+  });
+
+  it("clears previous results when a refresh returns an invalid contract", async () => {
+    fetchMock
+      .mockResolvedValueOnce(respondWithJson(successfulResponse([syntheticLead])))
+      .mockResolvedValueOnce(respondWithJson({ data: [], meta: { total: 1 } }));
+
+    render(authorizedPage());
+    await screen.findByText("Empresa Página Sintética");
+    fireEvent.click(screen.getByRole("button", { name: "Atualizar lista" }));
+
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
+    expect(screen.queryByText("Empresa Página Sintética")).not.toBeInTheDocument();
+    expect(screen.queryByText(/última consulta disponível/)).not.toBeInTheDocument();
+  });
+
+  it("shows a no-match state without clearing the active URL filters", async () => {
+    navigationState.query = "page=2&pageSize=10&uf=SP&priority=B";
     fetchMock.mockResolvedValue(
       respondWithJson(
         successfulResponse([], {
           page: 2,
+          pageSize: 10,
           total: 0,
           totalPages: 0,
         }),
       ),
     );
 
-    render(<LeadListPage />);
+    render(authorizedPage());
 
     expect(
       await screen.findByRole("heading", {
@@ -248,13 +379,15 @@ describe("lead list page", () => {
     const activeFilters = screen.getByRole("region", {
       name: "Filtros ativos",
     });
-    expect(within(activeFilters).getByText("UF: SP")).toBeInTheDocument();
+    expect(within(activeFilters).getByText("Estado: SP")).toBeInTheDocument();
     expect(
-      within(activeFilters).getByText("Prioridade: Prioridade B"),
+      within(activeFilters).getByText("Prioridade B"),
     ).toBeInTheDocument();
     expect(replaceMock).not.toHaveBeenCalled();
+    expect(screen.getByRole("link", { name: "Limpar filtros e ver empresas" }))
+      .toHaveAttribute("href", "/leads?page=1&pageSize=10");
     expect(fetchMock).toHaveBeenCalledWith(
-      "/api/leads?page=2&uf=SP&priority=B",
+      "/api/leads?page=2&pageSize=10&uf=SP&priority=B",
       expect.any(Object),
     );
   });
@@ -272,7 +405,7 @@ describe("lead list page", () => {
       ),
     );
 
-    render(<LeadListPage />);
+    render(authorizedPage());
 
     expect(
       await screen.findByRole("heading", {
@@ -281,12 +414,27 @@ describe("lead list page", () => {
     ).toBeInTheDocument();
     expect(
       screen.getByRole("link", { name: "Voltar à primeira página" }),
-    ).toHaveAttribute("href", "/leads");
+    ).toHaveAttribute("href", "/leads?page=1&pageSize=20");
     expect(
       screen.queryByRole("heading", {
         name: "Nenhuma decisão disponível",
       }),
     ).not.toBeInTheDocument();
+  });
+
+  it("keeps active filters when returning from an empty page to the first page", async () => {
+    navigationState.query = "page=999&pageSize=10&uf=SP&priority=C";
+    fetchMock.mockResolvedValue(respondWithJson(successfulResponse([], {
+      page: 999,
+      pageSize: 10,
+      total: 2,
+      totalPages: 1,
+    })));
+
+    render(authorizedPage());
+
+    expect(await screen.findByRole("link", { name: "Voltar à primeira página" }))
+      .toHaveAttribute("href", "/leads?page=1&pageSize=10&uf=SP&priority=C");
   });
 
   it("renders a fixed safe error without exposing API details", async () => {
@@ -308,7 +456,7 @@ describe("lead list page", () => {
       ),
     );
 
-    render(<LeadListPage />);
+    render(authorizedPage());
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Não foi possível carregar as decisões agora.",
@@ -318,12 +466,22 @@ describe("lead list page", () => {
     }
   });
 
+  it.each([null, { ...syntheticLead, companyName: { unsafe: "object" } }, { ...syntheticLead, score: 101 }])(
+    "rejects a malformed lead entry before passing it to the table",
+    async (entry) => {
+      fetchMock.mockResolvedValue(respondWithJson({ data: [entry], meta: { page: 1, pageSize: 20, total: 1, totalPages: 1 } }));
+      render(authorizedPage());
+      expect(await screen.findByRole("alert")).toBeInTheDocument();
+      expect(screen.queryByRole("table")).not.toBeInTheDocument();
+    },
+  );
+
   it("uses the same safe error state for a network failure", async () => {
     fetchMock.mockRejectedValue(
       new Error("socket database.internal ECONNRESET"),
     );
 
-    render(<LeadListPage />);
+    render(authorizedPage());
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Não foi possível carregar as decisões agora.",
@@ -345,7 +503,7 @@ describe("lead list page", () => {
       }),
     );
 
-    render(<LeadListPage />);
+    render(authorizedPage());
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Não foi possível carregar as decisões agora.",
@@ -366,7 +524,7 @@ describe("lead list page", () => {
       respondWithJson(successfulResponse([serverOrderedLead])),
     );
 
-    render(<LeadListPage />);
+    render(authorizedPage());
 
     expect(
       await screen.findByText("Resultado ordenado pelo servidor"),
@@ -380,10 +538,10 @@ describe("lead list page", () => {
   });
 
   it("uses the approved bounded-scope wording without claiming complete inventory", () => {
-    render(<LeadListPage />);
+    render(authorizedPage());
 
     expect(document.body).toHaveTextContent(
-      /decisões elegíveis, legíveis e retidas/i,
+      /análises disponíveis para consulta/i,
     );
     expect(document.body).toHaveTextContent(
       /não representa um inventário completo/i,

@@ -13,6 +13,7 @@ export interface ServerEnv {
   FEATURE_COSTS_ENABLED: boolean;
   COSTS_READ_SUBJECTS: readonly string[];
   FEATURE_CONTACT_DATA_ENABLED: boolean;
+  FEATURE_REGISTERED_ADDRESS_MAP_ENABLED: boolean;
   CONTACT_DATA_READ_SUBJECTS: readonly string[];
   CONTACT_DATA_GOVERN_SUBJECTS: readonly string[];
   DEMO2_FULL_ACCESS_ENABLED: boolean;
@@ -42,12 +43,22 @@ export interface ProspectaServerEnv {
   IMPORT_MAX_BYTES: number;
   IMPORT_PRODUCER_TIMEOUT_MS: number;
   CONTACT_ENRICHMENT_TIMEOUT_MS: number;
+  OPENAI_API_KEY: string | undefined;
+  OPENAI_APPROACH_MODEL: string | undefined;
+  OPENAI_APPROACH_TIMEOUT_MS: number;
+  COMPANY_REGISTRY_API_BASE_URL: string | undefined;
+  LEAD_GEOCODING_API_URL: string | undefined;
+  LEAD_POSTAL_CODE_API_BASE_URL: string | undefined;
+  LEAD_GEOCODING_USER_AGENT: string | undefined;
+  LEAD_LOCATION_LOOKUP_TIMEOUT_MS: number;
   SENSITIVE_URL_HOSTS: readonly string[];
   FEATURE_IMPORTS_ENABLED: boolean;
   FEATURE_BATCH_OBSERVATION_ENABLED: boolean;
   FEATURE_COMMERCIAL_ENABLED: boolean;
   FEATURE_SENSITIVE_CONTENT_ENABLED: boolean;
   FEATURE_CONTACT_ENRICHMENT_ENABLED: boolean;
+  FEATURE_AI_APPROACH_ENABLED: boolean;
+  FEATURE_AI_APPROACH_AUTO_QUEUE_ENABLED: boolean;
   FEATURE_DEMO_DATA_ENABLED: boolean;
 }
 
@@ -109,13 +120,24 @@ const serverOnlyNames = [
   "IMPORT_MAX_BYTES",
   "IMPORT_PRODUCER_TIMEOUT_MS",
   "CONTACT_ENRICHMENT_TIMEOUT_MS",
+  "OPENAI_API_KEY",
+  "OPENAI_APPROACH_MODEL",
+  "OPENAI_APPROACH_TIMEOUT_MS",
+  "COMPANY_REGISTRY_API_BASE_URL",
+  "LEAD_GEOCODING_API_URL",
+  "LEAD_POSTAL_CODE_API_BASE_URL",
+  "LEAD_GEOCODING_USER_AGENT",
+  "LEAD_LOCATION_LOOKUP_TIMEOUT_MS",
   "SENSITIVE_URL_HOSTS",
   "FEATURE_IMPORTS_ENABLED",
   "FEATURE_BATCH_OBSERVATION_ENABLED",
   "FEATURE_COMMERCIAL_ENABLED",
   "FEATURE_SENSITIVE_CONTENT_ENABLED",
   "FEATURE_CONTACT_ENRICHMENT_ENABLED",
+  "FEATURE_AI_APPROACH_ENABLED",
+  "FEATURE_AI_APPROACH_AUTO_QUEUE_ENABLED",
   "FEATURE_CONTACT_DATA_ENABLED",
+  "FEATURE_REGISTERED_ADDRESS_MAP_ENABLED",
   "FEATURE_DEMO_DATA_ENABLED",
 ] as const;
 
@@ -547,6 +569,35 @@ export function parseServerEnv(input: EnvironmentInput): ParsedServerEnv {
       input,
       "CONTACT_ENRICHMENT_TIMEOUT_MS",
     ),
+    OPENAI_API_KEY: readOptional(input, "OPENAI_API_KEY"),
+    OPENAI_APPROACH_MODEL: readOptional(
+      input,
+      "OPENAI_APPROACH_MODEL",
+    ),
+    OPENAI_APPROACH_TIMEOUT_MS: readOptional(
+      input,
+      "OPENAI_APPROACH_TIMEOUT_MS",
+    ),
+    COMPANY_REGISTRY_API_BASE_URL: readOptional(
+      input,
+      "COMPANY_REGISTRY_API_BASE_URL",
+    ),
+    LEAD_GEOCODING_API_URL: readOptional(
+      input,
+      "LEAD_GEOCODING_API_URL",
+    ),
+    LEAD_POSTAL_CODE_API_BASE_URL: readOptional(
+      input,
+      "LEAD_POSTAL_CODE_API_BASE_URL",
+    ),
+    LEAD_GEOCODING_USER_AGENT: readOptional(
+      input,
+      "LEAD_GEOCODING_USER_AGENT",
+    ),
+    LEAD_LOCATION_LOOKUP_TIMEOUT_MS: readOptional(
+      input,
+      "LEAD_LOCATION_LOOKUP_TIMEOUT_MS",
+    ),
     SENSITIVE_URL_HOSTS: readOptional(input, "SENSITIVE_URL_HOSTS"),
     FEATURE_IMPORTS_ENABLED: readRequired(
       input,
@@ -572,9 +623,21 @@ export function parseServerEnv(input: EnvironmentInput): ParsedServerEnv {
       input,
       "FEATURE_CONTACT_ENRICHMENT_ENABLED",
     ),
+    FEATURE_AI_APPROACH_ENABLED: readOptional(
+      input,
+      "FEATURE_AI_APPROACH_ENABLED",
+    ),
+    FEATURE_AI_APPROACH_AUTO_QUEUE_ENABLED: readOptional(
+      input,
+      "FEATURE_AI_APPROACH_AUTO_QUEUE_ENABLED",
+    ),
     FEATURE_CONTACT_DATA_ENABLED: readOptional(
       input,
       "FEATURE_CONTACT_DATA_ENABLED",
+    ),
+    FEATURE_REGISTERED_ADDRESS_MAP_ENABLED: readOptional(
+      input,
+      "FEATURE_REGISTERED_ADDRESS_MAP_ENABLED",
     ),
     FEATURE_DEMO_DATA_ENABLED: readOptional(
       input,
@@ -627,9 +690,24 @@ export function parseServerEnv(input: EnvironmentInput): ParsedServerEnv {
     raw.FEATURE_CONTACT_ENRICHMENT_ENABLED,
     errors,
   );
+  const aiApproachEnabled = parseOptionalBoolean(
+    "FEATURE_AI_APPROACH_ENABLED",
+    raw.FEATURE_AI_APPROACH_ENABLED,
+    errors,
+  );
+  const aiApproachAutoQueueEnabled = parseOptionalBoolean(
+    "FEATURE_AI_APPROACH_AUTO_QUEUE_ENABLED",
+    raw.FEATURE_AI_APPROACH_AUTO_QUEUE_ENABLED,
+    errors,
+  );
   const contactDataEnabled = parseOptionalBoolean(
     "FEATURE_CONTACT_DATA_ENABLED",
     raw.FEATURE_CONTACT_DATA_ENABLED,
+    errors,
+  );
+  const registeredAddressMapEnabled = parseOptionalBoolean(
+    "FEATURE_REGISTERED_ADDRESS_MAP_ENABLED",
+    raw.FEATURE_REGISTERED_ADDRESS_MAP_ENABLED,
     errors,
   );
   const contactDataReadSubjects = parseExactSubjects(
@@ -730,6 +808,42 @@ export function parseServerEnv(input: EnvironmentInput): ParsedServerEnv {
     );
   }
 
+  for (const name of [
+    "COMPANY_REGISTRY_API_BASE_URL",
+    "LEAD_GEOCODING_API_URL",
+    "LEAD_POSTAL_CODE_API_BASE_URL",
+  ] as const) {
+    const value = raw[name];
+    if (value !== undefined) {
+      validateHttpsUrl(name, value, errors);
+    }
+  }
+
+  if (registeredAddressMapEnabled) {
+    for (const name of [
+      "COMPANY_REGISTRY_API_BASE_URL",
+      "LEAD_GEOCODING_API_URL",
+      "LEAD_POSTAL_CODE_API_BASE_URL",
+      "LEAD_GEOCODING_USER_AGENT",
+    ] as const) {
+      if (raw[name] === undefined) {
+        errors.push(`${name} is required when registered-address map is enabled`);
+      }
+    }
+  }
+
+  if (
+    raw.LEAD_GEOCODING_USER_AGENT !== undefined &&
+    (!/^Prospecta[A-Za-z0-9 .\-\/]{1,80} \(contact: [^\s@]+@[^\s@]+\.[^\s@]+\)$/.test(
+      raw.LEAD_GEOCODING_USER_AGENT,
+    ) ||
+      /[\u0000-\u001f\u007f]/.test(raw.LEAD_GEOCODING_USER_AGENT))
+  ) {
+    errors.push(
+      "LEAD_GEOCODING_USER_AGENT must identify Prospecta and a monitored contact email",
+    );
+  }
+
   if (contactEnrichmentEnabled) {
     for (const name of [
       "N8N_CONTACT_ENRICHMENT_URL",
@@ -740,6 +854,45 @@ export function parseServerEnv(input: EnvironmentInput): ParsedServerEnv {
         errors.push(`${name} is required when contact enrichment is enabled`);
       }
     }
+  }
+
+  if (
+    raw.OPENAI_API_KEY !== undefined &&
+    (Buffer.byteLength(raw.OPENAI_API_KEY, "utf8") < 20 ||
+      raw.OPENAI_API_KEY.length > 512 ||
+      /\s|[\u0000-\u001f\u007f]/.test(raw.OPENAI_API_KEY))
+  ) {
+    errors.push("OPENAI_API_KEY is invalid");
+  }
+
+  if (
+    raw.OPENAI_APPROACH_MODEL !== undefined &&
+    !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(
+      raw.OPENAI_APPROACH_MODEL,
+    )
+  ) {
+    errors.push("OPENAI_APPROACH_MODEL is invalid");
+  }
+
+  if (aiApproachEnabled) {
+    for (const name of [
+      "OPENAI_API_KEY",
+      "OPENAI_APPROACH_MODEL",
+    ] as const) {
+      if (raw[name] === undefined) {
+        errors.push(`${name} is required when AI approach is enabled`);
+      }
+    }
+
+    if (raw.OPENAI_API_KEY?.toLowerCase().includes("replace-")) {
+      errors.push("OPENAI_API_KEY must not use a placeholder value");
+    }
+  }
+
+  if (aiApproachAutoQueueEnabled && !aiApproachEnabled) {
+    errors.push(
+      "FEATURE_AI_APPROACH_AUTO_QUEUE_ENABLED requires FEATURE_AI_APPROACH_ENABLED",
+    );
   }
 
   if (contactDataEnabled) {
@@ -967,6 +1120,24 @@ export function parseServerEnv(input: EnvironmentInput): ParsedServerEnv {
       raw.CONTACT_ENRICHMENT_TIMEOUT_MS ?? "15000",
       errors,
     ),
+    OPENAI_API_KEY: raw.OPENAI_API_KEY,
+    OPENAI_APPROACH_MODEL: raw.OPENAI_APPROACH_MODEL,
+    OPENAI_APPROACH_TIMEOUT_MS: parsePositiveInteger(
+      "OPENAI_APPROACH_TIMEOUT_MS",
+      raw.OPENAI_APPROACH_TIMEOUT_MS ?? "20000",
+      errors,
+      60_000,
+    ),
+    COMPANY_REGISTRY_API_BASE_URL: raw.COMPANY_REGISTRY_API_BASE_URL,
+    LEAD_GEOCODING_API_URL: raw.LEAD_GEOCODING_API_URL,
+    LEAD_POSTAL_CODE_API_BASE_URL: raw.LEAD_POSTAL_CODE_API_BASE_URL,
+    LEAD_GEOCODING_USER_AGENT: raw.LEAD_GEOCODING_USER_AGENT,
+    LEAD_LOCATION_LOOKUP_TIMEOUT_MS: parsePositiveInteger(
+      "LEAD_LOCATION_LOOKUP_TIMEOUT_MS",
+      raw.LEAD_LOCATION_LOOKUP_TIMEOUT_MS ?? "4000",
+      errors,
+      10_000,
+    ),
     SENSITIVE_URL_HOSTS: parseSensitiveUrlHosts(
       raw.SENSITIVE_URL_HOSTS,
       errors,
@@ -988,7 +1159,10 @@ export function parseServerEnv(input: EnvironmentInput): ParsedServerEnv {
       errors,
     ),
     FEATURE_CONTACT_ENRICHMENT_ENABLED: contactEnrichmentEnabled,
+    FEATURE_AI_APPROACH_ENABLED: aiApproachEnabled,
+    FEATURE_AI_APPROACH_AUTO_QUEUE_ENABLED: aiApproachAutoQueueEnabled,
     FEATURE_CONTACT_DATA_ENABLED: contactDataEnabled,
+    FEATURE_REGISTERED_ADDRESS_MAP_ENABLED: registeredAddressMapEnabled,
     FEATURE_DEMO_DATA_ENABLED: demoDataEnabled,
   };
 

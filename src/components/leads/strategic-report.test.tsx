@@ -25,7 +25,7 @@ describe("strategic report", () => {
       screen.getByText("Análise estratégica registrada"),
     ).toBeInTheDocument();
     expect(screen.getByText(availableReport.content)).toBeInTheDocument();
-    expect(screen.queryByText("Retido por política")).toBeNull();
+    expect(screen.queryByText("Conteúdo protegido")).toBeNull();
     expect(
       screen.getByText("Conteúdo disponível para consulta nesta análise."),
     ).toBeInTheDocument();
@@ -36,6 +36,29 @@ describe("strategic report", () => {
     ).toBeNull();
   });
 
+  it("presents labeled business fields as a readable definition list", () => {
+    const { container } = render(
+      <StrategicReport
+        report={{
+          status: "available",
+          content:
+            "Relatório comercial sintético\n\nPrioridade comercial: R\nFit estratégico: 72/100\nConfiança: média\nSetor detectado: manufatura_sintetica",
+        }}
+      />,
+    );
+
+    expect(
+      screen.getByText("Relatório comercial sintético"),
+    ).toBeInTheDocument();
+    expect(container.querySelectorAll("dl")).toHaveLength(1);
+    expect(container.querySelectorAll("dt")).toHaveLength(4);
+    expect(container.querySelectorAll("dd")).toHaveLength(4);
+    expect(screen.getByText("Prioridade comercial")).toBeInTheDocument();
+    expect(screen.getByText("72/100")).toBeInTheDocument();
+    expect(screen.getByText("manufatura sintetica")).toBeInTheDocument();
+    expect(container).not.toHaveTextContent("**");
+  });
+
   it("renders the policy-omitted state in clear business language", () => {
     render(<StrategicReport report={omittedReport} />);
 
@@ -43,12 +66,12 @@ describe("strategic report", () => {
       screen.getByRole("region", { name: "Relatório estratégico" }),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("status", { name: "Retido por política" }),
+      screen.getByRole("status", { name: "Conteúdo protegido" }),
     ).toBeInTheDocument();
-    expect(screen.getByText("Retido por política")).toBeInTheDocument();
-    expect(screen.getByText("Conteúdo não exibido")).toBeInTheDocument();
+    expect(screen.getByText("Conteúdo protegido")).toBeInTheDocument();
+    expect(screen.getByText("Relatório protegido")).toBeInTheDocument();
     expect(
-      screen.getByText(/política de privacidade vigente/i),
+      screen.getByText(/política de privacidade/i),
     ).toBeInTheDocument();
   });
 
@@ -56,15 +79,15 @@ describe("strategic report", () => {
     render(<StrategicReport report={{ status: "missing" }} />);
 
     expect(
-      screen.getByRole("status", { name: "Ausente" }),
+      screen.getByRole("status", { name: "Não registrado" }),
     ).toBeInTheDocument();
-    expect(screen.getByText("Ausente")).toBeInTheDocument();
+    expect(screen.getByText("Não registrado")).toBeInTheDocument();
     expect(
-      screen.getByText("Relatório ainda não disponível"),
+      screen.getByText("Relatório não registrado"),
     ).toBeInTheDocument();
-    expect(screen.queryByText("Retido por política")).toBeNull();
+    expect(screen.queryByText("Conteúdo protegido")).toBeNull();
     expect(
-      screen.queryByText("Não foi possível consultar o relatório"),
+      screen.queryByText("Relatório indisponível"),
     ).toBeNull();
   });
 
@@ -75,11 +98,11 @@ describe("strategic report", () => {
 
     expect(alert).toHaveTextContent("Indisponível");
     expect(alert).toHaveTextContent(
-      "Não foi possível consultar o relatório",
+      "Relatório indisponível",
     );
-    expect(alert).toHaveTextContent(/tente novamente mais tarde/i);
-    expect(screen.queryByText("Ausente")).toBeNull();
-    expect(screen.queryByText("Retido por política")).toBeNull();
+    expect(alert).toHaveTextContent(/consulte a recomendação e os demais dados disponíveis/i);
+    expect(screen.queryByText("Não registrado")).toBeNull();
+    expect(screen.queryByText("Conteúdo protegido")).toBeNull();
   });
 
   it("does not render Markdown or raw HTML supplied at runtime", () => {
@@ -131,10 +154,10 @@ describe("strategic report", () => {
       <StrategicReport report={technicallySanitizedReport} />,
     );
 
-    expect(screen.getByText("Retido por política")).toBeInTheDocument();
+    expect(screen.getByText("Conteúdo protegido")).toBeInTheDocument();
     expect(container).not.toHaveTextContent("SANITIZED_CONTENT_CANARY");
     expect(
-      screen.getByText(/não substitui a aprovação de privacidade/i),
+      screen.getByText(/não pode ser exibido conforme a política de privacidade/i),
     ).toBeInTheDocument();
   });
 

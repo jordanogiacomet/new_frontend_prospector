@@ -1,13 +1,19 @@
 "use client";
 
 import Link from "next/link";
-import { useParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useParams, useSearchParams } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
+
+import { usePrivateCapabilities } from "../../../../../components/auth/private-capabilities";
+import { BatchResults } from "../../../../../components/imports/batch-results";
+import { useImportCompanyNotices } from "../../../../../components/imports/import-company-notices";
 
 import {
   UNAVAILABLE_LABEL,
   formatBrazilianDate,
 } from "../../../../../lib/formatters";
+import { hasConfirmedBatchCounts } from "../../../../../lib/import-batch-presentation";
+import { resolveBatchListReturnHref } from "../../../../../lib/navigation-return";
 import type {
   BatchObservationBasis,
   BatchObservationStatus,
@@ -29,6 +35,7 @@ type RequestState =
       readonly requestKey: string;
       readonly status: "success";
       readonly batch: BatchSummary;
+      readonly refreshFailed?: boolean;
     }
   | {
       readonly requestKey: string;
@@ -41,6 +48,10 @@ type RequestState =
   | {
       readonly requestKey: string;
       readonly status: "error";
+    }
+  | {
+      readonly requestKey: string;
+      readonly status: "auth_required" | "access_denied";
     };
 
 const batchStatuses: ReadonlySet<string> = new Set([
@@ -158,9 +169,18 @@ function isBatchDetailEnvelope(
 }
 
 export default function BatchDetailPage() {
+  const { hasPermission } = usePrivateCapabilities();
+  const watchImportCompanies = useImportCompanyNotices();
+  const canReadImports = hasPermission("imports:read");
   const params = useParams<{ id: string }>();
+  const searchParams = useSearchParams();
+  const returnHref = resolveBatchListReturnHref(searchParams.get("returnTo"));
   const batchId = typeof params.id === "string" ? params.id : "";
   const requestKey = batchId;
+  const refreshRef = useRef<(() => Promise<void>) | null>(null);
+  const manualRefreshRef = useRef(false);
+  const [refreshState, setRefreshState] = useState<{ readonly key: string; readonly status: "idle" | "loading" | "success" }>({ key: requestKey, status: "idle" });
+  const refreshing = refreshState.key === requestKey && refreshState.status === "loading";
   const [requestState, setRequestState] = useState<RequestState>(() => ({
     requestKey,
     status: "loading",
@@ -170,17 +190,39 @@ export default function BatchDetailPage() {
       ? requestState
       : { requestKey, status: "loading" };
 
+  const confirmedSubmissionId = currentState.status === "success"
+    ? currentState.batch.submissionId : null;
   useEffect(() => {
+    if (canReadImports && confirmedSubmissionId !== null) {
+      return watchImportCompanies(confirmedSubmissionId, false);
+    }
+  }, [canReadImports, confirmedSubmissionId, watchImportCompanies]);
+
+  useEffect(() => {
+    if (!canReadImports) return;
+
     const abortController = new AbortController();
     let requestInFlight = false;
+    let accessStopped = false;
+
+    function showReadFailure(status: "unavailable" | "error", preserveLastResult = true): void {
+      if (abortController.signal.aborted) return;
+      setRequestState((previous) =>
+        preserveLastResult && previous.requestKey === requestKey && previous.status === "success"
+          ? { ...previous, refreshFailed: true }
+          : { requestKey, status },
+      );
+    }
 
     async function loadBatch(): Promise<void> {
       if (!isUuid(batchId)) {
         setRequestState({ requestKey, status: "not_found" });
+        manualRefreshRef.current = false;
+        setRefreshState({ key: requestKey, status: "idle" });
         return;
       }
 
-      if (requestInFlight) {
+      if (requestInFlight || accessStopped) {
         return;
       }
 
@@ -199,6 +241,15 @@ export default function BatchDetailPage() {
         );
 
         if (!response.ok) {
+          if (response.status === 401 || response.status === 403) {
+            accessStopped = true;
+            window.clearInterval(refreshIntervalId);
+            if (!abortController.signal.aborted) {
+              setRequestState({ requestKey, status: response.status === 401 ? "auth_required" : "access_denied" });
+            }
+            return;
+          }
+
           const status =
             response.status === 404
               ? "not_found"
@@ -206,8 +257,12 @@ export default function BatchDetailPage() {
                 ? "unavailable"
                 : "error";
 
-          if (!abortController.signal.aborted) {
-            setRequestState({ requestKey, status });
+          if (status === "not_found") {
+            if (!abortController.signal.aborted) {
+              setRequestState({ requestKey, status });
+            }
+          } else {
+            showReadFailure(status, response.status !== 401 && response.status !== 403);
           }
 
           return;
@@ -215,11 +270,12 @@ export default function BatchDetailPage() {
 
         const payload: unknown = await response.json();
 
-        if (!isBatchDetailEnvelope(payload)) {
+        if (response.status !== 200 || !isBatchDetailEnvelope(payload) || payload.data.submissionId !== batchId) {
           throw new Error("Batch detail response is invalid.");
         }
 
         if (!abortController.signal.aborted) {
+          if (manualRefreshRef.current) setRefreshState({ key: requestKey, status: "success" });
           setRequestState({
             requestKey,
             status: "success",
@@ -227,26 +283,45 @@ export default function BatchDetailPage() {
           });
         }
       } catch {
-        if (!abortController.signal.aborted) {
-          setRequestState({ requestKey, status: "error" });
-        }
+        showReadFailure("error");
       } finally {
         requestInFlight = false;
+        if (!abortController.signal.aborted) {
+          manualRefreshRef.current = false;
+          setRefreshState((previous) => previous.key === requestKey && previous.status === "loading" ? { key: requestKey, status: "idle" } : previous);
+        }
       }
     }
 
-    void loadBatch();
+    refreshRef.current = loadBatch;
     const refreshIntervalId = window.setInterval(() => {
       if (document.visibilityState === "visible") {
         void loadBatch();
       }
     }, refreshIntervalMilliseconds);
+    void loadBatch();
 
     return () => {
       window.clearInterval(refreshIntervalId);
       abortController.abort();
+      refreshRef.current = null;
+      manualRefreshRef.current = false;
     };
-  }, [batchId, requestKey]);
+  }, [batchId, requestKey, canReadImports]);
+
+  function refreshManually(): void {
+    if (refreshRef.current === null || manualRefreshRef.current) return;
+    manualRefreshRef.current = true;
+    setRefreshState({ key: requestKey, status: "loading" });
+    void refreshRef.current();
+  }
+
+  if (!canReadImports) {
+    return <ReadAccessState status="access_denied" />;
+  }
+  if (currentState.status === "auth_required" || currentState.status === "access_denied") {
+    return <ReadAccessState status={currentState.status} />;
+  }
 
   return (
     <div className="mx-auto w-full max-w-[90rem]">
@@ -254,25 +329,48 @@ export default function BatchDetailPage() {
         <p className="text-xs font-bold tracking-normal text-[oklch(45%_0.105_174)] uppercase">
           Importação registrada
         </p>
-        <h1 className="mt-4 max-w-[12ch] font-serif text-5xl leading-[0.96] tracking-normal text-balance sm:text-6xl lg:text-7xl">
-          Detalhe do lote
+        <h1 className="operational-title mt-4">
+          Acompanhar importação
         </h1>
         <p className="mt-6 max-w-3xl text-base leading-7 text-[oklch(43%_0.03_252)]">
-          Consulte os fatos confirmados do envio e as contagens sustentadas por
-          fonte aprovada. Métricas sem evidência permanecem indisponíveis.
+          Acompanhe o envio e os resultados confirmados. Uma informação
+          indisponível ainda não permite concluir o que aconteceu com a linha.
         </p>
-        <Link
-          href="/imports/batches"
-          className="mt-7 inline-flex min-h-11 items-center border-b border-[oklch(45%_0.105_174)] px-1 text-sm font-bold text-[oklch(37%_0.095_174)] transition-colors hover:border-[oklch(24%_0.035_252)] hover:text-[oklch(24%_0.035_252)] focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-[oklch(45%_0.105_174)] motion-reduce:transition-none"
-        >
+        {hasPermission("leads:read") ? (
+          <div className="mt-6">
+            <Link href="/leads" className="ui-action ui-action--secondary">
+              Abrir lista geral de empresas
+            </Link>
+            <p className="mt-2 text-sm leading-6 text-[oklch(43%_0.03_252)]">
+              A lista reúne empresas elegíveis de todas as importações.
+            </p>
+          </div>
+        ) : null}
+        <Link href={returnHref} className="ui-action ui-action--quiet mt-4">
           Voltar para importações
-          <span aria-hidden="true" className="ml-1">
-            →
-          </span>
         </Link>
+        <div className="mt-5 flex flex-wrap items-center gap-3 text-sm text-[oklch(43%_0.03_252)]">
+          <button
+            type="button"
+            disabled={currentState.status === "loading" || refreshing}
+            aria-busy={refreshing}
+            onClick={refreshManually}
+            className="ui-action ui-action--quiet"
+          >
+            {refreshing ? "Atualizando situação…" : "Atualizar situação"}
+          </button>
+          <p>A situação é consultada automaticamente enquanto esta tela estiver aberta.</p>
+          <p role="status" className="w-full">{refreshing ? "Consultando dados atualizados…" : refreshState.key === requestKey && refreshState.status === "success" ? "Situação atualizada." : ""}</p>
+        </div>
       </header>
 
       <div className="mt-10">
+        {currentState.status === "success" && currentState.refreshFailed ? (
+          <p role="alert" className="mb-5 border-l-2 border-[oklch(69%_0.11_77)] pl-4 text-sm leading-6">
+            A atualização não foi concluída. O motivo não foi informado. Você está vendo a última consulta confirmada.
+            {" "}Use Atualizar situação para consultar novamente.
+          </p>
+        ) : null}
         {currentState.status === "loading" ? <BatchDetailLoading /> : null}
 
         {currentState.status === "not_found" ? <BatchNotFound /> : null}
@@ -323,7 +421,7 @@ function BatchNotFound() {
         Importação não encontrada
       </h2>
       <p className="mt-4 max-w-xl text-sm leading-6 text-[oklch(43%_0.03_252)]">
-        O registro solicitado não está disponível para esta sessão.
+        O registro solicitado não está disponível para esta sessão. Volte para importações e escolha um registro disponível.
       </p>
     </section>
   );
@@ -342,7 +440,7 @@ function BatchDetailUnavailable() {
         Dados do lote indisponíveis
       </h2>
       <p className="mt-4 max-w-xl text-sm leading-6 text-[oklch(36%_0.055_62)]">
-        Atualize a página mais tarde. Valores ausentes não serão tratados como
+        Use Atualizar importações para consultar novamente mais tarde. Valores ausentes não serão tratados como
         zero.
       </p>
     </section>
@@ -362,7 +460,7 @@ function BatchDetailError() {
         Não foi possível carregar este lote agora.
       </h2>
       <p className="mt-4 max-w-xl text-sm leading-6 text-[oklch(38%_0.045_32)]">
-        Atualize a página para tentar novamente. Se o problema continuar,
+        O motivo não foi informado. Use Atualizar importações para consultar novamente. Se o problema continuar,
         contate o suporte responsável.
       </p>
     </section>
@@ -371,6 +469,7 @@ function BatchDetailError() {
 
 function BatchDetail({ batch }: { readonly batch: BatchSummary }) {
   const hasCorrelatedProducerFacts = batch.lastObservedAt !== null;
+  const hasKnownCounts = hasConfirmedBatchCounts(batch);
 
   return (
     <div className="grid gap-8 xl:grid-cols-[minmax(0,1.1fr)_minmax(24rem,0.9fr)]">
@@ -381,7 +480,7 @@ function BatchDetail({ batch }: { readonly batch: BatchSummary }) {
         <div className="flex flex-wrap items-start justify-between gap-5">
           <div>
             <p className="text-xs font-bold tracking-normal text-[oklch(45%_0.105_174)] uppercase">
-              Estado do lote
+              Situação da importação
             </p>
             <h2
               id="estado-lote"
@@ -399,48 +498,13 @@ function BatchDetail({ batch }: { readonly batch: BatchSummary }) {
 
         <dl className="mt-7 grid gap-4 sm:grid-cols-2">
           <FactItem
-            label="Base da situação"
-            value={batchSituationBasis(batch)}
-          />
-          <FactItem
-            label="Lote de importação"
-            value={batch.import_batch_id ?? UNAVAILABLE_LABEL}
-            breakAll
-          />
-          <FactItem
             label="Envio registrado"
             value={formatBrazilianDate(batch.submittedAt)}
           />
           <FactItem
-            label="Aceite confirmado"
-            value={formatBrazilianDate(batch.acceptedAt)}
-          />
-          <FactItem
-            label="Última observação"
+            label="Última atualização"
             value={formatBrazilianDate(batch.lastObservedAt)}
           />
-          {batch.workflowReportedStartedAt === null ? null : (
-            <FactItem
-              label="Início operacional informado"
-              value={formatBrazilianDate(
-                batch.workflowReportedStartedAt,
-              )}
-            />
-          )}
-          {batch.workflowReportedClosedAt === null ? null : (
-            <>
-              <FactItem
-                label="Encerramento informado"
-                value={formatBrazilianDate(
-                  batch.workflowReportedClosedAt,
-                )}
-              />
-              <FactItem
-                label="Linhas informadas pelo workflow"
-                value={formatCount(batch.workflowReportedRowCount)}
-              />
-            </>
-          )}
         </dl>
       </section>
 
@@ -455,26 +519,7 @@ function BatchDetail({ batch }: { readonly batch: BatchSummary }) {
           Resultados conhecidos
         </h2>
         <div className="mt-7 grid gap-3 text-sm leading-6">
-          <MetricLine
-            label="Linhas aceitas"
-            value={formatCount(batch.rowCountAccepted)}
-          />
-          <MetricLine
-            label="Terminais"
-            value={formatCount(batch.terminalCount)}
-          />
-          <MetricLine
-            label="Leads"
-            value={formatCount(batch.leadCount)}
-          />
-          <MetricLine
-            label="Bloqueadas"
-            value={formatCount(batch.blockedCount)}
-          />
-          <MetricLine
-            label="Falhas"
-            value={formatCount(batch.failedCount)}
-          />
+          <BatchResults batch={batch} />
         </div>
       </section>
 
@@ -485,7 +530,7 @@ function BatchDetail({ batch }: { readonly batch: BatchSummary }) {
         <div className="flex flex-wrap items-start justify-between gap-5">
           <div>
             <p className="text-xs font-bold tracking-normal text-[oklch(45%_0.105_174)] uppercase">
-              Proveniência
+              Atualização dos dados
             </p>
             <h2
               id="proveniencia-observacoes"
@@ -494,12 +539,14 @@ function BatchDetail({ batch }: { readonly batch: BatchSummary }) {
               {observationHeading(
                 batch.observationStatus,
                 hasCorrelatedProducerFacts,
+                hasKnownCounts,
               )}
             </h2>
           </div>
           <ObservationBadge
             status={batch.observationStatus}
             hasCorrelatedProducerFacts={hasCorrelatedProducerFacts}
+            hasKnownCounts={hasKnownCounts}
           />
         </div>
 
@@ -507,30 +554,71 @@ function BatchDetail({ batch }: { readonly batch: BatchSummary }) {
           {observationNarrative(
             batch.observationStatus,
             hasCorrelatedProducerFacts,
+            hasKnownCounts,
           )}
         </p>
+      </section>
 
-        <dl className="mt-7 grid gap-4 sm:grid-cols-2">
+      <details className="border-y border-[oklch(82%_0.025_82)] py-5 xl:col-span-2">
+        <summary className="cursor-pointer text-base font-bold">
+          Detalhes da importação
+        </summary>
+        <p className="mt-4 max-w-2xl text-sm leading-6 text-[oklch(43%_0.03_252)]">
+          Consulte a identificação do lote e as informações que confirmam a situação exibida.
+        </p>
+        <dl className="mt-5 grid gap-4 sm:grid-cols-2">
           <FactItem
-            label="Situação das observações"
+            label="Situação confirmada por"
+            value={batchSituationBasis(batch)}
+          />
+          <FactItem
+            label="Identificação do lote"
+            value={batch.import_batch_id ?? UNAVAILABLE_LABEL}
+            breakAll
+          />
+          <FactItem
+            label="Aceite confirmado"
+            value={formatBrazilianDate(batch.acceptedAt)}
+          />
+          {batch.workflowReportedStartedAt === null ? null : (
+            <FactItem
+              label="Início do processamento informado"
+              value={formatBrazilianDate(batch.workflowReportedStartedAt)}
+            />
+          )}
+          {batch.workflowReportedClosedAt === null ? null : (
+            <>
+              <FactItem
+                label="Encerramento informado"
+                value={formatBrazilianDate(batch.workflowReportedClosedAt)}
+              />
+              <FactItem
+                label="Linhas informadas"
+                value={formatCount(batch.workflowReportedRowCount)}
+              />
+            </>
+          )}
+          <FactItem
+            label="Situação da atualização"
             value={observationStatusLabel(
               batch.observationStatus,
               hasCorrelatedProducerFacts,
+              hasKnownCounts,
             )}
           />
           <FactItem
-            label="Base das observações"
+            label="Detalhe da atualização"
             value={
               batch.observationBasis === null
                 ? batch.observationStatus === "AVAILABLE" &&
                   !hasCorrelatedProducerFacts
-                  ? "nenhum fato correlacionado"
-                  : "Sem restrição registrada"
+                  ? "sem atualização deste lote"
+                  : "Sem divergência registrada"
                 : observationBasisLabel(batch.observationBasis)
             }
           />
         </dl>
-      </section>
+      </details>
     </div>
   );
 }
@@ -560,23 +648,6 @@ function FactItem({
   );
 }
 
-function MetricLine({
-  label,
-  value,
-}: {
-  readonly label: string;
-  readonly value: string;
-}) {
-  return (
-    <p>
-      <span className="text-[oklch(48%_0.025_252)]">{label}: </span>
-      <span className="font-semibold text-[oklch(24%_0.035_252)]">
-        {value}
-      </span>
-    </p>
-  );
-}
-
 function StatusBadge({ batch }: { readonly batch: BatchSummary }) {
   return (
     <span
@@ -593,18 +664,21 @@ function StatusBadge({ batch }: { readonly batch: BatchSummary }) {
 function ObservationBadge({
   status,
   hasCorrelatedProducerFacts,
+  hasKnownCounts,
 }: {
   readonly status: BatchObservationStatus;
   readonly hasCorrelatedProducerFacts: boolean;
+  readonly hasKnownCounts: boolean;
 }) {
   return (
     <span
       className={`inline-flex min-h-7 items-center border px-2.5 py-1 text-xs font-bold leading-4 ${observationBadgeClass(
         status,
         hasCorrelatedProducerFacts,
+        hasKnownCounts,
       )}`}
     >
-      {observationStatusLabel(status, hasCorrelatedProducerFacts)}
+      {observationStatusLabel(status, hasCorrelatedProducerFacts, hasKnownCounts)}
     </span>
   );
 }
@@ -630,7 +704,7 @@ function displayStatusLabel(batch: BatchSummary): string {
   }
 
   if (hasWorkflowReportedStart(batch)) {
-    return "Processamento iniciado pelo workflow";
+    return "Processamento iniciado";
   }
 
   return statusLabel(batch.status);
@@ -638,11 +712,11 @@ function displayStatusLabel(batch: BatchSummary): string {
 
 function batchSituationBasis(batch: BatchSummary): string {
   if (batch.workflowReportedClosedAt !== null) {
-    return "encerramento informado pelo workflow";
+    return "encerramento informado";
   }
 
   if (hasWorkflowReportedStart(batch)) {
-    return "início operacional informado pelo workflow";
+    return "início do processamento informado";
   }
 
   return statusBasisLabel(batch.statusBasis);
@@ -658,8 +732,12 @@ function hasWorkflowReportedStart(batch: BatchSummary): boolean {
 function observationBadgeClass(
   status: BatchObservationStatus,
   hasCorrelatedProducerFacts: boolean,
+  hasKnownCounts: boolean,
 ): string {
   if (status === "AVAILABLE" && hasCorrelatedProducerFacts) {
+    if (!hasKnownCounts) {
+      return "border-[oklch(79%_0.02_252)] bg-[oklch(95%_0.01_252)] text-[oklch(43%_0.025_252)]";
+    }
     return "border-[oklch(72%_0.075_174)] bg-[oklch(94%_0.035_174)] text-[oklch(32%_0.09_174)]";
   }
 
@@ -694,70 +772,78 @@ function statusBasisLabel(statusBasis: BatchStatusBasis): string {
     case "ACCEPTANCE_CONFIRMED":
       return "aceite confirmado";
     case "PRODUCER_ACTIVITY_OBSERVED":
-      return "observação aprovada";
+      return "atividade confirmada";
     case "PRODUCER_CLOSED_ALL_ROWS_TERMINAL":
-      return "fechamento completo aprovado";
+      return "todos os resultados confirmados";
     case "PRODUCER_CLOSED_ROWS_MISSING":
-      return "fechamento com pendências";
+      return "encerramento com resultados pendentes";
     case "FRESHNESS_WINDOW_EXCEEDED":
-      return "janela de atualização excedida";
+      return "sem atualização recente";
   }
 }
 
 function statusNarrative(batch: BatchSummary): string {
   if (batch.workflowReportedClosedAt !== null) {
-    return "O workflow informou que terminou o processamento deste arquivo. As contagens por resultado permanecem indisponíveis enquanto não houver fatos aprovados.";
+    return "O término do processamento deste arquivo foi informado. Esse aviso não confirma, por si só, o resultado de todas as linhas.";
   }
 
   if (hasWorkflowReportedStart(batch)) {
-    return "O workflow informou que iniciou o processamento deste arquivo. Isso não confirma aceite durável nem resultados.";
+    return "O início do processamento deste arquivo foi informado. O aceite das linhas e os resultados ainda precisam de confirmação.";
   }
 
   switch (batch.status) {
     case "SUBMITTED":
-      return "O envio foi registrado no Prospecta. Aceite e conclusão permanecem sem comprovação aprovada.";
+      return "O envio foi registrado no Prospecta. O aceite das linhas e a conclusão ainda não foram confirmados.";
     case "ACCEPTED":
-      return "Há aceite confirmado por fonte aprovada, sem conclusão comprovada para o lote.";
+      return "O aceite das linhas foi confirmado. A conclusão da importação ainda não foi confirmada.";
     case "PROCESSING":
-      return "Há atividade observada por fonte aprovada, mas ainda não existe fechamento conclusivo.";
+      return "Há atividade de processamento confirmada. A conclusão da importação ainda não foi confirmada.";
     case "COMPLETED":
-      return "Conclusão explícita aprovada para todas as linhas aceitas.";
+      return "O processamento foi concluído e todas as linhas aceitas têm um resultado confirmado.";
     case "INCOMPLETE":
-      return "Há fechamento explícito, mas uma ou mais linhas não têm resultado terminal aprovado.";
+      return "O processamento foi encerrado, mas uma ou mais linhas ainda não têm resultado confirmado.";
     case "NO_UPDATE":
-      return "Não indica falha nem conclusão. Apenas não houve observação aprovada recente.";
+      return "Não indica falha nem conclusão. Não houve atualização confirmada dentro do prazo de acompanhamento.";
   }
 }
 
 function observationHeading(
   observationStatus: BatchObservationStatus,
   hasCorrelatedProducerFacts: boolean,
+  hasKnownCounts: boolean,
 ): string {
   switch (observationStatus) {
     case "AVAILABLE":
+      if (hasCorrelatedProducerFacts && !hasKnownCounts) {
+        return "Registro de acompanhamento disponível";
+      }
       return hasCorrelatedProducerFacts
-        ? "Fonte de observação disponível"
-        : "Fonte consultada sem fatos do lote";
+        ? "Atualização confirmada"
+        : "Ainda sem atualização deste lote";
     case "UNAVAILABLE":
-      return "Fonte de observação indisponível";
+      return "Atualização indisponível";
     case "INCONSISTENT":
-      return "Evidência inconsistente";
+      return "Dados divergentes";
   }
 }
 
 function observationStatusLabel(
   observationStatus: BatchObservationStatus,
   hasCorrelatedProducerFacts: boolean,
+  hasKnownCounts: boolean,
 ): string {
   switch (observationStatus) {
     case "AVAILABLE":
+      if (hasCorrelatedProducerFacts && !hasKnownCounts) {
+        return "Atualização registrada";
+      }
       return hasCorrelatedProducerFacts
-        ? "Observações disponíveis"
-        : "Nenhum fato correlacionado";
+        ? "Atualizações disponíveis"
+        : "Sem atualização deste lote";
     case "UNAVAILABLE":
-      return "Observações indisponíveis";
+      return "Atualização indisponível";
     case "INCONSISTENT":
-      return "Evidência inconsistente";
+      return "Dados divergentes";
   }
 }
 
@@ -766,27 +852,33 @@ function observationBasisLabel(
 ): string {
   switch (observationBasis) {
     case "PRODUCER_SOURCE_UNAVAILABLE":
-      return "fonte indisponível";
+      return "consulta indisponível";
     case "PRODUCER_EVIDENCE_CONFLICT":
-      return "conflito de evidências";
+      return "informações conflitantes";
     case "PRODUCER_EVIDENCE_EXCEEDS_ACCEPTANCE":
-      return "evidência acima do aceite";
+      return "resultados acima das linhas aceitas";
   }
 }
 
 function observationNarrative(
   observationStatus: BatchObservationStatus,
   hasCorrelatedProducerFacts: boolean,
+  hasKnownCounts: boolean,
 ): string {
   switch (observationStatus) {
     case "AVAILABLE":
+      if (hasCorrelatedProducerFacts && !hasKnownCounts) {
+        return "Há registros de acompanhamento desta importação. Eles não confirmam o aceite das linhas nem os totais de resultados.";
+      }
       return hasCorrelatedProducerFacts
-        ? "As observações aprovadas estão disponíveis para sustentar o estado e as contagens exibidas."
-        : "A fonte foi consultada com sucesso, mas não retornou fatos aprovados para este lote. Aceite e contagens permanecem indisponíveis.";
+        ? "A situação e as contagens exibidas usam somente atualizações confirmadas para esta importação."
+        : "A consulta foi concluída, mas ainda não há atualização confirmada para este lote. Aceite e contagens permanecem indisponíveis.";
     case "UNAVAILABLE":
-      return "A fonte de observação não está disponível agora. As contagens derivadas permanecem indisponíveis.";
+      return hasKnownCounts
+        ? "Não foi possível consultar as atualizações agora. As contagens confirmadas continuam exibidas; os resultados sem confirmação permanecem indisponíveis."
+        : "Não foi possível consultar as atualizações agora. As contagens permanecem indisponíveis.";
     case "INCONSISTENT":
-      return "Há conflito nas evidências aprovadas. O Prospecta preserva o último estado comprovado e não escolhe entre fatos conflitantes.";
+      return "As informações recebidas são conflitantes. O Prospecta mantém a última situação confirmada até que a divergência seja esclarecida.";
   }
 }
 
@@ -796,4 +888,20 @@ function formatCount(value: number | null): string {
   }
 
   return portugueseNumberFormatter.format(value);
+}
+
+function ReadAccessState({ status }: { readonly status: "auth_required" | "access_denied" }) {
+  const expired = status === "auth_required";
+  return (
+    <section role="alert" className="mx-auto w-full max-w-4xl border-y border-[oklch(82%_0.025_82)] py-10">
+      <p className="text-xs font-bold uppercase text-[oklch(45%_0.105_174)]">{expired ? "Acesso expirado" : "Acesso restrito"}</p>
+      <h1 className="operational-title mt-4">{expired ? "Sua sessão expirou" : "Acesso não autorizado"}</h1>
+      <p className="mt-5 max-w-2xl text-sm leading-6 text-[oklch(43%_0.03_252)]">
+        {expired ? "Entre novamente para continuar. As consultas foram interrompidas." : "Seu perfil não permite esta consulta. Solicite ao responsável a verificação do seu acesso."}
+      </p>
+      <Link href={expired ? "/login" : "/inicio"} className="ui-action ui-action--primary mt-6">
+        {expired ? "Entrar novamente" : "Voltar ao início"}
+      </Link>
+    </section>
+  );
 }

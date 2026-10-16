@@ -31,6 +31,14 @@ const appMigrationFiles = [
   "db/app/009_contact_enrichment_ledger_forward.sql",
   "db/app/010_contact_data_governance_forward.sql",
   "db/app/011_contact_company_resolution_forward.sql",
+  "db/app/012_contact_company_phone_fallback_forward.sql",
+  "db/app/013_lead_registered_geocode_cache_forward.sql",
+  "db/app/014_lead_postal_geocode_fallback_forward.sql",
+  "db/app/015_lead_approach_draft_cache_forward.sql",
+  "db/app/016_qualification_cadence_forward.sql",
+  "db/app/017_contact_search_feedback_forward.sql",
+  "db/app/018_contact_search_relevance_forward.sql",
+  "db/app/019_import_received_companies_forward.sql",
 ];
 const deploymentLockFile = join(
   tmpdir(),
@@ -46,13 +54,17 @@ function acquireDeploymentLock() {
     const existingPid = Number(readFileSync(deploymentLockFile, "utf8"));
 
     if (Number.isSafeInteger(existingPid) && existingPid > 0) {
+      let existingProcessIsRunning = true;
       try {
         process.kill(existingPid, 0);
-        fail("another deployment process is already active");
       } catch (error) {
-        if (error instanceof Error && "code" in error && error.code !== "ESRCH") {
+        if (!(error instanceof Error && "code" in error && error.code === "ESRCH")) {
           throw error;
         }
+        existingProcessIsRunning = false;
+      }
+      if (existingProcessIsRunning) {
+        fail("another deployment process is already active");
       }
     }
 
@@ -199,6 +211,12 @@ function loadConfiguration() {
     contactEnrichmentSecret: required("N8N_CONTACT_ENRICHMENT_SECRET"),
     contactCallbackSecret: required("N8N_CONTACT_CALLBACK_SECRET"),
     contactDataEnabled: optionalBoolean("FEATURE_CONTACT_DATA_ENABLED"),
+    aiApproachEnabled: optionalBoolean("FEATURE_AI_APPROACH_ENABLED"),
+    aiApproachAutoQueueEnabled: optionalBoolean(
+      "FEATURE_AI_APPROACH_AUTO_QUEUE_ENABLED",
+    ),
+    openAiApiKey: readOptional("OPENAI_API_KEY"),
+    openAiApproachModel: readOptional("OPENAI_APPROACH_MODEL"),
     ...deriveDemo3ContactV2Material(authSecret),
     contactControllerLegalName: readOptional(
       "CONTACT_CONTROLLER_LEGAL_NAME",
@@ -208,6 +226,17 @@ function loadConfiguration() {
     ),
     contactPrivacyContact: readOptional("CONTACT_PRIVACY_CONTACT"),
   };
+
+  if (
+    configuration.contactPrivacyContact === undefined ||
+    !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(configuration.contactPrivacyContact)
+  ) {
+    fail(
+      "CONTACT_PRIVACY_CONTACT must identify the registered-address map requests",
+    );
+  }
+  configuration.leadGeocodingUserAgent =
+    `Prospecta-Demo3/1.0 (contact: ${configuration.contactPrivacyContact})`;
 
   assertReleaseId(configuration.releaseId);
   if (Buffer.byteLength(configuration.authSecret, "utf8") < 32) {
@@ -239,6 +268,7 @@ function loadConfiguration() {
     fail("contact enrichment and callback secrets must be distinct");
   }
   assertContactV2Configuration(configuration);
+  assertAiApproachConfiguration(configuration);
   if (Buffer.byteLength(configuration.postgresOwnerPassword, "utf8") < 32) {
     fail("DEMO3_POSTGRES_OWNER_PASSWORD must contain at least 32 bytes");
   }
@@ -253,6 +283,45 @@ function loadConfiguration() {
   }
 
   return configuration;
+}
+
+function assertAiApproachConfiguration(configuration) {
+  if (
+    configuration.openAiApiKey !== undefined &&
+    (Buffer.byteLength(configuration.openAiApiKey, "utf8") < 20 ||
+      configuration.openAiApiKey.length > 512 ||
+      /\s|[\u0000-\u001f\u007f]/.test(configuration.openAiApiKey))
+  ) {
+    fail("OPENAI_API_KEY is invalid");
+  }
+
+  if (
+    configuration.openAiApproachModel !== undefined &&
+    !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(
+      configuration.openAiApproachModel,
+    )
+  ) {
+    fail("OPENAI_APPROACH_MODEL is invalid");
+  }
+
+  if (
+    configuration.aiApproachEnabled &&
+    (configuration.openAiApiKey === undefined ||
+      configuration.openAiApproachModel === undefined)
+  ) {
+    fail(
+      "OPENAI_API_KEY and OPENAI_APPROACH_MODEL are required when AI approach is enabled",
+    );
+  }
+
+  if (
+    configuration.aiApproachAutoQueueEnabled &&
+    !configuration.aiApproachEnabled
+  ) {
+    fail(
+      "FEATURE_AI_APPROACH_AUTO_QUEUE_ENABLED requires FEATURE_AI_APPROACH_ENABLED",
+    );
+  }
 }
 
 function assertContactV2Configuration(configuration) {
@@ -832,6 +901,14 @@ function renderManifest(configuration) {
     .replaceAll(
       "__FEATURE_CONTACT_DATA_ENABLED__",
       String(configuration.contactDataEnabled),
+    )
+    .replaceAll(
+      "__FEATURE_AI_APPROACH_ENABLED__",
+      String(configuration.aiApproachEnabled),
+    )
+    .replaceAll(
+      "__FEATURE_AI_APPROACH_AUTO_QUEUE_ENABLED__",
+      String(configuration.aiApproachAutoQueueEnabled),
     );
 
   if (/__[A-Z0-9_]+__/.test(manifest)) {
@@ -918,6 +995,10 @@ function secretManifest(
           CONTACT_CONTROLLER_REGISTRATION:
             configuration.contactControllerRegistration,
           CONTACT_PRIVACY_CONTACT: configuration.contactPrivacyContact,
+          OPENAI_API_KEY: configuration.openAiApiKey,
+          OPENAI_APPROACH_MODEL: configuration.openAiApproachModel,
+          LEAD_GEOCODING_USER_AGENT:
+            configuration.leadGeocodingUserAgent,
           SENSITIVE_URL_HOSTS:
             preproductionSource.sensitiveUrlHosts,
         },
@@ -963,6 +1044,22 @@ function applyExistingAppMigrations(hasExistingPostgres) {
   }
 
   for (const migrationFile of appMigrationFiles) {
+    const migrationSql = readFileSync(migrationFile, "utf8");
+    // Replaying 017 after 018 would reject retained relevance diagnostics.
+    // The original migration remains available for targets that still need it.
+    const migrationInput = migrationFile === "db/app/017_contact_search_feedback_forward.sql"
+      ? `SELECT EXISTS (
+          SELECT 1 FROM pg_proc
+          WHERE oid = to_regprocedure('prospecting_app.contact_search_diagnostics_are_valid(jsonb,boolean)')
+            AND pg_get_functiondef(oid) LIKE '%NO_RELEVANT_MATCHES%'
+        ) AS contact_search_relevance_present
+        \\gset
+        \\if :contact_search_relevance_present
+        \\else
+        ${migrationSql}
+        \\endif
+      `
+      : migrationSql;
     const result = spawnSync(
       "kubectl",
       [
@@ -975,6 +1072,7 @@ function applyExistingAppMigrations(hasExistingPostgres) {
         "--",
         "psql",
         "-X",
+        "--file=-",
         "--single-transaction",
         "--set=ON_ERROR_STOP=1",
         "-U",
@@ -983,7 +1081,7 @@ function applyExistingAppMigrations(hasExistingPostgres) {
         "prospecta_demo3",
       ],
       {
-        input: readFileSync(migrationFile, "utf8"),
+        input: migrationInput,
         encoding: "utf8",
         stdio: ["pipe", "inherit", "inherit"],
         timeout: 60_000,
@@ -1046,7 +1144,79 @@ function verifyExistingAppMigrations() {
         || count(*) FILTER (
           WHERE indexname = 'contact_company_search_requests_org_idempotency_uk'
         )::text
-      FROM pg_indexes
+        || '|'
+        || count(*) FILTER (
+          WHERE indexname = 'contact_company_phone_fallbacks_expiry_idx'
+        )::text
+        || '|'
+        || count(*) FILTER (
+          WHERE indexname = 'lead_registered_geocode_cache_expiry_idx'
+        )::text
+        || '|'
+         || count(*) FILTER (
+           WHERE indexname = 'lead_approach_drafts_retry_idx'
+         )::text
+         || '|'
+         || count(*) FILTER (
+           WHERE indexname = 'lead_qualification_contacts_org_workspace_number_uk'
+         )::text
+         || '|'
+         || (SELECT count(*) FROM information_schema.columns
+              WHERE table_schema = 'prospecting_app'
+                AND table_name IN ('contact_enrichment_v2_requests', 'contact_company_search_requests')
+                AND column_name = 'search_diagnostics'
+                AND data_type = 'jsonb' AND is_nullable = 'YES')::text
+         || '|'
+         || (SELECT count(*) FROM pg_constraint c
+              JOIN pg_class t ON t.oid = c.conrelid
+              JOIN pg_namespace n ON n.oid = t.relnamespace
+              WHERE n.nspname = 'prospecting_app' AND c.contype = 'c'
+                AND c.convalidated
+                AND c.conname IN ('contact_enrichment_v2_requests_diagnostics_ck', 'contact_company_search_requests_diagnostics_ck'))::text
+         || '|'
+         || (SELECT count(*) FROM pg_proc p
+              JOIN pg_namespace n ON n.oid = p.pronamespace
+              WHERE n.nspname = 'prospecting_app'
+                AND p.proname = 'contact_search_diagnostics_are_valid'
+                AND p.oid = to_regprocedure('prospecting_app.contact_search_diagnostics_are_valid(jsonb,boolean)'))::text
+         || '|'
+         || (prospecting_app.contact_search_diagnostics_are_valid(
+              jsonb_build_array(
+                jsonb_build_object('provider', 'LUSHA', 'stage', 'CONTACT_PREVIEW', 'code', 'NO_RELEVANT_MATCHES'),
+                jsonb_build_object('provider', 'APOLLO', 'stage', 'CONTACT_PREVIEW', 'code', 'NO_RELEVANT_MATCHES')),
+              false)
+           AND NOT prospecting_app.contact_search_diagnostics_are_valid(
+              jsonb_build_array(jsonb_build_object('provider', 'APOLLO', 'stage', 'COMPANY_MATCH', 'code', 'NO_RELEVANT_MATCHES')),
+              false)
+           AND NOT prospecting_app.contact_search_diagnostics_are_valid(
+              jsonb_build_array(jsonb_build_object('provider', 'LUSHA', 'stage', 'COMPANY_SEARCH', 'code', 'NO_RELEVANT_MATCHES')),
+              true))::text
+         || '|'
+         || (SELECT count(*) FROM pg_constraint c
+              WHERE c.conrelid = to_regclass('prospecting_app.import_received_companies')
+                AND c.convalidated
+                AND c.conname IN ('import_received_companies_pk',
+                  'import_received_companies_organization_id_ck',
+                  'import_received_companies_source_row_ck',
+                  'import_received_companies_submission_fk'))::text
+         || '|'
+         || (SELECT count(*) FROM pg_trigger t
+              WHERE t.tgrelid = to_regclass('prospecting_app.import_received_companies')
+                AND t.tgname = 'import_received_companies_append_only'
+                AND t.tgenabled = 'O'
+                AND t.tgfoid = 'prospecting_app.reject_append_only_mutation()'::regprocedure)::text
+         || '|'
+         || (has_table_privilege('prospecta_app_rw',
+                'prospecting_app.import_received_companies', 'SELECT')
+             AND has_table_privilege('prospecta_app_rw',
+                'prospecting_app.import_received_companies', 'INSERT')
+             AND NOT has_table_privilege('prospecta_app_rw',
+                'prospecting_app.import_received_companies', 'UPDATE')
+             AND NOT has_table_privilege('prospecta_app_rw',
+                'prospecting_app.import_received_companies', 'DELETE')
+             AND NOT has_table_privilege('prospecta_app_rw',
+                'prospecting_app.import_received_companies', 'TRUNCATE'))::text
+       FROM pg_indexes
       WHERE schemaname = 'prospecting_app'`,
     ],
     {
@@ -1057,7 +1227,7 @@ function verifyExistingAppMigrations() {
 
   if (
     verification.status !== 0 ||
-    verification.stdout.trim() !== "0|1|1|1|1|1|1"
+    verification.stdout.trim() !== "0|1|1|1|1|1|1|1|1|1|1|2|2|1|true|4|1|true"
   ) {
     fail("app-owned migration verification failed");
   }

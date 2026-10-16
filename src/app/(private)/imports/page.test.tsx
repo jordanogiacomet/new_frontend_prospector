@@ -1,14 +1,30 @@
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { renderToStaticMarkup } from "react-dom/server";
 
 import {
+  act,
   cleanup,
   fireEvent,
   render,
   screen,
+  within,
   waitFor,
 } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const { permissionState } = vi.hoisted(() => ({
+  permissionState: { canCreate: true, canRead: true },
+}));
+
+vi.mock("../../../components/auth/private-capabilities", () => ({
+  usePrivateCapabilities: () => ({
+    hasPermission: (permission: string) =>
+      permission === "imports:create"
+        ? permissionState.canCreate
+        : permission === "imports:read" && permissionState.canRead,
+  }),
+}));
 
 import ImportUploadPage from "./page";
 
@@ -143,6 +159,8 @@ function idempotencyHeader(init: RequestInit): string | null {
 
 describe("controlled import upload page", () => {
   beforeEach(() => {
+    permissionState.canCreate = true;
+    permissionState.canRead = true;
     fetchMock.mockReset();
     fetchMock.mockResolvedValue(apiResponse(acknowledgedPayload(), 202));
     randomUUIDMock.mockReset();
@@ -154,6 +172,93 @@ describe("controlled import upload page", () => {
     vi.stubGlobal("crypto", { randomUUID: randomUUIDMock });
   });
 
+  it("hides and reopens only the notice while retaining one exact-byte attempt", async () => {
+    let complete: (response: Response) => void = () => undefined;
+    fetchMock.mockImplementationOnce(() => new Promise((resolveResponse) => { complete = resolveResponse; }));
+    render(<ImportUploadPage />);
+    const selected = csvFile();
+    uploadSelectedFile(selected);
+    submitUpload();
+
+    const panel = screen.getByRole("complementary", { name: "Aviso da importação" });
+    expect(panel).toHaveTextContent("Enviando importação…");
+    expect(panel).toHaveTextContent("não cancela o envio");
+    fireEvent.click(within(panel).getByRole("button", { name: "Ocultar aviso" }));
+    expect(screen.queryByRole("complementary", { name: "Aviso da importação" })).not.toBeInTheDocument();
+    expect(screen.getByText("Enviando CSV...")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Reabrir aviso" })).toHaveFocus());
+    fireEvent.change(screen.getByLabelText("Arquivo CSV"), { target: { files: [csvFile("substituto.csv")] } });
+    fireEvent.submit(screen.getByRole("button", { name: "Enviar CSV" }).closest("form")!);
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect((firstFetchCall()[1].body as FormData).get("arquivo_csv")).toBe(selected);
+    expect(randomUUIDMock).toHaveBeenCalledOnce();
+
+    fireEvent.click(screen.getByRole("button", { name: "Reabrir aviso" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Ocultar aviso" })).toHaveFocus());
+    fireEvent.click(screen.getByRole("button", { name: "Ocultar aviso" }));
+    await act(async () => { complete(apiResponse(acknowledgedPayload(), 202)); });
+    expect(await screen.findByRole("heading", { name: "Envio recebido" })).toBeInTheDocument();
+    expect(screen.getByRole("complementary", { name: "Aviso da importação" })).toHaveTextContent("recebimento confirmado");
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(randomUUIDMock).toHaveBeenCalledOnce();
+  });
+
+  it("surfaces an unknown result after a hidden notice without unlocking the attempt", async () => {
+    let fail: (reason: Error) => void = () => undefined;
+    fetchMock.mockImplementationOnce(() => new Promise((_resolveResponse, reject) => { fail = reject; }));
+    render(<ImportUploadPage />);
+    uploadSelectedFile();
+    submitUpload();
+    fireEvent.click(screen.getByRole("button", { name: "Ocultar aviso" }));
+    await act(async () => { fail(new Error("private synthetic network detail")); });
+
+    expect(await screen.findByRole("heading", { name: "Resultado desconhecido" })).toBeInTheDocument();
+    expect(screen.getByRole("complementary", { name: "Aviso da importação" })).toHaveTextContent("Registro do envio não confirmado");
+    expect(screen.getByRole("button", { name: "Enviar CSV" })).toBeDisabled();
+    expect(document.body).not.toHaveTextContent("private synthetic network detail");
+    expect(document.body).toHaveTextContent("Consulte as importações registradas antes");
+  });
+
+  it("protects links, sign-out, reload and browser back only while the page owns a pending request", async () => {
+    const navigation = new EventTarget();
+    const priorNavigation = Object.getOwnPropertyDescriptor(window, "navigation");
+    Object.defineProperty(window, "navigation", { configurable: true, value: navigation });
+    let complete: (response: Response) => void = () => undefined;
+    fetchMock.mockImplementationOnce(() => new Promise((resolveResponse) => { complete = resolveResponse; }));
+    render(<ImportUploadPage />);
+    uploadSelectedFile();
+    submitUpload();
+
+    const linkEvent = new MouseEvent("click", { bubbles: true, cancelable: true });
+    screen.getByRole("link", { name: "Ver importações registradas" }).dispatchEvent(linkEvent);
+    expect(linkEvent.defaultPrevented).toBe(true);
+    expect(await screen.findByRole("alert")).toHaveTextContent("Aguarde o retorno antes de sair");
+    const signOutForm = document.createElement("form");
+    document.body.append(signOutForm);
+    const signOutEvent = new Event("submit", { bubbles: true, cancelable: true });
+    signOutForm.dispatchEvent(signOutEvent);
+    expect(signOutEvent.defaultPrevented).toBe(true);
+    const unloadEvent = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(unloadEvent);
+    expect(unloadEvent.defaultPrevented).toBe(true);
+    const navigateEvent = new Event("navigate", { cancelable: true });
+    Object.defineProperty(navigateEvent, "destination", { value: { url: new URL("/inicio", window.location.href).href, sameDocument: true } });
+    navigation.dispatchEvent(navigateEvent);
+    expect(navigateEvent.defaultPrevented).toBe(true);
+    const restore = vi.spyOn(window.history, "pushState");
+    window.dispatchEvent(new PopStateEvent("popstate"));
+    expect(restore).toHaveBeenCalledOnce();
+    expect(fetchMock).toHaveBeenCalledOnce();
+    await act(async () => { complete(apiResponse(unknownPayload(), 202)); });
+    const finishedUnload = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(finishedUnload);
+    expect(finishedUnload.defaultPrevented).toBe(false);
+    signOutForm.remove();
+    restore.mockRestore();
+    if (priorNavigation) Object.defineProperty(window, "navigation", priorNavigation);
+    else Reflect.deleteProperty(window, "navigation");
+  });
+
   it("exists only as an authorized private UI route", () => {
     expect(
       existsSync(
@@ -163,7 +268,7 @@ describe("controlled import upload page", () => {
     expect(existsSync(resolve(process.cwd(), "src/app/imports/page.tsx"))).toBe(
       false,
     );
-    expect(navigationSource()).toContain('href: "/imports"');
+    expect(navigationSource()).toContain("importsHref");
     expect(pageSource()).toContain('const uploadEndpoint = "/api/imports"');
   });
 
@@ -175,12 +280,110 @@ describe("controlled import upload page", () => {
     ).toBeInTheDocument();
     expect(screen.getByText("Nenhum arquivo selecionado.")).toBeInTheDocument();
     expect(screen.getByText(/um único CSV da EmpresaAqui/i)).toBeInTheDocument();
-    expect(screen.getAllByText(/até 10 MiB/i)).toHaveLength(2);
+    expect(screen.getAllByText(/até 10 MiB/i)).toHaveLength(1);
+    const guidance = screen.getByRole("complementary", { name: "Orientação da importação" });
+    expect(within(guidance).getAllByRole("listitem")).toHaveLength(3);
+    expect(guidance).toHaveTextContent("Envie uma única vez e aguarde a confirmação nesta tela.");
+    expect(guidance).toHaveTextContent("Consulte o histórico antes de qualquer novo envio.");
     expect(screen.getByLabelText("Arquivo CSV")).toHaveAttribute(
       "accept",
       ".csv,text/csv",
     );
     expect(screen.getByRole("button", { name: "Enviar CSV" })).toBeDisabled();
+  });
+
+  it("keeps the server-rendered file chooser disabled until its client change handler is ready", () => {
+    const container = document.createElement("div");
+    container.innerHTML = renderToStaticMarkup(<ImportUploadPage />);
+
+    expect(container.querySelector('input[type="file"]')).toBeDisabled();
+    expect(container).toHaveTextContent("Preparando formulário…");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("shows registered imports instead of an unusable form to a read-only actor", () => {
+    permissionState.canCreate = false;
+    render(<ImportUploadPage />);
+
+    expect(
+      screen.getByRole("heading", { name: "Importações registradas" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByLabelText("Arquivo CSV")).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Consultar importações" })).toHaveAttribute(
+      "href",
+      "/imports/batches",
+    );
+  });
+
+  it("does not offer an import or history action without either permission", () => {
+    permissionState.canCreate = false;
+    permissionState.canRead = false;
+    render(<ImportUploadPage />);
+
+    expect(screen.getByRole("heading", { name: "Importação sem permissão" })).toBeInTheDocument();
+    expect(screen.queryByLabelText("Arquivo CSV")).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Consultar importações" })).not.toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("does not promise history access to a create-only actor", async () => {
+    permissionState.canRead = false;
+    fetchMock.mockResolvedValueOnce(apiResponse(unknownPayload(), 202));
+    render(<ImportUploadPage />);
+    uploadSelectedFile();
+    submitUpload();
+
+    expect(await screen.findByRole("heading", { name: "Resultado desconhecido" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /importações registradas|Acompanhar importação/ })).not.toBeInTheDocument();
+    expect(document.body).toHaveTextContent("Solicite ao responsável o acesso ao histórico");
+    expect(screen.queryByRole("button", { name: /Nova tentativa|Importar outro arquivo/ })).not.toBeInTheDocument();
+  });
+
+  it.each([401, 403])("preserves the selected attempt after HTTP %i without offering another upload", async (responseStatus) => {
+    const file = csvFile("sessao-ou-permissao.csv");
+    fetchMock.mockResolvedValueOnce(apiResponse({ error: { message: "synthetic auth detail" } }, responseStatus));
+    render(<ImportUploadPage />);
+    uploadSelectedFile(file);
+    submitUpload();
+
+    expect(await screen.findByRole("heading", { name: responseStatus === 401 ? "Sua sessão expirou" : "Importação sem permissão" })).toBeInTheDocument();
+    const login = screen.queryByRole("link", { name: "Entrar novamente" });
+    if (responseStatus === 401) expect(login).toHaveAttribute("href", "/login");
+    else expect(login).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Nova tentativa|Importar outro arquivo/ })).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Arquivo CSV")).toBeDisabled();
+    expect(document.body).toHaveTextContent("Arquivo selecionado: sessao-ou-permissao.csv");
+    fireEvent.submit(screen.getByRole("button", { name: "Enviar CSV" }).closest("form")!);
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(randomUUIDMock).toHaveBeenCalledTimes(1);
+    expect(idempotencyHeader(firstFetchCall()[1])).toBe("11111111-1111-4111-8111-111111111111");
+    expect(document.body).not.toHaveTextContent("synthetic auth detail");
+  });
+
+  it.each([
+    ["empty", "O arquivo está vazio"],
+    ["oversized", "O arquivo ultrapassa o limite"],
+    ["unsupported_type", "O tipo do arquivo não é aceito"],
+    ["invalid_filename", "O arquivo precisa estar no formato CSV"],
+  ] as const)("rejects %s file metadata before sending the CSV", (kind, expectedCopy) => {
+    const file = new File([kind === "empty" ? "" : "Empresa\n"], kind === "invalid_filename" ? ".csv" : "revisar.csv", {
+      type: kind === "unsupported_type" ? "application/pdf" : "text/csv",
+    });
+    if (kind === "oversized") Object.defineProperty(file, "size", { value: 10 * 1024 * 1024 + 1 });
+    render(<ImportUploadPage />);
+    uploadSelectedFile(file);
+
+    expect(screen.getByRole("alert")).toHaveTextContent(expectedCopy);
+    expect(screen.getByRole("button", { name: "Enviar CSV" })).toBeDisabled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it.each(["text/csv", "application/csv", "application/vnd.ms-excel"])("accepts the approved %s file type without reading its bytes", (type) => {
+    render(<ImportUploadPage />);
+    uploadSelectedFile(new File(["Empresa\n"], "lista.CSV", { type }));
+
+    expect(screen.getByRole("button", { name: "Enviar CSV" })).toBeEnabled();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("shows a valid selected CSV before upload", () => {
@@ -232,6 +435,50 @@ describe("controlled import upload page", () => {
     expect(JSON.stringify(fetchMock.mock.calls)).not.toMatch(
       /webhook|192\.168\.0\.20|n8n/i,
     );
+  });
+
+  it("places the received result next to the form before the guidance", async () => {
+    render(<ImportUploadPage />);
+
+    uploadSelectedFile();
+    submitUpload();
+
+    const result = (await screen.findByRole("heading", { name: "Envio recebido" })).closest("section")!;
+    const form = screen.getByLabelText("Arquivo CSV").closest("form")!;
+    const guidance = screen.getByRole("complementary", { name: "Orientação da importação" });
+    expect(result.parentElement).toBe(form.parentElement);
+    expect(result.compareDocumentPosition(guidance) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it.each([
+    [202, "Envio recebido"],
+    [503, "Resultado desconhecido"],
+  ] as const)("brings the terminal HTTP %i result into view without animation", async (responseStatus, heading) => {
+    const scrollIntoViewMock = vi.fn();
+    const originalScroll = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollIntoView");
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: scrollIntoViewMock,
+    });
+
+    try {
+      fetchMock.mockResolvedValueOnce(apiResponse(acknowledgedPayload(), responseStatus));
+      render(<ImportUploadPage />);
+      uploadSelectedFile();
+      expect(scrollIntoViewMock).not.toHaveBeenCalled();
+      submitUpload();
+
+      expect(await screen.findByRole("heading", { name: heading })).toBeInTheDocument();
+      await waitFor(() => expect(scrollIntoViewMock).toHaveBeenCalledOnce());
+      expect(scrollIntoViewMock).toHaveBeenCalledWith({ block: "nearest", behavior: "auto" });
+      expect(fetchMock).toHaveBeenCalledOnce();
+    } finally {
+      if (originalScroll) {
+        Object.defineProperty(HTMLElement.prototype, "scrollIntoView", originalScroll);
+      } else {
+        Reflect.deleteProperty(HTMLElement.prototype, "scrollIntoView");
+      }
+    }
   });
 
   it("sends POST FormData with arquivo_csv and Idempotency-Key", async () => {
@@ -300,10 +547,11 @@ describe("controlled import upload page", () => {
     uploadSelectedFile(csvFile("primeiro.csv"));
     submitUpload();
     expect(
-      await screen.findByRole("heading", { name: "Recebido pelo fluxo" }),
+      await screen.findByRole("heading", { name: "Envio recebido" }),
     ).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Nova tentativa" }));
+    fireEvent.click(screen.getByRole("button", { name: "Importar outro arquivo" }));
+    expect(fetchMock).toHaveBeenCalledOnce();
     uploadSelectedFile(csvFile("segundo.csv"));
     submitUpload();
 
@@ -330,6 +578,20 @@ describe("controlled import upload page", () => {
     await waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
   });
 
+  it("submits once when two submit events arrive before the loading render", () => {
+    render(<ImportUploadPage />);
+    uploadSelectedFile();
+    const form = screen.getByRole("button", { name: "Enviar CSV" }).closest("form")!;
+
+    act(() => {
+      form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+      form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    });
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(screen.getByRole("button", { name: "Enviar CSV" })).toBeDisabled();
+  });
+
   it("shows safe acknowledged copy for a 202 acknowledgement", async () => {
     render(<ImportUploadPage />);
 
@@ -337,10 +599,10 @@ describe("controlled import upload page", () => {
     submitUpload();
 
     expect(
-      await screen.findByRole("heading", { name: "Recebido pelo fluxo" }),
+      await screen.findByRole("heading", { name: "Envio recebido" }),
     ).toBeInTheDocument();
     expect(document.body).toHaveTextContent(
-      "A tentativa foi registrada e o fluxo retornou confirmação de recebimento.",
+      "O envio foi registrado e o recebimento foi confirmado.",
     );
     expect(document.body).not.toHaveTextContent("empresaqui_2026");
     expect(document.body).not.toHaveTextContent("submission-secret-ui");
@@ -357,7 +619,7 @@ describe("controlled import upload page", () => {
     submitUpload();
 
     const link = await screen.findByRole("link", {
-      name: "Acompanhar progresso do lote",
+      name: "Acompanhar importação",
     });
 
     expect(link).toHaveAttribute(
@@ -380,14 +642,14 @@ describe("controlled import upload page", () => {
       await screen.findByRole("heading", { name: "Resultado desconhecido" }),
     ).toBeInTheDocument();
     expect(document.body).toHaveTextContent(
-      "A tentativa foi registrada, mas a confirmação do fluxo não ficou disponível",
+      "O envio foi registrado, mas o recebimento ainda não foi confirmado",
     );
     expect(fetchMock).toHaveBeenCalledOnce();
     expect(
-      screen.queryByRole("button", { name: "Nova tentativa" }),
+      screen.queryByRole("button", { name: /Nova tentativa|Importar outro arquivo/ }),
     ).not.toBeInTheDocument();
     expect(
-      screen.getByRole("link", { name: "Acompanhar progresso do lote" }),
+      screen.getByRole("link", { name: "Acompanhar importação" }),
     ).toHaveAttribute(
       "href",
       "/imports/batches/00000000-0000-4000-8000-000000000042",
@@ -406,7 +668,7 @@ describe("controlled import upload page", () => {
       await screen.findByRole("heading", { name: "Resultado desconhecido" }),
     ).toBeInTheDocument();
     expect(document.body).toHaveTextContent(
-      "Não foi possível confirmar se a tentativa foi registrada",
+      "Não foi possível confirmar o registro deste envio",
     );
     expect(document.body).toHaveTextContent(
       "Arquivo selecionado: transporte-incerto.csv",
@@ -417,14 +679,14 @@ describe("controlled import upload page", () => {
     );
     expect(randomUUIDMock).toHaveBeenCalledTimes(1);
     expect(
-      screen.queryByRole("button", { name: "Nova tentativa" }),
+      screen.queryByRole("button", { name: /Nova tentativa|Importar outro arquivo/ }),
     ).not.toBeInTheDocument();
     expect(
       screen.getByRole("link", { name: "Consultar importações registradas" }),
     ).toHaveAttribute("href", "/imports/batches");
   });
 
-  it("does not create a batch link from an invalid submission identifier", async () => {
+  it("keeps an invalid submission identifier unknown without offering another upload", async () => {
     fetchMock.mockResolvedValueOnce(
       apiResponse(invalidSubmissionIdPayload(), 202),
     );
@@ -434,12 +696,70 @@ describe("controlled import upload page", () => {
     submitUpload();
 
     expect(
-      await screen.findByRole("heading", { name: "Recebido pelo fluxo" }),
+      await screen.findByRole("heading", { name: "Resultado desconhecido" }),
     ).toBeInTheDocument();
     expect(
-      screen.queryByRole("link", { name: "Acompanhar progresso do lote" }),
+      screen.queryByRole("link", { name: "Acompanhar importação" }),
     ).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Consultar importações registradas" })).toHaveAttribute("href", "/imports/batches");
+    expect(screen.queryByRole("button", { name: /Nova tentativa|Importar outro arquivo/ })).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Arquivo CSV")).toBeDisabled();
+    expect(fetchMock).toHaveBeenCalledOnce();
     expect(document.body).not.toHaveTextContent("submission-secret-ui");
+  });
+
+  it("keeps an array acknowledgement unknown even when its submission identifier is valid", async () => {
+    fetchMock.mockResolvedValueOnce(apiResponse({
+      data: {
+        submissionId: "00000000-0000-4000-8000-000000000041",
+        producerOutcome: "acknowledged",
+        workflowAcknowledgement: [],
+        durableAcceptance: null,
+      },
+    }, 202));
+    render(<ImportUploadPage />);
+
+    uploadSelectedFile();
+    submitUpload();
+
+    expect(await screen.findByRole("heading", { name: "Resultado desconhecido" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Acompanhar importação" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Nova tentativa|Importar outro arquivo/ })).not.toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    {},
+    { import_batch_id: "", row_count: 2, acknowledgedAt: "2026-07-07T16:01:00.000Z" },
+    { import_batch_id: "batch-synthetic", row_count: -1, acknowledgedAt: "2026-07-07T16:01:00.000Z" },
+    { import_batch_id: "batch-synthetic", row_count: 2, acknowledgedAt: "invalid" },
+  ])("keeps an incomplete acknowledgement unknown without enabling resubmission", async (workflowAcknowledgement) => {
+    fetchMock.mockResolvedValueOnce(apiResponse({ data: {
+      submissionId: "00000000-0000-4000-8000-000000000041",
+      producerOutcome: "acknowledged",
+      workflowAcknowledgement,
+      durableAcceptance: null,
+    } }, 202));
+    render(<ImportUploadPage />);
+    uploadSelectedFile();
+    submitUpload();
+    expect(await screen.findByRole("heading", { name: "Resultado desconhecido" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Nova tentativa|Importar outro arquivo/ })).not.toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it("accepts the legacy workflow acknowledgement count of zero without inferring results", async () => {
+    fetchMock.mockResolvedValueOnce(apiResponse({ data: {
+      submissionId: "00000000-0000-4000-8000-000000000041",
+      producerOutcome: "acknowledged",
+      workflowAcknowledgement: { import_batch_id: "batch-synthetic", row_count: 0, acknowledgedAt: "2026-07-07T16:01:00.000Z" },
+      durableAcceptance: null,
+    } }, 202));
+    render(<ImportUploadPage />);
+    uploadSelectedFile();
+    submitUpload();
+    expect(await screen.findByRole("heading", { name: "Envio recebido" })).toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent(/Concluído|0 resultados/);
   });
 
   it("maps a 409 conflict to safe business copy", async () => {
@@ -465,7 +785,7 @@ describe("controlled import upload page", () => {
     expect(document.body).not.toHaveTextContent("raw conflicting key");
   });
 
-  it("maps validation, access, and generic failures without leaking internals", async () => {
+  it("maps validation, access, and unknown failures without leaking internals", async () => {
     const unsafePayload = {
       error: {
         code: "UNSAFE",
@@ -477,8 +797,8 @@ describe("controlled import upload page", () => {
 
     for (const [status, heading] of [
       [400, "Revise o CSV"],
-      [403, "Envio não autorizado"],
-      [500, "Não foi possível enviar agora"],
+      [403, "Importação sem permissão"],
+      [500, "Resultado desconhecido"],
     ] as const) {
       fetchMock.mockResolvedValueOnce(apiResponse(unsafePayload, status));
       render(<ImportUploadPage />);
@@ -502,18 +822,89 @@ describe("controlled import upload page", () => {
     }
   });
 
-  it("fails safely when a 202 response envelope is not recognized", async () => {
+  it.each([500, 502, 503, 504])(
+    "preserves the attempt after an uncertain server HTTP %i response",
+    async (responseStatus) => {
+      const file = csvFile("servidor-incerto.csv");
+      fetchMock.mockResolvedValueOnce(
+        apiResponse({ error: { message: "synthetic internal failure" } }, responseStatus),
+      );
+      render(<ImportUploadPage />);
+
+      uploadSelectedFile(file);
+      submitUpload();
+
+      expect(
+        await screen.findByRole("heading", { name: "Resultado desconhecido" }),
+      ).toBeInTheDocument();
+      expect(document.body).toHaveTextContent("Arquivo selecionado: servidor-incerto.csv");
+      expect(screen.getByLabelText("Arquivo CSV")).toBeDisabled();
+      const submitButton = screen.getByRole("button", { name: "Enviar CSV" });
+      expect(submitButton).toBeDisabled();
+      expect(screen.queryByRole("button", { name: /Nova tentativa|Importar outro arquivo/ })).not.toBeInTheDocument();
+      expect(screen.getByRole("link", { name: "Consultar importações registradas" })).toHaveAttribute("href", "/imports/batches");
+      expect(idempotencyHeader(firstFetchCall()[1])).toBe("11111111-1111-4111-8111-111111111111");
+      expect((firstFetchCall()[1].body as FormData).get("arquivo_csv")).toBe(file);
+      fireEvent.submit(submitButton.closest("form")!);
+      expect(fetchMock).toHaveBeenCalledOnce();
+      expect(randomUUIDMock).toHaveBeenCalledTimes(1);
+      expect(document.body).not.toHaveTextContent("synthetic internal failure");
+    },
+  );
+
+  it.each([200, 201, 202, 204])(
+    "preserves an unknown attempt after an unrecognized successful HTTP %i response",
+    async (responseStatus) => {
+      const file = csvFile("confirmacao-incerta.csv");
+      fetchMock.mockResolvedValueOnce(
+        responseStatus === 204
+          ? new Response(null, { status: responseStatus })
+          : apiResponse(
+              {
+                data: {
+                  producerOutcome: "processed",
+                  completion: "complete",
+                  internal: "stack sql secret",
+                },
+              },
+              responseStatus,
+            ),
+      );
+      render(<ImportUploadPage />);
+
+      uploadSelectedFile(file);
+      submitUpload();
+
+      expect(
+        await screen.findByRole("heading", { name: "Resultado desconhecido" }),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByText(/Arquivo selecionado: confirmacao-incerta.csv/),
+      ).toBeInTheDocument();
+      expect(screen.getByLabelText("Arquivo CSV")).toBeDisabled();
+      const submitButton = screen.getByRole("button", { name: "Enviar CSV" });
+      expect(submitButton).toBeDisabled();
+      expect(
+        screen.queryByRole("button", { name: /Nova tentativa|Importar outro arquivo/ }),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.getByRole("link", { name: "Consultar importações registradas" }),
+      ).toHaveAttribute("href", "/imports/batches");
+      expect(idempotencyHeader(firstFetchCall()[1])).toBe(
+        "11111111-1111-4111-8111-111111111111",
+      );
+      expect((firstFetchCall()[1].body as FormData).get("arquivo_csv")).toBe(file);
+      fireEvent.submit(submitButton.closest("form")!);
+      expect(fetchMock).toHaveBeenCalledOnce();
+      expect(randomUUIDMock).toHaveBeenCalledTimes(1);
+      expect(document.body).not.toHaveTextContent("processed");
+      expect(document.body).not.toHaveTextContent("completion");
+    },
+  );
+
+  it("preserves an unknown attempt after invalid JSON in a 202 response", async () => {
     fetchMock.mockResolvedValueOnce(
-      apiResponse(
-        {
-          data: {
-            producerOutcome: "processed",
-            completion: "complete",
-            internal: "stack sql secret",
-          },
-        },
-        202,
-      ),
+      new Response("synthetic invalid json", { status: 202 }),
     );
     render(<ImportUploadPage />);
 
@@ -521,12 +912,17 @@ describe("controlled import upload page", () => {
     submitUpload();
 
     expect(
-      await screen.findByRole("heading", {
-        name: "Não foi possível enviar agora",
-      }),
+      await screen.findByRole("heading", { name: "Resultado desconhecido" }),
     ).toBeInTheDocument();
-    expect(document.body).not.toHaveTextContent("processed");
-    expect(document.body).not.toHaveTextContent("completion");
+    expect(
+      screen.queryByRole("button", { name: /Nova tentativa|Importar outro arquivo/ }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: "Consultar importações registradas" }),
+    ).toHaveAttribute("href", "/imports/batches");
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(randomUUIDMock).toHaveBeenCalledTimes(1);
+    expect(document.body).not.toHaveTextContent("synthetic invalid json");
   });
 
   it("starts a clean explicit attempt from terminal states", async () => {
@@ -535,15 +931,15 @@ describe("controlled import upload page", () => {
     uploadSelectedFile(csvFile("primeiro.csv"));
     submitUpload();
     expect(
-      await screen.findByRole("heading", { name: "Recebido pelo fluxo" }),
+      await screen.findByRole("heading", { name: "Envio recebido" }),
     ).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Nova tentativa" }));
+    fireEvent.click(screen.getByRole("button", { name: "Importar outro arquivo" }));
 
     expect(screen.getByText("Nenhum arquivo selecionado.")).toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(
-      screen.queryByRole("heading", { name: "Recebido pelo fluxo" }),
+      screen.queryByRole("heading", { name: "Envio recebido" }),
     ).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Enviar CSV" })).toBeDisabled();
   });

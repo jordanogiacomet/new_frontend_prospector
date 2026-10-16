@@ -1,91 +1,125 @@
-# Read-only Lead Browser
+# Prospecta
 
-Read-only business interface for lead qualification data.
+Workspace interno de prospecção assistida: importar uma lista EmpresaAqui,
+acompanhar o recebimento e as observações confirmadas, revisar empresas e
+organizar o próximo contato. A análise do produtor é consultada em leitura;
+o acompanhamento comercial é gravado apenas no banco da aplicação.
 
-## Development
+## Percurso do MVP
+
+1. **Início:** roteiro e atalhos conforme o acesso da pessoa.
+2. **Importações:** um CSV por envio explícito e histórico consultável.
+3. **Empresas:** filtros B/C e gerais, análise, riscos, relatório e histórico.
+4. **Pipeline de prospecção:** empresa, etapa, próxima ação e prazo; cadência manual,
+   atividades, notas e auditoria conforme as permissões.
+5. **Ajuda:** orientação dentro do aplicativo e recuperação de acesso.
+
+Recebimento não significa análise concluída. Contagens desconhecidas continuam
+indisponíveis; um envio com resultado desconhecido não é repetido
+automaticamente. A etapa comercial não altera a recomendação do produtor.
+Preparar ou copiar uma abordagem não envia mensagens.
+
+O [guia de uso](docs/prospecta-manager-guide.md) explica o percurso. O
+[roteiro de apresentação da Demo 3](docs/prospecta-demo3-presentation.md)
+organiza uma demonstração de 7 minutos, com preparação e alternativas para
+recursos indisponíveis.
+
+## Executar localmente
+
+Use Node **22.18 ou superior da série 22** e **pnpm 10.34.4**.
 
 ```bash
+pnpm install --frozen-lockfile
+pnpm demo:safe
+```
+
+Abra [http://127.0.0.1:3012/inicio](http://127.0.0.1:3012/inicio).
+Essa demonstração usa exemplos fictícios em consulta, sem banco, importação,
+gravação comercial ou integrações externas. A faixa do aplicativo identifica
+essa limitação. `PROSPECTA_PORT=3019 pnpm demo:safe` muda somente a porta local.
+
+Para desenvolvimento com configuração própria, mantenha os valores reais
+somente em `.env.local` usando `.env.example` como referência:
+
+```bash
+pnpm check:config
 pnpm dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000).
+`check:config` verifica formato sem conectar a banco/provedor e sem imprimir
+valores. Uma configuração válida não comprova conectividade nem aprovação do
+alvo. O desenvolvimento com dados exige perfil isolado, credenciais e
+permissões apropriados; placeholders não habilitam fluxos reais.
 
-## Checks
+Para conferir o build sem utilizar configurações de integrações reais:
+
+```bash
+pnpm build:safe
+```
+
+O comando executa o build Next com placeholders e features desabilitadas.
+As configurações conhecidas do servidor são sobrescritas no processo, sem
+alterar os arquivos de ambiente. Para um build configurado, `pnpm build`
+continua disponível. Não execute build/typecheck junto de um servidor dev.
+
+Depois de um build e com configuração de runtime validada, `pnpm start`
+inicia o standalone em loopback, copiando os assets necessários. Esse comando
+local não aceita os grants de runtime Demo 2/3; a Demo 3 usa o gateway e a
+release específica existentes.
+
+Se `pnpm` não estiver no PATH, use `npx --yes pnpm@10.34.4 <comando>`.
+
+## Verificar o aplicativo
 
 ```bash
 pnpm lint
-pnpm build
+pnpm typecheck
+pnpm test
+pnpm test:scripts
+pnpm test:contract
+pnpm build:safe
 ```
 
-## Demo 2 — banco de teste em leitura
+Os contratos locais verificam artefatos e políticas; não comprovam integração
+remota. O [UAT de navegador](tests/browser/README.md) usa somente respostas
+sintéticas e bloqueia acesso externo. Integrações PostgreSQL exigem um alvo
+descartável separado; nunca execute testes contra dados reais.
 
-Demo 2 executa localmente em `127.0.0.1`, com banco de produtor, banco da
-aplicação e n8n de teste. Ela habilita importações, observação de lotes e
-atividades comerciais para o ator local de teste. Use somente URLs, dados e
-CSVs sintéticos de teste; cada envio de CSV chama o n8n de teste.
+## Demo 3
 
-```bash
-cp .env.demo2.example .env.local
-# Preencha apenas URLs e credenciais de teste em .env.local.
-pnpm demo2
-```
+O perfil exato é a pré-produção local de um único testador, com gateway
+autenticado em [https://192.168.0.20:30443/inicio](https://192.168.0.20:30443/inicio).
+Ele consulta fatos reais por conexão de leitura aprovada e mantém as
+gravações Prospecta em PostgreSQL isolado. Não é a demonstração de fixtures
+nem um perfil de produção. A identidade compartilhada e HTTP na LAN são
+limitações aceitas somente para esse alvo.
 
-Abra [http://127.0.0.1:3011/leads](http://127.0.0.1:3011/leads). Se `pnpm`
-não estiver instalado globalmente, execute `npx --yes pnpm@10 demo2`.
-O banco da aplicação de teste precisa conter as migrações de `db/app/`, e o
-produtor de teste precisa expor as fontes de leitura aprovadas. A Demo 2 exibe
-riscos, sinais positivos e evidências aprovadas para o ator local; conteúdo
-bruto e relatórios estratégicos continuam indisponíveis.
+Contatos, revelação, IA, mapas e custos dependem de configurações, permissões
+e políticas próprias. A exceção HTTP de importação não habilita transporte
+de contatos. Nenhum recurso pendente deve ser habilitado para a apresentação.
 
-Para validar o envio, abra `http://127.0.0.1:3011/imports`, selecione
-`fixtures/demo2/empresaqui-sintetica.csv` e envie uma única vez. A amostra é
-sintética, tem CNPJ estruturalmente válido e usa o marcador de origem `SR_2`,
-aceito somente para a linha sintética 2. Ela aciona o n8n de teste pelo app; a
-confirmação `202` registra apenas o recebimento pelo workflow, não uma
-aceitação durável ou conclusão do lote.
+Em 06/10/2026, o proprietário pediu concluir o front de contatos e depois
+publicar no Kubernetes desse alvo HTTPS. A publicação usa o preflight exato
+e a migração aditiva app-owned `017`. Os limites e preflights ficam em
+[AGENTS.md](AGENTS.md); o resultado da release fica na
+[evidência da entrega](.specs/features/demo3-mvp-readiness-v1/evidence/verification-2026-10-06.md).
+Os motivos de Lusha/Apollo dependem do diagnóstico enviado pela integração:
+callbacks anteriores continuam válidas e mostram “motivo não informado”.
+O deploy da aplicação não atualiza ou ativa workflows n8n.
 
-## Local Kubernetes Demo
+Em 13/10/2026, a melhoria de feedback foi publicada na release
+`demo3-preprod-20261013-ux-feedback-001`, substituindo somente a imagem da
+aplicação e preservando as credenciais atuais. Rollout e 17 checks HTTPS
+passaram; detalhes e rollback estão na
+[evidência da publicação](docs/prospecta-ux-feedback-deploy.md).
 
-This is a synthetic, non-production presentation profile. It does not run
-migrations, use real credentials, or call the productive n8n workflow.
+Em 14/10/2026, as melhorias de UX do gestor e de continuidade das listas foram
+publicadas na release `demo3-preprod-20261014-ux-continuity-001`, revisão 69.
+Somente a imagem da aplicação mudou; 22 checks HTTPS passaram. Detalhes e
+rollback estão no [registro do deploy](docs/prospecta-ux-list-continuity-deploy.md).
 
-```bash
-npx --yes pnpm@10 demo2:k8s
-```
+## Limites de escopo
 
-Open [http://192.168.0.20:30097/leads](http://192.168.0.20:30097/leads).
-O comando valida o perfil de teste em `.env.local`, cria ou atualiza o Secret
-somente no namespace `prospecta-demo`, publica as imagens locais e aguarda o
-rollout. As credenciais não são gravadas no manifesto, no Git ou na saída do
-comando. O Pod usa um proxy restrito para que as URLs locais de teste
-`127.0.0.1:15432` alcancem apenas o serviço PostgreSQL do namespace
-`prospecting`. No Secret do Pod, as três conexões são normalizadas para o
-loopback local, bancos e roles específicas da Demo 2; as senhas existentes
-permanecem somente em memória durante a criação do Secret.
-
-## Demo 3 — Kubernetes local e isolado
-
-A Demo 3 é um perfil sintético separado da Demo 2. Ela usa namespace próprio,
-NodePort `30100` no alvo LAN não produtivo `192.168.0.20`, PostgreSQL
-app-owned descartável e não chama o produtor ou o n8n. Importações registram
-somente a intenção durável e mantêm a aceitação do produtor como não
-confirmada.
-
-```bash
-cp .env.demo3.example .env.demo3.local
-# Preencha o UID exato do namespace kube-system e segredos locais aleatórios.
-pnpm demo3:k8s -- --validate
-pnpm demo3:k8s -- --preflight
-pnpm demo3:k8s
-```
-
-Se as imagens já foram publicadas e o rollout foi interrompido pela saúde do
-nó, retome sem rebuild com `pnpm demo3:k8s -- --published-images`. O script
-revalida cluster, tags e release antes de reaplicar os mesmos objetos.
-
-O preflight exige correspondência exata de contexto, API server, UID do
-cluster descartável e marcador de namespace antes de qualquer mutação.
-
-Abra [http://192.168.0.20:30100/leads](http://192.168.0.20:30100/leads).
-Falhas de rollout restauram imagens anteriores quando existe uma release
-prévia; o script nunca apaga PVC, histórico comercial ou auditoria.
+Sem disparo automático de contato, reprocessamento, alteração da análise,
+exportação em massa ou sincronização CRM. Nunca gravar dados reais em
+fixtures, screenshots, logs de teste ou evidências do repositório.

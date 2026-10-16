@@ -7,6 +7,45 @@ export type ContactPreviewStatus =
   | "PREVIEW_FAILED"
   | "PROVIDER_OUTCOME_UNKNOWN";
 
+export const CONTACT_REVEAL_STATUSES = [
+  "REQUEST_RECORDED", "REVEAL_DISPATCHED", "DISPATCH_OUTCOME_UNKNOWN",
+  "REVEAL_AVAILABLE", "REVEAL_EMPTY", "REVEAL_FAILED", "PROVIDER_OUTCOME_UNKNOWN",
+] as const;
+
+export type ContactRevealStatus = (typeof CONTACT_REVEAL_STATUSES)[number];
+export type ContactRevealChannel = "work_email" | "business_phone";
+
+/** Safe projection of the latest app-owned recovery ledger, without provider data. */
+export interface ContactRevealProgressDto {
+  readonly revealRequestId: string;
+  readonly status: ContactRevealStatus;
+  readonly requestedChannels: readonly ContactRevealChannel[];
+  readonly channelsMatchResult: boolean;
+  readonly requestedAt: string;
+  readonly updatedAt: string;
+}
+
+export const CONTACT_SEARCH_DIAGNOSTIC_CODES = [
+  "RESULTS_FOUND",
+  "NO_MATCHES",
+  "NO_RELEVANT_MATCHES",
+  "ACCESS_DENIED",
+  "RATE_LIMITED",
+  "PROVIDER_ERROR",
+  "INVALID_RESPONSE",
+  "TIMEOUT",
+  "OUTCOME_UNKNOWN",
+  "DOMAIN_UNAVAILABLE",
+  "COMPANY_NOT_CONFIRMED",
+  "NOT_ATTEMPTED",
+] as const;
+
+export interface ContactSearchDiagnosticDto {
+  readonly provider: "LUSHA" | "APOLLO";
+  readonly stage: "COMPANY_SEARCH" | "CONTACT_PREVIEW" | "COMPANY_MATCH";
+  readonly code: (typeof CONTACT_SEARCH_DIAGNOSTIC_CODES)[number];
+}
+
 export interface ContactLocationDto {
   readonly city: string | null;
   readonly state: string | null;
@@ -23,7 +62,7 @@ export interface ContactCandidateDto {
   readonly linkedinUrl: string | null;
   readonly canRevealWorkEmail: boolean;
   readonly canRevealBusinessPhone: boolean;
-  readonly source: "LUSHA";
+  readonly source: "LUSHA" | "APOLLO";
   readonly obtainedAt: string;
   readonly expiresAt: string;
   readonly channels: {
@@ -39,6 +78,16 @@ export interface ContactCandidateDto {
     }[];
   } | null;
   readonly governanceState: "AVAILABLE" | "SUPPRESSED" | "EXPIRED";
+  readonly reveal?: ContactRevealProgressDto | null;
+}
+
+export interface CompanyPhoneFallbackDto {
+  readonly value: string | null;
+  readonly source: "APOLLO";
+  readonly contactability: "UNKNOWN";
+  readonly obtainedAt: string;
+  readonly expiresAt: string;
+  readonly governanceState: "AVAILABLE" | "SUPPRESSED" | "EXPIRED";
 }
 
 export interface ContactPreviewRequestDto {
@@ -48,12 +97,14 @@ export interface ContactPreviewRequestDto {
   readonly updatedAt: string;
   readonly previewExpiresAt: string | null;
   readonly candidates: readonly ContactCandidateDto[] | null;
+  readonly companyPhoneFallback: CompanyPhoneFallbackDto | null;
+  readonly searchDiagnostics?: readonly ContactSearchDiagnosticDto[] | null;
   readonly transparency: {
     readonly controllerLegalName: string;
     readonly controllerRegistration: string | null;
     readonly purpose: string;
     readonly legalBasis: "LEGITIMATE_INTEREST";
-    readonly source: "LUSHA";
+    readonly source: "LUSHA" | "LUSHA_AND_APOLLO";
     readonly previewRetentionDays: 30;
     readonly revealedRetentionDays: 90;
     readonly privacyContact: string;
@@ -88,4 +139,5 @@ export interface ContactCompanySearchRequestDto {
   readonly updatedAt: string;
   readonly matchesExpiresAt: string | null;
   readonly matches: readonly ContactCompanyMatchDto[];
+  readonly searchDiagnostics?: readonly ContactSearchDiagnosticDto[] | null;
 }

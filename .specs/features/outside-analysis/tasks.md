@@ -11,6 +11,7 @@ T1 ──→ T2 ──→ T3 ──┐
   ├──→ T5 ──────────┼──→ T6
 T4 ─────────────────┘
 T6 ──→ T7
+T6 ──→ T8 ──→ T9 ──→ T10
 ```
 
 ## Task Breakdown
@@ -150,6 +151,67 @@ uma release imutável.
 - [ ] Release imutável fica 1/1 na Demo 3.
 - [ ] Smoke autenticado confirma rota e página sem registrar valores reais.
 
+### T8: Ler uma decisão individual
+
+**What:** Consultar uma empresa por CNPJ com a mesma projeção atual elegível da
+lista e expor um endpoint GET autenticado.
+**Where:** `src/server/repositories/outside-analysis-repository.ts`,
+`src/app/api/leads/outside-analysis/[cnpj]/route.ts`
+**Depends on:** T2, T3
+**Reuses:** `buildEligibleCurrentCrmCte`, `leadDetailParamsSchema`,
+`resolveLeadReadVisibility` e `mapApiError`.
+**Requirements:** OA-08
+**Tests:** repository/unit and route/unit
+**Gate:** quick
+**Commit:** `feat(leads): expose CRM decision detail`
+
+**Done when:**
+
+- [x] O SQL filtra o CNPJ por parâmetro e preserva os gates da lista.
+- [x] Zero linhas retorna `null` e múltiplas linhas falham fechado.
+- [x] A rota exige `leads:read` antes de validação e consultas.
+- [x] Sucesso, 404, validação e falhas usam envelopes seguros e `no-store`.
+
+### T9: Apresentar a página dedicada
+
+**What:** Ligar cada linha da lista a uma página somente leitura da decisão.
+**Where:** `src/components/leads/outside-analysis-table.tsx`,
+`src/app/(private)/leads/outside-analysis/[cnpj]/page.tsx`
+**Depends on:** T8
+**Reuses:** formatadores brasileiros, rótulos seguros e linguagem visual da
+lista.
+**Requirements:** OA-07, OA-09
+**Tests:** component/unit
+**Gate:** quick
+**Commit:** `feat(leads): add CRM decision page`
+
+**Done when:**
+
+- [x] A lista oferece “Ver decisão do CRM” e nunca “Abrir análise”.
+- [x] A página mostra somente os campos aprovados e seus fallbacks.
+- [x] Loading, não encontrado e indisponibilidade têm mensagens específicas.
+- [x] Existe retorno claro à lista e nenhuma ação de escrita ou enriquecimento.
+
+### T10: Verificar e publicar o detalhe na Demo 3
+
+**What:** Executar gates, atualizar rastreabilidade/evidência e publicar uma
+release imutável na Demo 3.
+**Where:** Especificação, `.notebook/`, `.specs/project/STATE.md` e Demo 3.
+**Depends on:** T9
+**Reuses:** Processo de release `scripts/deploy-demo3-k8s.mjs`.
+**Requirements:** OA-07–OA-09
+**Tests:** lint, typecheck, full suite, build and authenticated smoke
+**Gate:** build
+**Commit:** `docs(prospecta): record CRM detail rollout`
+
+**Done when:**
+
+- [x] Todos os gates passam com contagens registradas.
+- [x] Rastreabilidade marca OA-07–OA-09 como verificados.
+- [x] Release imutável fica 1/1 na Demo 3.
+- [x] Smoke autenticado confirma a lista, o link, a página e a API sem
+      registrar valores reais.
+
 ## Diagram-Definition Cross-Check
 
 | Task | Depends on | Diagram shows | Status |
@@ -161,6 +223,9 @@ uma release imutável.
 | T5 | T1 | T1 → T5 | ✅ |
 | T6 | T3, T4, T5 | T3/T4/T5 → T6 | ✅ |
 | T7 | T6 | T6 → T7 | ✅ |
+| T8 | T2, T3 | T6 → T8 | ✅ |
+| T9 | T8 | T8 → T9 | ✅ |
+| T10 | T9 | T9 → T10 | ✅ |
 
 ## Test Co-location Validation
 
@@ -173,3 +238,6 @@ uma release imutável.
 | T5 | React component | component/unit | component/unit | ✅ |
 | T6 | React page | component/unit | component/unit | ✅ |
 | T7 | Release | full build + smoke | build/integration/contract/smoke | ✅ |
+| T8 | Repository + route | unit + route/unit | unit + route/unit | ✅ |
+| T9 | React component/page | component/unit | component/unit | ✅ |
+| T10 | Release | full build + smoke | build/smoke | ✅ |

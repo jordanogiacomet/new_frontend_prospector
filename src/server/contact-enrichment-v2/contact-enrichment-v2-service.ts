@@ -23,15 +23,19 @@ import {
   encryptContactJson,
   contactSuppressionFingerprint,
   type ContactDataKeyMaterial,
+  type EncryptedContactData,
 } from "./contact-data-crypto";
 import {
   CONTACT_PREVIEW_RETENTION_DAYS,
   CONTACT_REVEAL_RETENTION_DAYS,
   candidateToDto,
   contactTransparency,
+  normalizeCompanyPhoneFallback,
   normalizeContactCandidates,
+  normalizeContactProfileUpdate,
   normalizeRevealedChannels,
   type NormalizedContactCandidate,
+  type NormalizedCompanyPhoneFallback,
   type NormalizedContactProfile,
   type NormalizedRevealedChannels,
 } from "./contact-data-policy";
@@ -45,8 +49,15 @@ import {
   resolveCompanyMatchSelection,
 } from "./contact-company-search-service";
 import {
+  createProviderReference,
+  parseProviderReference,
+  providerIdentityValue,
+  type ContactProviderSource,
+} from "./contact-provider-reference";
+import {
   eraseExpiredContactData,
   readCandidateForReveal,
+  readCandidateForRevealCallback,
   readPreviewRequest,
   recordPreviewDispatchOutcome,
   recordPreviewIntent,
@@ -58,6 +69,7 @@ import {
   suppressContact,
   type ContactPreviewRecord,
   type PreparedContactCandidate,
+  type PreparedCompanyPhoneFallback,
   type RevealRecord,
 } from "./contact-enrichment-v2-repository";
 import type {
@@ -95,6 +107,12 @@ const normalizedChannelsSchema = z.strictObject({
       sourceUpdatedAt: z.string().nullable(),
     }),
   ),
+});
+
+const normalizedCompanyPhoneSchema = z.strictObject({
+  value: z.string().regex(/^\+[1-9][0-9]{7,14}$/),
+  source: z.literal("APOLLO"),
+  contactability: z.literal("UNKNOWN"),
 });
 
 export type SubmitPreviewResult =
@@ -169,6 +187,7 @@ export async function submitContactPreview(
           action: "PREVIEW_BY_COMPANY_ID",
           ...commonRequest,
           provider_company_id: selectedCompany.providerCompanyId,
+          fallback_company_domain: selectedCompany.companyDomain,
         },
         configuration,
         fetchImplementation,
@@ -191,6 +210,7 @@ export async function processPreviewCallback(
   const callback = contactPreviewCallbackSchema.parse(body);
   const keys = requireContactKeys(environment);
   const candidates = normalizeContactCandidates(callback);
+  const companyPhone = normalizeCompanyPhoneFallback(callback);
   const occurredAt = new Date(callback.occurred_at);
   const expiresAt =
     callback.status === "PREVIEW_AVAILABLE"
@@ -210,10 +230,20 @@ export async function processPreviewCallback(
     organizationId: environment.AUTH_ALLOWED_ORG_ID,
     requestId: callback.request_id,
     status: callback.status,
+    searchDiagnostics: callback.search_diagnostics ?? null,
     resultSha256: canonicalSha256(callback),
     occurredAt,
     expiresAt,
     candidates: prepared,
+    companyPhone:
+      companyPhone === null
+        ? null
+        : prepareCompanyPhone(
+            environment.AUTH_ALLOWED_ORG_ID,
+            callback.request_id,
+            companyPhone,
+            keys,
+          ),
   });
 }
 
@@ -237,6 +267,8 @@ export async function getContactPreview(
   const transparency = contactTransparency(environment);
   const keys = requireContactKeys(environment);
   const candidates: ContactCandidateDto[] = [];
+  let companyPhoneFallback: ContactPreviewRequestDto["companyPhoneFallback"] =
+    null;
 
   if (transparency !== null) {
     for (const storedCandidate of stored.candidates) {
@@ -245,6 +277,7 @@ export async function getContactPreview(
         storedCandidate.erasedAt !== null;
       const expired = storedCandidate.expiresAt.getTime() <= now.getTime();
       let candidate: NormalizedContactProfile = unavailableCandidate();
+      let providerSource: ContactProviderSource = "LUSHA";
 
       if (!suppressed && !expired && storedCandidate.encryptedProfile !== null) {
         candidate = normalizedCandidateSchema.parse(
@@ -258,6 +291,19 @@ export async function getContactPreview(
             keys,
           ),
         );
+        if (storedCandidate.encryptedProviderRef !== null) {
+          providerSource = parseProviderReference(
+            decryptContactJson(
+              storedCandidate.encryptedProviderRef,
+              candidateProviderAad(
+                input.actor.organizationId,
+                stored.request.requestId,
+                storedCandidate.contactId,
+              ),
+              keys,
+            ),
+          ).source;
+        }
       }
 
       let channels: ContactCandidateDto["channels"] = null;
@@ -284,7 +330,7 @@ export async function getContactPreview(
       }
 
       candidates.push(
-        candidateToDto({
+        { ...candidateToDto({
           contactId: storedCandidate.contactId,
           candidate,
           obtainedAt: storedCandidate.obtainedAt,
@@ -292,8 +338,49 @@ export async function getContactPreview(
           now,
           suppressed,
           channels,
-        }),
+          source: providerSource,
+        }), reveal: storedCandidate.reveal ? {
+          revealRequestId: storedCandidate.reveal.revealRequestId,
+          status: storedCandidate.reveal.status,
+          requestedChannels: storedCandidate.reveal.requestedChannels,
+          requestedAt: storedCandidate.reveal.requestedAt,
+          updatedAt: storedCandidate.reveal.updatedAt,
+          channelsMatchResult: storedCandidate.reveal.channelsMatchResult,
+        } : null },
       );
+    }
+
+    if (stored.companyPhone !== null) {
+      const expired = stored.companyPhone.expiresAt.getTime() <= now.getTime();
+      const unavailable =
+        stored.companyPhone.suppressed ||
+        stored.companyPhone.erasedAt !== null ||
+        expired;
+      let phoneValue: string | null = null;
+      if (!unavailable && stored.companyPhone.encryptedPhone !== null) {
+        phoneValue = normalizedCompanyPhoneSchema.parse(
+          decryptContactJson(
+            stored.companyPhone.encryptedPhone,
+            companyPhoneAad(
+              input.actor.organizationId,
+              stored.request.requestId,
+            ),
+            keys,
+          ),
+        ).value;
+      }
+      companyPhoneFallback = {
+        value: phoneValue,
+        source: "APOLLO",
+        contactability: "UNKNOWN",
+        obtainedAt: stored.companyPhone.obtainedAt.toISOString(),
+        expiresAt: stored.companyPhone.expiresAt.toISOString(),
+        governanceState: stored.companyPhone.suppressed
+          ? "SUPPRESSED"
+          : expired || stored.companyPhone.erasedAt !== null
+            ? "EXPIRED"
+            : "AVAILABLE",
+      };
     }
   }
 
@@ -305,7 +392,10 @@ export async function getContactPreview(
     previewExpiresAt:
       stored.request.previewExpiresAt?.toISOString() ?? null,
     candidates: transparency === null ? null : candidates,
+    companyPhoneFallback:
+      transparency === null ? null : companyPhoneFallback,
     transparency,
+    searchDiagnostics: stored.request.searchDiagnostics ?? null,
   };
 }
 
@@ -346,7 +436,7 @@ export async function submitContactReveal(
     return { kind: "unavailable" };
   }
 
-  const providerContactId = z.string().min(1).max(256).parse(
+  const providerReference = parseProviderReference(
     decryptContactJson(
       candidate.encryptedProviderRef,
       candidateProviderAad(
@@ -357,6 +447,12 @@ export async function submitContactReveal(
       keys,
     ),
   );
+  if (
+    providerReference.source === "APOLLO" &&
+    input.request.channels.includes("business_phone")
+  ) {
+    return { kind: "unavailable" };
+  }
   const canonicalInput = {
     request_id: input.requestId,
     contact_id: input.request.contact_id,
@@ -383,7 +479,8 @@ export async function submitContactReveal(
       request_id: input.requestId,
       reveal_request_id: intent.reveal.revealRequestId,
       idempotency_key: input.idempotencyKey,
-      provider_contact_id: providerContactId,
+      provider_contact_id: providerReference.providerContactId,
+      provider_source: providerReference.source,
       reveal,
     },
     configuration,
@@ -406,9 +503,57 @@ export async function processRevealCallback(
   const keys = requireContactKeys(environment);
   const occurredAt = new Date(callback.occurred_at);
   const channels = normalizeRevealedChannels(callback);
+  const profileUpdate = normalizeContactProfileUpdate(callback);
+  const storedCandidate =
+    callback.provider_source === "APOLLO" && profileUpdate !== null
+      ? await readCandidateForRevealCallback({
+          organizationId: environment.AUTH_ALLOWED_ORG_ID,
+          requestId: callback.request_id,
+          revealRequestId: callback.reveal_request_id,
+        })
+      : null;
+  let encryptedProfileUpdate: EncryptedContactData | null = null;
+  if (
+    storedCandidate !== null &&
+    storedCandidate.encryptedProfile !== null &&
+    storedCandidate.suppressedAt === null &&
+    storedCandidate.erasedAt === null &&
+    storedCandidate.expiresAt.getTime() > occurredAt.getTime() &&
+    profileUpdate !== null
+  ) {
+    const currentProfile = normalizedCandidateSchema.parse(
+      decryptContactJson(
+        storedCandidate.encryptedProfile,
+        candidateProfileAad(
+          environment.AUTH_ALLOWED_ORG_ID,
+          callback.request_id,
+          storedCandidate.contactId,
+        ),
+        keys,
+      ),
+    );
+    encryptedProfileUpdate = encryptContactJson(
+      {
+        ...currentProfile,
+        fullName: profileUpdate.fullName,
+        linkedinUrl: profileUpdate.linkedinUrl,
+      },
+      candidateProfileAad(
+        environment.AUTH_ALLOWED_ORG_ID,
+        callback.request_id,
+        storedCandidate.contactId,
+      ),
+      keys,
+    );
+  }
   const providerRefHmac = contactSuppressionFingerprint(
     "provider",
-    callback.provider_contact_id,
+    providerIdentityValue(
+      createProviderReference(
+        callback.provider_source,
+        callback.provider_contact_id,
+      ),
+    ),
     keys,
   );
   const workEmailHmacs = channels.workEmails.map((email) =>
@@ -451,6 +596,7 @@ export async function processRevealCallback(
     occurredAt,
     expiresAt,
     encryptedChannels,
+    encryptedProfileUpdate,
     channels,
     workEmailHmacs,
     businessPhoneHmacs,
@@ -532,17 +678,21 @@ function prepareCandidate(
   keys: ContactDataKeyMaterial,
 ): PreparedContactCandidate {
   const contactId = randomUUID();
-  const { providerContactId, ...profile } = candidate;
+  const { providerContactId, providerSource, ...profile } = candidate;
+  const providerReference = createProviderReference(
+    providerSource,
+    providerContactId,
+  );
 
   return {
     contactId,
     providerRefHmac: contactSuppressionFingerprint(
       "provider",
-      providerContactId,
+      providerIdentityValue(providerReference),
       keys,
     ),
     encryptedProviderRef: encryptContactJson(
-      providerContactId,
+      providerReference,
       candidateProviderAad(organizationId, requestId, contactId),
       keys,
     ),
@@ -554,6 +704,22 @@ function prepareCandidate(
     canRevealWorkEmail: candidate.canRevealWorkEmail,
     canRevealBusinessPhone: candidate.canRevealBusinessPhone,
     listPosition,
+  };
+}
+
+function prepareCompanyPhone(
+  organizationId: string,
+  requestId: string,
+  phone: NormalizedCompanyPhoneFallback,
+  keys: ContactDataKeyMaterial,
+): PreparedCompanyPhoneFallback {
+  return {
+    phoneHmac: contactSuppressionFingerprint("phone", phone.value, keys),
+    encryptedPhone: encryptContactJson(
+      phone,
+      companyPhoneAad(organizationId, requestId),
+      keys,
+    ),
   };
 }
 
@@ -625,6 +791,13 @@ function contactChannelsAad(
   revealRequestId: string,
 ): string {
   return `contact-channels:${organizationId}:${revealRequestId}`;
+}
+
+function companyPhoneAad(
+  organizationId: string,
+  requestId: string,
+): string {
+  return `company-phone:${organizationId}:${requestId}`;
 }
 
 function unavailableCandidate(): NormalizedContactProfile {

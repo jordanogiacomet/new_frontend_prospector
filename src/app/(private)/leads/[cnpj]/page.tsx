@@ -2,13 +2,24 @@
 
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
+import { usePrivateCapabilities } from "../../../../components/auth/private-capabilities";
+import {
+  ContactEnrichmentAction,
+  ContactEnrichmentProvider,
+} from "../../../../components/contacts/contact-enrichment-action";
 import { LeadAuditDetails } from "../../../../components/leads/lead-audit";
+import { LeadApproachMessage } from "../../../../components/leads/lead-approach-message";
 import { LeadDetailSummary } from "../../../../components/leads/lead-detail-summary";
 import { LeadHistory } from "../../../../components/leads/lead-history";
 import { LeadInsights } from "../../../../components/leads/lead-insights";
+import { LeadLocationMap } from "../../../../components/leads/lead-location-map";
 import { StrategicReport } from "../../../../components/leads/strategic-report";
+import {
+  resolveLeadReturnDestination,
+  type LeadReturnDestination,
+} from "../../../../lib/navigation-return";
 import type {
   DataQualityNotice,
   LeadAudit,
@@ -31,6 +42,7 @@ type RequestState =
       requestKey: string;
       status: "success";
       lead: LeadDetail;
+      refreshFailed: boolean;
     }
   | {
       requestKey: string;
@@ -43,6 +55,14 @@ type RequestState =
   | {
       requestKey: string;
       status: "unavailable";
+    }
+  | {
+      readonly requestKey: string;
+      readonly status: "auth_required";
+    }
+  | {
+      readonly requestKey: string;
+      readonly status: "access_denied";
     };
 
 const confidenceIndicators = new Set(["normal", "low", "unknown"]);
@@ -253,11 +273,21 @@ function isLeadDetailEnvelope(value: unknown): value is LeadDetailEnvelope {
 }
 
 export default function LeadDetailPage() {
+  const { hasPermission } = usePrivateCapabilities();
+  const canReadLeads = hasPermission("leads:read");
+  const canSearchContacts = hasPermission("contacts:enrich") && hasPermission("contacts:read");
   const params = useParams<{ cnpj: string }>();
   const searchParams = useSearchParams();
   const cnpj = params.cnpj;
-  const query = searchParams.toString();
+  const leadRunId = searchParams.get("leadRunId");
+  const query =
+    leadRunId === null
+      ? ""
+      : new URLSearchParams({ leadRunId }).toString();
   const requestKey = `${cnpj}?${query}`;
+  const returnDestination = resolveLeadReturnDestination(
+    searchParams.get("returnTo"),
+  );
   const [requestState, setRequestState] = useState<RequestState>(() => ({
     requestKey,
     status: "loading",
@@ -266,13 +296,19 @@ export default function LeadDetailPage() {
     requestState.requestKey === requestKey
       ? requestState
       : { requestKey, status: "loading" };
+  const refreshRef = useRef<(() => Promise<void>) | null>(null);
+  const [manualRefreshKey, setManualRefreshKey] = useState<string | null>(null);
+  const isRefreshing = manualRefreshKey === requestKey;
 
   useEffect(() => {
+    if (!canReadLeads) return;
+
     const abortController = new AbortController();
     let requestInFlight = false;
+    let accessStopped = false;
 
     async function loadLead(): Promise<void> {
-      if (requestInFlight) {
+      if (requestInFlight || accessStopped) {
         return;
       }
 
@@ -290,6 +326,15 @@ export default function LeadDetailPage() {
         });
 
         if (!response.ok) {
+          if (response.status === 401 || response.status === 403) {
+            accessStopped = true;
+            window.clearInterval(refreshIntervalId);
+            if (!abortController.signal.aborted) {
+              setRequestState({ requestKey, status: response.status === 401 ? "auth_required" : "access_denied" });
+            }
+            return;
+          }
+
           const status =
             response.status === 404
               ? "not_found"
@@ -298,13 +343,19 @@ export default function LeadDetailPage() {
                 : "error";
 
           if (!abortController.signal.aborted) {
-            setRequestState({ requestKey, status });
+            setRequestState((previous) =>
+              response.status >= 500 &&
+              previous.requestKey === requestKey &&
+              previous.status === "success"
+                ? { ...previous, refreshFailed: true }
+                : { requestKey, status },
+            );
           }
 
           return;
         }
 
-        const payload: unknown = await response.json();
+        const payload: unknown = await response.json().catch(() => undefined);
 
         if (!abortController.signal.aborted) {
           setRequestState(
@@ -313,46 +364,79 @@ export default function LeadDetailPage() {
                   requestKey,
                   status: "success",
                   lead: payload.data,
+                  refreshFailed: false,
                 }
               : { requestKey, status: "unavailable" },
           );
         }
       } catch {
         if (!abortController.signal.aborted) {
-          setRequestState({ requestKey, status: "error" });
+          setRequestState((previous) =>
+            previous.requestKey === requestKey && previous.status === "success"
+              ? { ...previous, refreshFailed: true }
+              : { requestKey, status: "error" },
+          );
         }
       } finally {
         requestInFlight = false;
       }
     }
 
-    void loadLead();
+    refreshRef.current = loadLead;
     const refreshIntervalId = window.setInterval(() => {
       if (document.visibilityState === "visible") {
         void loadLead();
       }
     }, refreshIntervalMilliseconds);
+    void loadLead();
 
     return () => {
       window.clearInterval(refreshIntervalId);
       abortController.abort();
+      refreshRef.current = null;
     };
-  }, [cnpj, query, requestKey]);
+  }, [cnpj, query, requestKey, canReadLeads]);
+
+  function refreshLead(): void {
+    const refresh = refreshRef.current;
+    if (refresh === null || isRefreshing) {
+      return;
+    }
+    setManualRefreshKey(requestKey);
+    void refresh().finally(() => {
+      setManualRefreshKey((pendingKey) =>
+        pendingKey === requestKey ? null : pendingKey,
+      );
+    });
+  }
+
+  const recoveryProps: PageRecoveryProps = {
+    onRetry: refreshLead,
+    refreshing: isRefreshing,
+    returnDestination,
+  };
+
+  if (!canReadLeads) {
+    return <ReadAccessState status="access_denied" />;
+  }
+  if (currentState.status === "auth_required" || currentState.status === "access_denied") {
+    return <ReadAccessState status={currentState.status} />;
+  }
 
   if (currentState.status === "loading") {
     return <LeadDetailLoading />;
   }
 
   if (currentState.status === "not_found") {
-    return <LeadNotFound />;
+    return <LeadNotFound {...recoveryProps} />;
   }
 
   if (currentState.status === "unavailable") {
-    return <LeadDataUnavailable />;
+    return <LeadDataUnavailable {...recoveryProps} />;
   }
 
   if (currentState.status === "error") {
-    return <LeadDetailError />;
+    return <LeadDetailError {...recoveryProps} />;
   }
 
   const isStale = currentState.lead.dataQuality.some(
@@ -361,27 +445,116 @@ export default function LeadDetailPage() {
 
   return (
     <div className="mx-auto w-full max-w-[96rem]">
-      <Link
-        href="/leads"
-        className="inline-flex min-h-11 items-center border-b border-[oklch(45%_0.105_174)] px-1 py-2 text-sm font-bold transition-colors hover:border-[oklch(24%_0.035_252)] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[oklch(45%_0.105_174)] motion-reduce:transition-none"
-      >
-        Voltar para leads
-      </Link>
+      <nav aria-label="Navegação da análise" className="flex flex-wrap gap-4">
+        <Link
+          href={returnDestination.href}
+          aria-label={returnDestination.label}
+          className="ui-action ui-action--quiet"
+        >
+          ← {returnDestination.label}
+        </Link>
+        {canSearchContacts ? (
+          <a
+            href="#lead-contacts"
+            className="ui-action ui-action--secondary"
+          >
+            Encontrar contatos
+          </a>
+        ) : null}
+        <button
+          type="button"
+          onClick={refreshLead}
+          disabled={isRefreshing}
+          className="ui-action ui-action--quiet"
+        >
+          {isRefreshing ? "Atualizando…" : "Atualizar análise"}
+        </button>
+      </nav>
 
-      <div className="mt-8">
+      {currentState.refreshFailed ? (
+        <p
+          role="status"
+          className="mt-5 border border-[oklch(69%_0.11_77)] bg-[oklch(94%_0.04_77)] px-4 py-3 text-sm leading-6 text-[oklch(35%_0.08_62)]"
+        >
+          Não foi possível atualizar. Exibindo a última consulta disponível;
+          a análise pode ter mudado. Use Atualizar análise para consultar
+          novamente.
+        </p>
+      ) : null}
+
+      <nav
+        aria-label="Seções da análise"
+        className="mt-6 flex flex-wrap gap-x-5 gap-y-2 border-y border-[oklch(82%_0.025_82)] py-3"
+      >
+        {[
+          ["#lead-summary", "Avaliação comercial"],
+          ...(canSearchContacts ? [["#lead-contacts", "Contatos"]] : []),
+          ["#lead-insights", "Fundamentos da decisão"],
+          ["#lead-report", "Relatório"],
+          ["#lead-message", "Mensagem de abordagem"],
+          ["#lead-history", "Histórico"],
+        ].map(([href, label]) => (
+          <a key={href} href={href} className="ui-action ui-action--quiet">
+            {label}
+          </a>
+        ))}
+      </nav>
+
+      <div id="lead-summary" className="mt-8 scroll-mt-8">
         {isStale ? <StaleDataNotice /> : null}
         <LeadDetailSummary lead={currentState.lead} />
       </div>
 
-      <div className="mt-10">
+      <section
+        id="lead-contacts"
+        aria-labelledby="lead-contacts-heading"
+        className="mt-10 scroll-mt-8 border-y border-[oklch(82%_0.025_82)] py-6"
+      >
+        <h2 id="lead-contacts-heading" className="font-serif text-2xl tracking-[-0.025em]">
+          Contatos profissionais
+        </h2>
+        {canSearchContacts ? (
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-[oklch(43%_0.03_252)]">
+            Localize a empresa, confira os perfis encontrados e escolha os
+            canais profissionais que deseja recuperar.
+          </p>
+        ) : null}
+        <ContactEnrichmentProvider key={currentState.lead.cnpj}>
+          <ContactEnrichmentAction
+            attemptKey={currentState.lead.cnpj}
+            companyName={currentState.lead.companyName}
+            companyCity={currentState.lead.city}
+            companyState={currentState.lead.uf}
+            companySector={currentState.lead.sector}
+            cnpj={currentState.lead.cnpj}
+            initialDomain={null}
+            producerScore={currentState.lead.score}
+          />
+        </ContactEnrichmentProvider>
+      </section>
+
+      <div id="lead-insights" className="mt-10 scroll-mt-8">
         <LeadInsights lead={currentState.lead} />
       </div>
 
       <div className="mt-10">
+        <LeadLocationMap
+          cnpj={currentState.lead.cnpj}
+          city={currentState.lead.city}
+          leadRunId={currentState.lead.lead_run_id}
+          uf={currentState.lead.uf}
+        />
+      </div>
+
+      <div id="lead-report" className="mt-10 scroll-mt-8">
         <StrategicReport report={currentState.lead.strategicReport} />
       </div>
 
-      <div className="mt-10">
+      <div id="lead-message" className="mt-10 scroll-mt-8">
+        <LeadApproachMessage lead={currentState.lead} />
+      </div>
+
+      <div id="lead-history" className="mt-10 scroll-mt-8">
         <LeadHistory cnpj={cnpj} />
       </div>
 
@@ -418,34 +591,37 @@ function LeadDetailLoading() {
   );
 }
 
-function LeadNotFound() {
+function LeadNotFound(props: PageRecoveryProps) {
   return (
     <PageState
       eyebrow="Consulta sem correspondência"
       title="Empresa não encontrada"
-      description="Não encontramos uma análise elegível para este CNPJ e execução. Revise o endereço ou volte para a lista de leads."
+      description="Não encontramos uma análise disponível para esta empresa. Volte à lista e escolha outra empresa para consultar."
+      {...props}
     />
   );
 }
 
-function LeadDataUnavailable() {
+function LeadDataUnavailable(props: PageRecoveryProps) {
   return (
     <PageState
       alert
       eyebrow="Consulta indisponível"
       title="Dados da análise indisponíveis"
-      description="Os dados não puderam ser apresentados com segurança agora. Atualize a página para tentar novamente."
+      description="Os dados não puderam ser apresentados com segurança agora. Tente consultar novamente."
+      {...props}
     />
   );
 }
 
-function LeadDetailError() {
+function LeadDetailError(props: PageRecoveryProps) {
   return (
     <PageState
       alert
       eyebrow="Falha na consulta"
       title="Não foi possível carregar esta análise agora."
-      description="Atualize a página para tentar novamente. Se o problema continuar, contate o suporte responsável."
+      description="Tente consultar novamente. Se o problema continuar, contate o suporte responsável."
+      {...props}
     />
   );
 }
@@ -468,7 +644,13 @@ function StaleDataNotice() {
   );
 }
 
-interface PageStateProps {
+interface PageRecoveryProps {
+  onRetry: () => void;
+  refreshing: boolean;
+  returnDestination: LeadReturnDestination;
+}
+
+interface PageStateProps extends PageRecoveryProps {
   alert?: boolean;
   description: string;
   eyebrow: string;
@@ -480,6 +662,9 @@ function PageState({
   description,
   eyebrow,
   title,
+  onRetry,
+  refreshing,
+  returnDestination,
 }: PageStateProps) {
   return (
     <section
@@ -495,11 +680,34 @@ function PageState({
       <p className="mt-5 max-w-2xl text-sm leading-6 text-[oklch(43%_0.03_252)]">
         {description}
       </p>
-      <Link
-        href="/leads"
-        className="mt-7 inline-flex min-h-11 items-center border-b border-[oklch(45%_0.105_174)] px-1 py-2 text-sm font-bold transition-colors hover:border-[oklch(24%_0.035_252)] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[oklch(45%_0.105_174)] motion-reduce:transition-none"
-      >
-        Voltar para leads
+      <div className="mt-7 flex flex-wrap gap-3">
+        <button
+          type="button"
+          onClick={onRetry}
+          disabled={refreshing}
+          className="ui-action ui-action--secondary"
+        >
+          {refreshing ? "Tentando novamente…" : "Tentar novamente"}
+        </button>
+        <Link href={returnDestination.href} className="ui-action ui-action--quiet">
+          {returnDestination.label}
+        </Link>
+      </div>
+    </section>
+  );
+}
+
+function ReadAccessState({ status }: { readonly status: "auth_required" | "access_denied" }) {
+  const expired = status === "auth_required";
+  return (
+    <section role="alert" className="mx-auto w-full max-w-4xl border-y border-[oklch(82%_0.025_82)] py-10">
+      <p className="text-xs font-bold uppercase text-[oklch(45%_0.105_174)]">{expired ? "Acesso expirado" : "Acesso restrito"}</p>
+      <h1 className="operational-title mt-4">{expired ? "Sua sessão expirou" : "Acesso não autorizado"}</h1>
+      <p className="mt-5 max-w-2xl text-sm leading-6 text-[oklch(43%_0.03_252)]">
+        {expired ? "Entre novamente para continuar. As consultas foram interrompidas." : "Seu perfil não permite esta consulta. Solicite ao responsável a verificação do seu acesso."}
+      </p>
+      <Link href={expired ? "/login" : "/inicio"} className="ui-action ui-action--primary mt-6">
+        {expired ? "Entrar novamente" : "Voltar ao início"}
       </Link>
     </section>
   );

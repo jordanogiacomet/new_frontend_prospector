@@ -50,6 +50,17 @@ const validEnvironment = {
   IMPORT_MAX_BYTES: "10485760",
   IMPORT_PRODUCER_TIMEOUT_MS: "15000",
   CONTACT_ENRICHMENT_TIMEOUT_MS: "15000",
+  OPENAI_API_KEY: "",
+  OPENAI_APPROACH_MODEL: "",
+  OPENAI_APPROACH_TIMEOUT_MS: "20000",
+  COMPANY_REGISTRY_API_BASE_URL:
+    "https://registry.example.test/api/cnpj/v1",
+  LEAD_GEOCODING_API_URL: "https://geocoder.example.test/search",
+  LEAD_POSTAL_CODE_API_BASE_URL:
+    "https://registry.example.test/api/cep/v2",
+  LEAD_GEOCODING_USER_AGENT:
+    "Prospecta-Test/1.0 (contact: privacy@example.test)",
+  LEAD_LOCATION_LOOKUP_TIMEOUT_MS: "4000",
   SENSITIVE_URL_HOSTS: "evidence.example.com, reports.example.com",
   FEATURE_IMPORTS_ENABLED: "false",
   FEATURE_BATCH_OBSERVATION_ENABLED: "false",
@@ -59,6 +70,9 @@ const validEnvironment = {
   FEATURE_COSTS_ENABLED: "false",
   FEATURE_CONTACT_ENRICHMENT_ENABLED: "false",
   FEATURE_CONTACT_DATA_ENABLED: "false",
+  FEATURE_REGISTERED_ADDRESS_MAP_ENABLED: "false",
+  FEATURE_AI_APPROACH_ENABLED: "false",
+  FEATURE_AI_APPROACH_AUTO_QUEUE_ENABLED: "false",
   COSTS_READ_SUBJECTS: "",
   DEMO2_FULL_ACCESS_ENABLED: "false",
   DEMO2_K8S_RUNTIME_ENABLED: "false",
@@ -437,6 +451,7 @@ describe("server environment", () => {
       FEATURE_COSTS_ENABLED: false,
       FEATURE_CONTACT_ENRICHMENT_ENABLED: false,
       FEATURE_CONTACT_DATA_ENABLED: false,
+      FEATURE_REGISTERED_ADDRESS_MAP_ENABLED: false,
       COSTS_READ_SUBJECTS: [],
       CONTACT_DATA_READ_SUBJECTS: [],
       CONTACT_DATA_GOVERN_SUBJECTS: [],
@@ -586,6 +601,7 @@ describe("server environment", () => {
         NEXT_PUBLIC_COSTS_READ_SUBJECTS: "synthetic-subject",
         NEXT_PUBLIC_N8N_HMAC_SECRET: leakedValue,
         NEXT_PUBLIC_N8N_IMPORT_EVENT_SECRET: leakedValue,
+        NEXT_PUBLIC_OPENAI_API_KEY: leakedValue,
       }),
     ).toThrowError(
       expect.objectContaining({
@@ -629,6 +645,9 @@ describe("server environment", () => {
       ...validEnvironment,
       IMPORT_MAX_BYTES: 10_485_760,
       IMPORT_PRODUCER_TIMEOUT_MS: 15_000,
+      OPENAI_API_KEY: undefined,
+      OPENAI_APPROACH_MODEL: undefined,
+      OPENAI_APPROACH_TIMEOUT_MS: 20_000,
       SENSITIVE_URL_HOSTS: [
         "evidence.example.com",
         "reports.example.com",
@@ -641,6 +660,9 @@ describe("server environment", () => {
       FEATURE_COSTS_ENABLED: false,
       FEATURE_CONTACT_ENRICHMENT_ENABLED: false,
       FEATURE_CONTACT_DATA_ENABLED: false,
+      FEATURE_REGISTERED_ADDRESS_MAP_ENABLED: false,
+      FEATURE_AI_APPROACH_ENABLED: false,
+      FEATURE_AI_APPROACH_AUTO_QUEUE_ENABLED: false,
       COSTS_READ_SUBJECTS: [],
       CONTACT_DATA_READ_SUBJECTS: [],
       CONTACT_DATA_GOVERN_SUBJECTS: [],
@@ -649,7 +671,104 @@ describe("server environment", () => {
       DEMO2_K8S_RUNTIME_ENABLED: false,
       DEMO3_LOCAL_RUNTIME_ENABLED: false,
       CONTACT_ENRICHMENT_TIMEOUT_MS: 15_000,
+      LEAD_LOCATION_LOOKUP_TIMEOUT_MS: 4_000,
     });
+  });
+
+  it("enables AI approach generation only with a server-only key and model", () => {
+    const parsed = environment.parseServerEnv({
+      ...validEnvironment,
+      FEATURE_AI_APPROACH_ENABLED: "true",
+      FEATURE_AI_APPROACH_AUTO_QUEUE_ENABLED: "true",
+      OPENAI_API_KEY: "sk-synthetic-openai-key-not-for-production",
+      OPENAI_APPROACH_MODEL: "configured-model-id",
+      OPENAI_APPROACH_TIMEOUT_MS: "25000",
+    });
+
+    expect(parsed).toMatchObject({
+      FEATURE_AI_APPROACH_ENABLED: true,
+      FEATURE_AI_APPROACH_AUTO_QUEUE_ENABLED: true,
+      OPENAI_API_KEY: "sk-synthetic-openai-key-not-for-production",
+      OPENAI_APPROACH_MODEL: "configured-model-id",
+      OPENAI_APPROACH_TIMEOUT_MS: 25_000,
+    });
+
+    for (const incomplete of [
+      { OPENAI_API_KEY: "" },
+      { OPENAI_APPROACH_MODEL: "" },
+      { OPENAI_APPROACH_MODEL: "model id with spaces" },
+      { OPENAI_APPROACH_TIMEOUT_MS: "60001" },
+    ]) {
+      expect(() =>
+        environment.parseServerEnv({
+          ...validEnvironment,
+          FEATURE_AI_APPROACH_ENABLED: "true",
+          OPENAI_API_KEY: "sk-synthetic-openai-key-not-for-production",
+          OPENAI_APPROACH_MODEL: "configured-model-id",
+          ...incomplete,
+        }),
+      ).toThrow(/OPENAI_/);
+    }
+  });
+
+  it("rejects automatic queue generation unless the base AI feature is enabled", () => {
+    expect(() =>
+      environment.parseServerEnv({
+        ...validEnvironment,
+        FEATURE_AI_APPROACH_AUTO_QUEUE_ENABLED: "true",
+      }),
+    ).toThrow(/FEATURE_AI_APPROACH_AUTO_QUEUE_ENABLED/);
+  });
+
+  it("does not echo an invalid OpenAI key in environment errors", () => {
+    const invalidKey = "too-short";
+
+    expect(() =>
+      environment.parseServerEnv({
+        ...validEnvironment,
+        FEATURE_AI_APPROACH_ENABLED: "true",
+        OPENAI_API_KEY: invalidKey,
+        OPENAI_APPROACH_MODEL: "configured-model-id",
+      }),
+    ).toThrowError(
+      expect.objectContaining({
+        message: expect.not.stringContaining(invalidKey),
+      }),
+    );
+  });
+
+  it("enables registered-address mapping only with complete HTTPS providers", () => {
+    const parsed = environment.parseServerEnv({
+      ...validEnvironment,
+      FEATURE_REGISTERED_ADDRESS_MAP_ENABLED: "true",
+    });
+
+    expect(parsed).toMatchObject({
+      FEATURE_REGISTERED_ADDRESS_MAP_ENABLED: true,
+      COMPANY_REGISTRY_API_BASE_URL:
+        validEnvironment.COMPANY_REGISTRY_API_BASE_URL,
+      LEAD_GEOCODING_API_URL: validEnvironment.LEAD_GEOCODING_API_URL,
+      LEAD_POSTAL_CODE_API_BASE_URL:
+        validEnvironment.LEAD_POSTAL_CODE_API_BASE_URL,
+      LEAD_LOCATION_LOOKUP_TIMEOUT_MS: 4_000,
+    });
+
+    for (const invalid of [
+      { COMPANY_REGISTRY_API_BASE_URL: "http://registry.example.test/cnpj" },
+      { LEAD_GEOCODING_API_URL: "https://user:secret@geocoder.example.test/search" },
+      { LEAD_GEOCODING_API_URL: "https://geocoder.example.test/search?key=secret" },
+      { LEAD_POSTAL_CODE_API_BASE_URL: "http://registry.example.test/cep" },
+      { LEAD_GEOCODING_USER_AGENT: "node" },
+      { LEAD_LOCATION_LOOKUP_TIMEOUT_MS: "10001" },
+    ]) {
+      expect(() =>
+        environment.parseServerEnv({
+          ...validEnvironment,
+          FEATURE_REGISTERED_ADDRESS_MAP_ENABLED: "true",
+          ...invalid,
+        }),
+      ).toThrow(/registered-address|HTTPS|LEAD_GEOCODING|approved/);
+    }
   });
 
   it("allows Demo 3 full access only in the real-data pre-production runtime", () => {

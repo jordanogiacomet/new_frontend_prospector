@@ -17,6 +17,10 @@ import type {
 
 type CommercialFeatureEnvironment = {
   readonly FEATURE_COMMERCIAL_ENABLED: boolean;
+  readonly FEATURE_AI_APPROACH_ENABLED: boolean;
+  readonly FEATURE_AI_APPROACH_AUTO_QUEUE_ENABLED: boolean;
+  readonly OPENAI_API_KEY: string | undefined;
+  readonly OPENAI_APPROACH_MODEL: string | undefined;
 };
 
 interface DemoWorkQueueInput {
@@ -87,6 +91,8 @@ function queueItem(
   overrides: Partial<CommercialWorkQueueItem> = {},
 ): CommercialWorkQueueItem {
   return {
+    approachDraft:
+      overrides.approachDraft === undefined ? null : overrides.approachDraft,
     companyDomain:
       overrides.companyDomain === undefined
         ? "empresa.example"
@@ -187,6 +193,10 @@ beforeEach(() => {
   mocks.requirePermission.mockResolvedValue(authorizationContext);
   mocks.getServerEnv.mockReturnValue({
     FEATURE_COMMERCIAL_ENABLED: true,
+    FEATURE_AI_APPROACH_ENABLED: true,
+    FEATURE_AI_APPROACH_AUTO_QUEUE_ENABLED: true,
+    OPENAI_API_KEY: "sk-synthetic-never-use",
+    OPENAI_APPROACH_MODEL: "gpt-synthetic-model",
   });
   mocks.isDemoDataEnabled.mockReturnValue(false);
   mocks.resolveLeadReadVisibility.mockResolvedValue({});
@@ -252,6 +262,10 @@ describe("GET /api/work-queue", () => {
   it("requires the commercial feature flag before validation or repository work", async () => {
     mocks.getServerEnv.mockReturnValueOnce({
       FEATURE_COMMERCIAL_ENABLED: false,
+      FEATURE_AI_APPROACH_ENABLED: true,
+      FEATURE_AI_APPROACH_AUTO_QUEUE_ENABLED: true,
+      OPENAI_API_KEY: "sk-synthetic-never-use",
+      OPENAI_APPROACH_MODEL: "gpt-synthetic-model",
     });
 
     const response = await get("?page=invalid");
@@ -275,7 +289,13 @@ describe("GET /api/work-queue", () => {
     });
     mocks.getServerEnv.mockImplementationOnce(() => {
       events.push("feature");
-      return { FEATURE_COMMERCIAL_ENABLED: true };
+      return {
+        FEATURE_COMMERCIAL_ENABLED: true,
+        FEATURE_AI_APPROACH_ENABLED: true,
+        FEATURE_AI_APPROACH_AUTO_QUEUE_ENABLED: true,
+        OPENAI_API_KEY: "sk-synthetic-never-use",
+        OPENAI_APPROACH_MODEL: "gpt-synthetic-model",
+      };
     });
     mocks.resolveLeadReadVisibility.mockImplementationOnce(async () => {
       events.push("visibility");
@@ -320,8 +340,104 @@ describe("GET /api/work-queue", () => {
         pageSize: 10,
         total: 1,
         provenance: result.provenance,
+        approachAutoGenerationEnabled: false,
+        approachPreparationEnabled: false,
       },
     });
+  });
+
+  it("enables automatic draft preparation only with both data permissions and configuration gates", async () => {
+    const authorizedActor = {
+      ...actor,
+      permissions: ["commercial:read", "leads:read", "sensitive:read"],
+    } as const;
+    mocks.requirePermission.mockResolvedValueOnce({
+      status: "authorized",
+      actor: authorizedActor,
+    });
+
+    const response = await get();
+
+    expect(response.status).toBe(200);
+    expect(mocks.listCommercialWorkQueue).toHaveBeenCalledWith(
+      {
+        actor: { organizationId },
+        page: 1,
+        pageSize: 20,
+        filters: {},
+        sort: "last_analysis_desc",
+      },
+      {},
+      expect.objectContaining({ includeApproachDrafts: true }),
+    );
+    expect((await response.json()).meta).toMatchObject({
+      approachAutoGenerationEnabled: true,
+      approachPreparationEnabled: true,
+    });
+  });
+
+  it("keeps manual preparation and cached drafts available while the automatic queue flag is disabled", async () => {
+    mocks.requirePermission.mockResolvedValueOnce({
+      status: "authorized",
+      actor: {
+        ...actor,
+        permissions: ["commercial:read", "leads:read", "sensitive:read"],
+      },
+    });
+    mocks.getServerEnv.mockReturnValueOnce({
+      FEATURE_COMMERCIAL_ENABLED: true,
+      FEATURE_AI_APPROACH_ENABLED: true,
+      FEATURE_AI_APPROACH_AUTO_QUEUE_ENABLED: false,
+      OPENAI_API_KEY: "sk-synthetic-never-use",
+      OPENAI_APPROACH_MODEL: "gpt-synthetic-model",
+    });
+
+    const response = await get();
+
+    expect((await response.json()).meta).toMatchObject({
+      approachAutoGenerationEnabled: false,
+      approachPreparationEnabled: true,
+    });
+    expect(mocks.listCommercialWorkQueue).toHaveBeenCalledWith(
+      expect.any(Object),
+      {},
+      expect.objectContaining({ includeApproachDrafts: true }),
+    );
+  });
+
+  it.each([
+    { FEATURE_AI_APPROACH_ENABLED: false },
+    { OPENAI_API_KEY: undefined },
+    { OPENAI_APPROACH_MODEL: undefined },
+  ])("withholds manual preparation when its configuration is incomplete: %j", async (missingGate) => {
+    mocks.requirePermission.mockResolvedValueOnce({
+      status: "authorized",
+      actor: { ...actor, permissions: ["commercial:read", "leads:read", "sensitive:read"] },
+    });
+    mocks.getServerEnv.mockReturnValueOnce({
+      FEATURE_COMMERCIAL_ENABLED: true,
+      FEATURE_AI_APPROACH_ENABLED: true,
+      FEATURE_AI_APPROACH_AUTO_QUEUE_ENABLED: true,
+      OPENAI_API_KEY: "sk-synthetic-never-use",
+      OPENAI_APPROACH_MODEL: "gpt-synthetic-model",
+      ...missingGate,
+    });
+    const response = await get();
+    expect((await response.json()).meta).toMatchObject({
+      approachPreparationEnabled: false, approachAutoGenerationEnabled: false,
+    });
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
+  it.each(["leads:read", "sensitive:read"] as const)("withholds manual preparation without %s", async (missingPermission) => {
+    mocks.requirePermission.mockResolvedValueOnce({
+      status: "authorized",
+      actor: { ...actor, permissions: missingPermission === "leads:read"
+        ? ["commercial:read", "sensitive:read"] : ["commercial:read", "leads:read"] },
+    });
+    const response = await get();
+    expect((await response.json()).meta).toMatchObject({ approachPreparationEnabled: false });
+    expect(globalThis.fetch).not.toHaveBeenCalled();
   });
 
   it("uses default pagination and the verified actor organization", async () => {
@@ -439,7 +555,7 @@ describe("GET /api/work-queue", () => {
 
   it("forwards valid producer and commercial filters", async () => {
     const response = await get(
-      `?cnpj_normalizado=${cnpj}&uf=PE&priority=B&commercial_stage=CONTACTED&responsible_subject=${encodeURIComponent(
+      `?cnpj_normalizado=${cnpj}&uf=PE&priority=D&commercial_stage=CONTACTED&responsible_subject=${encodeURIComponent(
         actorSubject,
       )}`,
     );
@@ -453,7 +569,7 @@ describe("GET /api/work-queue", () => {
         filters: {
           cnpj_normalizado: cnpj,
           uf: "PE",
-          priority: "B",
+          priority: "D",
           commercial_stage: "CONTACTED",
           responsible_subject: actorSubject,
         },
@@ -530,6 +646,8 @@ describe("GET /api/work-queue", () => {
         pageSize: 10,
         total: 12,
         provenance: result.provenance,
+        approachAutoGenerationEnabled: false,
+        approachPreparationEnabled: false,
       },
     });
     expectPrivateNoStore(response);
@@ -563,6 +681,8 @@ describe("GET /api/work-queue", () => {
         pageSize: 20,
         total: null,
         provenance: result.provenance,
+        approachAutoGenerationEnabled: false,
+        approachPreparationEnabled: false,
       },
     });
     expectPrivateNoStore(response);

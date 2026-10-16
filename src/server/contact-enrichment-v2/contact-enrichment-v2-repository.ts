@@ -2,13 +2,14 @@ import "server-only";
 
 import { randomUUID } from "node:crypto";
 
-import type { ContactPreviewStatus } from "../../types/contact-enrichment";
+import type { ContactPreviewStatus, ContactSearchDiagnosticDto, ContactRevealProgressDto, ContactRevealStatus, ContactRevealChannel } from "../../types/contact-enrichment";
 import {
   query,
   transaction,
   type AppDatabaseTransaction,
 } from "../db/app-client";
 import type { EncryptedContactData } from "./contact-data-crypto";
+import { contactSearchDiagnosticsSchema } from "./contact-enrichment-v2-contract";
 import type {
   NormalizedContactProfile,
   NormalizedRevealedChannels,
@@ -27,6 +28,7 @@ export interface ContactPreviewRecord {
   readonly updatedAt: Date;
   readonly providerOccurredAt: Date | null;
   readonly previewExpiresAt: Date | null;
+  readonly searchDiagnostics?: readonly ContactSearchDiagnosticDto[] | null;
 }
 
 interface ContactPreviewRow {
@@ -44,6 +46,7 @@ interface ContactPreviewRow {
   readonly updated_at: Date;
   readonly provider_occurred_at: Date | null;
   readonly preview_expires_at: Date | null;
+  readonly search_diagnostics: unknown;
 }
 
 export interface PreparedContactCandidate {
@@ -54,6 +57,32 @@ export interface PreparedContactCandidate {
   readonly canRevealWorkEmail: boolean;
   readonly canRevealBusinessPhone: boolean;
   readonly listPosition: number;
+}
+
+export interface PreparedCompanyPhoneFallback {
+  readonly phoneHmac: string;
+  readonly encryptedPhone: EncryptedContactData;
+}
+
+export interface StoredCompanyPhoneFallback {
+  readonly requestId: string;
+  readonly encryptedPhone: EncryptedContactData | null;
+  readonly obtainedAt: Date;
+  readonly expiresAt: Date;
+  readonly erasedAt: Date | null;
+  readonly suppressed: boolean;
+}
+
+interface CompanyPhoneFallbackRow {
+  readonly request_id: string;
+  readonly phone_data_key_id: string | null;
+  readonly phone_data_nonce: Buffer | null;
+  readonly phone_data_ciphertext: Buffer | null;
+  readonly phone_data_auth_tag: Buffer | null;
+  readonly obtained_at: Date;
+  readonly expires_at: Date;
+  readonly erased_at: Date | null;
+  readonly suppressed: boolean;
 }
 
 export interface StoredContactCandidate {
@@ -75,6 +104,7 @@ export interface StoredContactCandidate {
   readonly channelRevealRequestId: string | null;
   readonly channelSuppressedAt: Date | null;
   readonly channelErasedAt: Date | null;
+  readonly reveal?: ContactRevealProgressDto | null;
 }
 
 interface CandidateRow {
@@ -105,6 +135,11 @@ interface CandidateRow {
   readonly channel_reveal_request_id: string | null;
   readonly channel_suppressed_at: Date | null;
   readonly channel_erased_at: Date | null;
+  readonly latest_reveal_request_id?: string | null;
+  readonly latest_reveal_status?: ContactRevealStatus | null;
+  readonly latest_requested_channels?: readonly ContactRevealChannel[] | null;
+  readonly latest_reveal_requested_at?: Date | null;
+  readonly latest_reveal_updated_at?: Date | null;
 }
 
 const previewColumns = `
@@ -121,7 +156,8 @@ const previewColumns = `
   requested_at,
   updated_at,
   provider_occurred_at,
-  preview_expires_at
+  preview_expires_at,
+  search_diagnostics
 `;
 
 export type RecordPreviewIntentResult =
@@ -291,6 +327,8 @@ export async function recordPreviewResult(input: {
   readonly occurredAt: Date;
   readonly expiresAt: Date | null;
   readonly candidates: readonly PreparedContactCandidate[];
+  readonly companyPhone: PreparedCompanyPhoneFallback | null;
+  readonly searchDiagnostics?: readonly ContactSearchDiagnosticDto[] | null;
 }): Promise<RecordPreviewResult> {
   return transaction(async (client) => {
     const current = await lockPreviewRequest(
@@ -369,8 +407,57 @@ export async function recordPreviewResult(input: {
       storedCandidateCount += inserted.length;
     }
 
+    let storedCompanyPhone = false;
+    if (
+      input.companyPhone !== null &&
+      input.candidates.length === 0 &&
+      input.expiresAt !== null
+    ) {
+      const inserted = await client.query<{ readonly request_id: string }>({
+        text: `
+          INSERT INTO prospecting_app.contact_company_phone_fallbacks (
+            request_id,
+            organization_id,
+            phone_hmac,
+            phone_data_key_id,
+            phone_data_nonce,
+            phone_data_ciphertext,
+            phone_data_auth_tag,
+            obtained_at,
+            expires_at
+          )
+          SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9
+          WHERE NOT EXISTS (
+            SELECT 1
+            FROM prospecting_app.contact_suppressions suppression
+            WHERE suppression.organization_id = $2
+              AND suppression.identity_kind = 'phone'
+              AND suppression.identity_hmac = $3
+              AND suppression.channel_scope IN ('all', 'phone')
+              AND suppression.expires_at > $8
+          )
+          ON CONFLICT (organization_id, request_id) DO NOTHING
+          RETURNING request_id
+        `,
+        values: [
+          input.requestId,
+          input.organizationId,
+          input.companyPhone.phoneHmac,
+          input.companyPhone.encryptedPhone.keyId,
+          input.companyPhone.encryptedPhone.nonce,
+          input.companyPhone.encryptedPhone.ciphertext,
+          input.companyPhone.encryptedPhone.authenticationTag,
+          input.occurredAt,
+          input.expiresAt,
+        ],
+      });
+      storedCompanyPhone = inserted.length > 0;
+    }
+
     const effectiveStatus =
-      input.status === "PREVIEW_AVAILABLE" && storedCandidateCount === 0
+      input.status === "PREVIEW_AVAILABLE" &&
+      storedCandidateCount === 0 &&
+      !storedCompanyPhone
         ? "PREVIEW_EMPTY"
         : input.status;
     const effectiveExpiry =
@@ -382,6 +469,7 @@ export async function recordPreviewResult(input: {
             result_sha256 = $4,
             provider_occurred_at = $5,
             preview_expires_at = $6,
+            search_diagnostics = $7::jsonb,
             updated_at = GREATEST(updated_at, $5)
         WHERE organization_id = $1 AND request_id = $2
         RETURNING ${previewColumns}
@@ -393,6 +481,7 @@ export async function recordPreviewResult(input: {
         input.resultSha256,
         input.occurredAt,
         effectiveExpiry,
+        input.searchDiagnostics == null ? null : JSON.stringify(input.searchDiagnostics),
       ],
     });
     const row = updated[0];
@@ -417,6 +506,7 @@ export async function readPreviewRequest(input: {
 }): Promise<{
   readonly request: ContactPreviewRecord;
   readonly candidates: readonly StoredContactCandidate[];
+  readonly companyPhone: StoredCompanyPhoneFallback | null;
 } | null> {
   return transaction(async (client) => {
     const requests = await client.query<ContactPreviewRow>({
@@ -459,17 +549,57 @@ export async function readPreviewRequest(input: {
           record.expires_at AS channel_expires_at,
           record.reveal_request_id AS channel_reveal_request_id,
           record.suppressed_at AS channel_suppressed_at,
-          record.erased_at AS channel_erased_at
+          record.erased_at AS channel_erased_at,
+          latest_reveal.reveal_request_id AS latest_reveal_request_id,
+          latest_reveal.status AS latest_reveal_status,
+          latest_reveal.requested_channels AS latest_requested_channels,
+          latest_reveal.requested_at AS latest_reveal_requested_at,
+          latest_reveal.updated_at AS latest_reveal_updated_at
         FROM prospecting_app.contact_candidates candidate
         LEFT JOIN prospecting_app.contact_records record
           ON record.organization_id = candidate.organization_id
          AND record.contact_id = candidate.contact_id
+        LEFT JOIN LATERAL (
+          SELECT reveal_request_id, status, requested_channels, requested_at, updated_at
+          FROM prospecting_app.contact_reveal_requests reveal
+          WHERE reveal.organization_id = candidate.organization_id
+            AND reveal.request_id = candidate.request_id
+            AND reveal.contact_id = candidate.contact_id
+          ORDER BY reveal.requested_at DESC, reveal.reveal_request_id DESC
+          LIMIT 1
+        ) latest_reveal ON true
         WHERE candidate.organization_id = $1
           AND candidate.request_id = $2
         ORDER BY candidate.list_position, candidate.contact_id
         LIMIT 10
       `,
       values: [input.organizationId, input.requestId],
+    });
+    const companyPhones = await client.query<CompanyPhoneFallbackRow>({
+      text: `
+        SELECT
+          fallback.request_id,
+          fallback.phone_data_key_id,
+          fallback.phone_data_nonce,
+          fallback.phone_data_ciphertext,
+          fallback.phone_data_auth_tag,
+          fallback.obtained_at,
+          fallback.expires_at,
+          fallback.erased_at,
+          EXISTS (
+            SELECT 1
+            FROM prospecting_app.contact_suppressions suppression
+            WHERE suppression.organization_id = fallback.organization_id
+              AND suppression.identity_kind = 'phone'
+              AND suppression.identity_hmac = fallback.phone_hmac
+              AND suppression.channel_scope IN ('all', 'phone')
+              AND suppression.expires_at > $3
+          ) AS suppressed
+        FROM prospecting_app.contact_company_phone_fallbacks fallback
+        WHERE fallback.organization_id = $1
+          AND fallback.request_id = $2
+      `,
+      values: [input.organizationId, input.requestId, input.occurredAt],
     });
 
     await appendGovernanceEvent(client, {
@@ -483,6 +613,10 @@ export async function readPreviewRequest(input: {
     return {
       request: mapPreviewRow(requestRow),
       candidates: candidates.map(mapCandidateRow),
+      companyPhone:
+        companyPhones[0] === undefined
+          ? null
+          : mapCompanyPhoneFallbackRow(companyPhones[0]),
     };
   });
 }
@@ -563,14 +697,31 @@ export async function readCandidateForReveal(input: {
   return rows[0] === undefined ? null : mapCandidateRow(rows[0]);
 }
 
-export type RevealStatus =
-  | "REQUEST_RECORDED"
-  | "REVEAL_DISPATCHED"
-  | "DISPATCH_OUTCOME_UNKNOWN"
-  | "REVEAL_AVAILABLE"
-  | "REVEAL_EMPTY"
-  | "REVEAL_FAILED"
-  | "PROVIDER_OUTCOME_UNKNOWN";
+export async function readCandidateForRevealCallback(input: {
+  readonly organizationId: string;
+  readonly requestId: string;
+  readonly revealRequestId: string;
+}): Promise<StoredContactCandidate | null> {
+  const rows = await query<CandidateRow>({
+    text: `
+      ${candidateSelectSql}
+      WHERE candidate.organization_id = $1
+        AND candidate.request_id = $2
+        AND candidate.contact_id = (
+          SELECT reveal.contact_id
+          FROM prospecting_app.contact_reveal_requests reveal
+          WHERE reveal.organization_id = $1
+            AND reveal.request_id = $2
+            AND reveal.reveal_request_id = $3
+        )
+    `,
+    values: [input.organizationId, input.requestId, input.revealRequestId],
+  });
+
+  return rows[0] === undefined ? null : mapCandidateRow(rows[0]);
+}
+
+export type RevealStatus = ContactRevealStatus;
 
 export interface RevealRecord {
   readonly revealRequestId: string;
@@ -755,6 +906,7 @@ export async function recordRevealResult(input: {
   readonly occurredAt: Date;
   readonly expiresAt: Date | null;
   readonly encryptedChannels: EncryptedContactData | null;
+  readonly encryptedProfileUpdate?: EncryptedContactData | null;
   readonly channels: NormalizedRevealedChannels;
   readonly workEmailHmacs: readonly string[];
   readonly businessPhoneHmacs: readonly string[];
@@ -791,6 +943,30 @@ export async function recordRevealResult(input: {
         current.providerOccurredAt?.getTime() === input.occurredAt.getTime()
         ? { kind: "replayed", reveal: current }
         : { kind: "conflict" };
+    }
+
+    if (input.encryptedProfileUpdate !== null && input.encryptedProfileUpdate !== undefined) {
+      await client.query({
+        text: `
+          UPDATE prospecting_app.contact_candidates
+          SET profile_key_id = $3,
+              profile_nonce = $4,
+              profile_ciphertext = $5,
+              profile_auth_tag = $6
+          WHERE organization_id = $1
+            AND contact_id = $2
+            AND suppressed_at IS NULL
+            AND erased_at IS NULL
+        `,
+        values: [
+          input.organizationId,
+          current.contactId,
+          input.encryptedProfileUpdate.keyId,
+          input.encryptedProfileUpdate.nonce,
+          input.encryptedProfileUpdate.ciphertext,
+          input.encryptedProfileUpdate.authenticationTag,
+        ],
+      });
     }
 
     for (const phoneHmac of input.dncPhoneHmacs) {
@@ -1084,6 +1260,7 @@ export async function eraseExpiredContactData(input: {
 }): Promise<{
   readonly candidates: number;
   readonly records: number;
+  readonly companyPhones: number;
   readonly suppressions: number;
 }> {
   return transaction(async (client) => {
@@ -1126,6 +1303,23 @@ export async function eraseExpiredContactData(input: {
       `,
       values: [input.organizationId, input.occurredAt],
     });
+    const companyPhones = await client.query<{
+      readonly request_id: string;
+    }>({
+      text: `
+        UPDATE prospecting_app.contact_company_phone_fallbacks
+        SET phone_data_key_id = NULL,
+            phone_data_nonce = NULL,
+            phone_data_ciphertext = NULL,
+            phone_data_auth_tag = NULL,
+            erased_at = $2
+        WHERE organization_id = $1
+          AND erased_at IS NULL
+          AND expires_at <= $2
+        RETURNING request_id
+      `,
+      values: [input.organizationId, input.occurredAt],
+    });
 
     const requestByContact = new Map(
       candidates.map((candidate) => [
@@ -1146,6 +1340,15 @@ export async function eraseExpiredContactData(input: {
         occurredAt: input.occurredAt,
       });
     }
+    for (const companyPhone of companyPhones) {
+      await appendGovernanceEvent(client, {
+        organizationId: input.organizationId,
+        requestId: companyPhone.request_id,
+        actorCategory: "system:contact-retention-v2",
+        eventType: "CONTACT_ERASED",
+        occurredAt: input.occurredAt,
+      });
+    }
 
     const suppressions = await client.query<{ readonly suppression_id: string }>({
       text: `
@@ -1159,6 +1362,7 @@ export async function eraseExpiredContactData(input: {
     return {
       candidates: candidates.length,
       records: records.length,
+      companyPhones: companyPhones.length,
       suppressions: suppressions.length,
     };
   });
@@ -1406,6 +1610,9 @@ function mapPreviewRow(row: ContactPreviewRow): ContactPreviewRecord {
     updatedAt: row.updated_at,
     providerOccurredAt: row.provider_occurred_at,
     previewExpiresAt: row.preview_expires_at,
+    searchDiagnostics: row.search_diagnostics == null
+      ? null
+      : contactSearchDiagnosticsSchema.parse(row.search_diagnostics),
   };
 }
 
@@ -1456,6 +1663,35 @@ function mapCandidateRow(row: CandidateRow): StoredContactCandidate {
     channelRevealRequestId: row.channel_reveal_request_id,
     channelSuppressedAt: row.channel_suppressed_at,
     channelErasedAt: row.channel_erased_at,
+    reveal: row.latest_reveal_request_id && row.latest_reveal_status &&
+      row.latest_requested_channels && row.latest_reveal_requested_at && row.latest_reveal_updated_at
+      ? {
+          revealRequestId: row.latest_reveal_request_id,
+          status: row.latest_reveal_status,
+          requestedChannels: row.latest_requested_channels,
+          channelsMatchResult: row.channel_reveal_request_id === row.latest_reveal_request_id,
+          requestedAt: row.latest_reveal_requested_at.toISOString(),
+          updatedAt: row.latest_reveal_updated_at.toISOString(),
+        }
+      : null,
+  };
+}
+
+function mapCompanyPhoneFallbackRow(
+  row: CompanyPhoneFallbackRow,
+): StoredCompanyPhoneFallback {
+  return {
+    requestId: row.request_id,
+    encryptedPhone: encryptedFromRow(
+      row.phone_data_key_id,
+      row.phone_data_nonce,
+      row.phone_data_ciphertext,
+      row.phone_data_auth_tag,
+    ),
+    obtainedAt: row.obtained_at,
+    expiresAt: row.expires_at,
+    erasedAt: row.erased_at,
+    suppressed: row.suppressed,
   };
 }
 

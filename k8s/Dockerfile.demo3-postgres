@@ -9,6 +9,14 @@ COPY db/app/008_legacy_workflow_start_report_forward.sql /docker-entrypoint-init
 COPY db/app/009_contact_enrichment_ledger_forward.sql /docker-entrypoint-initdb.d/045-contact-enrichment-ledger.sql
 COPY db/app/010_contact_data_governance_forward.sql /docker-entrypoint-initdb.d/047-contact-data-governance.sql
 COPY db/app/011_contact_company_resolution_forward.sql /docker-entrypoint-initdb.d/048-contact-company-resolution.sql
+COPY db/app/012_contact_company_phone_fallback_forward.sql /docker-entrypoint-initdb.d/049-contact-company-phone-fallback.sql
+COPY db/app/013_lead_registered_geocode_cache_forward.sql /docker-entrypoint-initdb.d/049-lead-registered-geocode-cache.sql
+COPY db/app/014_lead_postal_geocode_fallback_forward.sql /docker-entrypoint-initdb.d/050-lead-postal-geocode-fallback.sql
+COPY db/app/015_lead_approach_draft_cache_forward.sql /docker-entrypoint-initdb.d/051-lead-approach-draft-cache.sql
+COPY db/app/016_qualification_cadence_forward.sql /docker-entrypoint-initdb.d/052-qualification-cadence.sql
+COPY db/app/017_contact_search_feedback_forward.sql /docker-entrypoint-initdb.d/053-contact-search-feedback.sql
+COPY db/app/018_contact_search_relevance_forward.sql /docker-entrypoint-initdb.d/054-contact-search-relevance.sql
+COPY db/app/019_import_received_companies_forward.sql /docker-entrypoint-initdb.d/055-import-received-companies.sql
 COPY k8s/demo3-init-app-role.sh /docker-entrypoint-initdb.d/040-app-role.sh
 COPY db/app/003_app_schema_grants.sql /docker-entrypoint-initdb.d/050-app-grants.sql
 

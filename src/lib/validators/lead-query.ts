@@ -30,7 +30,7 @@ const brazilianUfs = [
   "TO",
 ] as const;
 
-const approvedPriorities = ["B", "C", "E", "R"] as const;
+const approvedPriorities = ["B", "C", "D", "E", "R"] as const;
 
 function prepareQueryInput(
   input: unknown,
@@ -119,10 +119,18 @@ export const outsideAnalysisQuerySchema = z.preprocess(
   z.strictObject(paginationShape),
 );
 
+export const outsideAnalysisDetailQuerySchema = z.preprocess(
+  (input) => prepareQueryInput(input, new Set()),
+  z.strictObject({}),
+);
+
 export type LeadListQuery = z.infer<typeof leadListQuerySchema>;
 export type LeadDetailParams = z.infer<typeof leadDetailParamsSchema>;
 export type LeadDetailQuery = z.infer<typeof leadDetailQuerySchema>;
 export type LeadHistoryQuery = z.infer<typeof leadHistoryQuerySchema>;
 export type OutsideAnalysisQuery = z.infer<
   typeof outsideAnalysisQuerySchema
+>;
+export type OutsideAnalysisDetailQuery = z.infer<
+  typeof outsideAnalysisDetailQuerySchema
 >;

@@ -7,8 +7,10 @@ import {
 } from "../../lib/formatters";
 import {
   UNKNOWN_DOMAIN_LABEL,
+  formatDecisionReason,
   getLeadActionLabel,
 } from "../../lib/lead-labels";
+import { appendReturnTo } from "../../lib/navigation-return";
 import type { OutsideAnalysisCompany } from "../../types/leads";
 
 interface OutsideAnalysisPagination {
@@ -44,6 +46,7 @@ export function OutsideAnalysisTable({
   companies,
   pagination,
 }: OutsideAnalysisTableProps) {
+  const returnTo = buildPageHref(pagination.page, pagination.pageSize);
   const resultLabel =
     pagination.total === 1
       ? "1 resultado"
@@ -63,7 +66,7 @@ export function OutsideAnalysisTable({
       <div className="overflow-x-auto">
         <table
           aria-label="Empresas fora da análise"
-          className="w-full min-w-[76rem] border-collapse text-left"
+          className="responsive-data-table w-full border-collapse text-left md:min-w-[76rem]"
         >
           <thead>
             <tr className="border-b border-[oklch(72%_0.035_82)]">
@@ -101,21 +104,33 @@ export function OutsideAnalysisTable({
                   key={company.cnpj}
                   className="border-b border-[oklch(88%_0.02_82)] align-top transition-colors hover:bg-[oklch(95%_0.025_82)] motion-reduce:transition-none"
                 >
-                  <td className="max-w-64 py-5 pr-3">
+                  <td data-label="Empresa" className="max-w-64 py-5 pr-3">
                     <p className="font-bold leading-5">
                       {company.companyName ?? UNAVAILABLE_LABEL}
                     </p>
+                    <Link
+                      href={appendReturnTo(
+                        `/leads/outside-analysis/${company.cnpj}`,
+                        returnTo,
+                      )}
+                      className="mt-3 inline-flex min-h-11 items-center border-b border-[oklch(45%_0.105_174)] px-0.5 text-xs font-bold text-[oklch(37%_0.095_174)] transition-colors hover:border-[oklch(24%_0.035_252)] hover:text-[oklch(24%_0.035_252)] focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-[oklch(45%_0.105_174)] motion-reduce:transition-none"
+                    >
+                      Ver decisão do CRM
+                      <span aria-hidden="true" className="ml-1">
+                        →
+                      </span>
+                    </Link>
                   </td>
-                  <td className="px-3 py-5 text-sm whitespace-nowrap">
+                  <td data-label="CNPJ" className="px-3 py-5 text-sm whitespace-nowrap">
                     {formatCnpj(company.cnpj)}
                   </td>
-                  <td className="max-w-48 px-3 py-5 text-sm leading-5">
+                  <td data-label="Cidade / UF" className="max-w-48 px-3 py-5 text-sm leading-5">
                     {formatLocation(company.city, company.uf)}
                   </td>
-                  <td className="max-w-56 px-3 py-5 text-sm leading-5">
+                  <td data-label="Setor" className="max-w-56 px-3 py-5 text-sm leading-5">
                     {company.sector ?? UNAVAILABLE_LABEL}
                   </td>
-                  <td className="max-w-48 px-3 py-5">
+                  <td data-label="Decisão do CRM" className="max-w-48 px-3 py-5">
                     <span
                       className={`inline-flex min-h-7 items-center border px-2.5 py-1 text-xs font-bold leading-4 ${
                         actionIsUnavailable
@@ -126,13 +141,13 @@ export function OutsideAnalysisTable({
                       {actionLabel}
                     </span>
                   </td>
-                  <td className="min-w-80 max-w-[30rem] px-3 py-5 text-sm leading-6 whitespace-pre-line break-words">
-                    {company.decisionReason ?? UNAVAILABLE_LABEL}
+                  <td data-label="Motivo" className="min-w-80 max-w-[30rem] px-3 py-5 text-sm leading-6 whitespace-pre-line break-words">
+                    {formatDecisionReason(company.decisionReason)}
                   </td>
-                  <td className="px-3 py-5 text-sm whitespace-nowrap">
+                  <td data-label="Data da decisão" className="px-3 py-5 text-sm whitespace-nowrap">
                     {formatBrazilianDate(company.decidedAt)}
                   </td>
-                  <td className="py-5 pl-3 text-sm last:pr-0">
+                  <td data-label="Importação" className="py-5 pl-3 text-sm last:pr-0">
                     <span className="block max-w-48 break-all">
                       {company.import_batch_id ?? UNAVAILABLE_LABEL}
                     </span>

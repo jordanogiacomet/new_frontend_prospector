@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 
 import {
   act,
+  fireEvent,
   render,
   screen,
   waitFor,
@@ -11,8 +12,13 @@ import {
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { LeadHistoryItem } from "../../types/leads";
+import { PrivateCapabilitiesProvider } from "../auth/private-capabilities";
 
 import { LeadHistory } from "./lead-history";
+
+function authorizedHistory(cnpj: string) {
+  return <PrivateCapabilitiesProvider permissions={["leads:read"]}><LeadHistory cnpj={cnpj} /></PrivateCapabilitiesProvider>;
+}
 
 const syntheticCnpj = "11.222.333/0001-81";
 const currentRunId = `lr_${"a".repeat(64)}`;
@@ -72,8 +78,38 @@ describe("lead retained history", () => {
     vi.stubGlobal("fetch", fetchMock);
   });
 
-  it("shows an accessible loading state while the history request is pending", () => {
+  it("denies missing read permission before any request", () => {
     render(<LeadHistory cnpj={syntheticCnpj} />);
+    expect(screen.getByRole("heading", { name: "Acesso não autorizado" })).toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it.each([401, 403])("clears retained history and stops polling after HTTP %i", async (status) => {
+    const intervalSpy = vi.spyOn(window, "setInterval");
+    const visibilitySpy = vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+    try {
+      fetchMock
+        .mockResolvedValueOnce(successfulHistory())
+        .mockResolvedValueOnce(respondWithJson({ error: { message: "private detail" } }, status));
+      render(authorizedHistory(syntheticCnpj));
+      await screen.findByText(currentItem.decision_id);
+      const refresh = intervalSpy.mock.calls.find(([, delay]) => delay === 5_000)?.[0];
+      if (typeof refresh !== "function") throw new Error("Expected the history refresh callback.");
+      await act(async () => refresh());
+      expect(await screen.findByRole("heading", { name: status === 401 ? "Sua sessão expirou" : "Acesso não autorizado" })).toBeInTheDocument();
+      expect(screen.queryByText(currentItem.decision_id)).not.toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: "Entrar novamente" }) !== null).toBe(status === 401);
+      await act(async () => refresh());
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(document.body).not.toHaveTextContent("private detail");
+    } finally {
+      intervalSpy.mockRestore();
+      visibilitySpy.mockRestore();
+    }
+  });
+
+  it("shows an accessible loading state while the history request is pending", () => {
+    render(authorizedHistory(syntheticCnpj));
 
     expect(
       screen.getByRole("status", {
@@ -88,7 +124,7 @@ describe("lead retained history", () => {
   it("uses the encoded CNPJ and exact authenticated GET fetch contract", async () => {
     fetchMock.mockResolvedValue(successfulHistory());
 
-    render(<LeadHistory cnpj={syntheticCnpj} />);
+    render(authorizedHistory(syntheticCnpj));
 
     await screen.findByText("decision-synthetic-history-current");
     expect(fetchMock).toHaveBeenCalledExactlyOnceWith(
@@ -113,7 +149,7 @@ describe("lead retained history", () => {
       total: 1,
     }));
 
-    const { unmount } = render(<LeadHistory cnpj={syntheticCnpj} />);
+    const { unmount } = render(authorizedHistory(syntheticCnpj));
 
     await screen.findByText("decision-synthetic-history-current");
     const refreshCall = setIntervalSpy.mock.calls.find(
@@ -180,7 +216,7 @@ describe("lead retained history", () => {
       successfulHistory([supersededItem, currentItem]),
     );
 
-    render(<LeadHistory cnpj={syntheticCnpj} />);
+    render(authorizedHistory(syntheticCnpj));
 
     const items = await screen.findAllByTestId("lead-history-item");
     expect(
@@ -194,6 +230,22 @@ describe("lead retained history", () => {
     ]);
   });
 
+  it("keeps technical references in a closed disclosure while showing the recommendation", async () => {
+    fetchMock.mockResolvedValue(successfulHistory([currentItem]));
+
+    render(authorizedHistory(syntheticCnpj));
+
+    const item = await screen.findByTestId("lead-history-item");
+    const disclosure = item.querySelector("details");
+    expect(disclosure).not.toBeNull();
+    expect(disclosure).not.toHaveAttribute("open");
+    expect(disclosure?.querySelector("summary")).toHaveTextContent("Identificação da análise");
+    expect(disclosure).toContainElement(within(item).getByTestId("history-decision-id"));
+    expect(disclosure).not.toHaveTextContent(currentItem.recommendedActionReason!);
+    expect(item).toHaveTextContent(currentItem.recommendedActionReason!);
+    expect(within(item).getByRole("link", { name: "Abrir esta análise" })).toBeInTheDocument();
+  });
+
   it("keeps distinct decisions and links each item with its exact leadRunId", async () => {
     const sharedRunId = `lr_${"c".repeat(64)}`;
     fetchMock.mockResolvedValue(
@@ -203,7 +255,7 @@ describe("lead retained history", () => {
       ]),
     );
 
-    render(<LeadHistory cnpj="11222333000181" />);
+    render(authorizedHistory("11222333000181"));
 
     const links = await screen.findAllByRole("link", {
       name: "Abrir esta análise",
@@ -221,16 +273,39 @@ describe("lead retained history", () => {
   it("distinguishes the current analysis from a superseded analysis", async () => {
     fetchMock.mockResolvedValue(successfulHistory());
 
-    render(<LeadHistory cnpj={syntheticCnpj} />);
+    render(authorizedHistory(syntheticCnpj));
 
     expect(await screen.findByText("Análise atual")).toBeInTheDocument();
     expect(screen.getByText("Análise substituída")).toBeInTheDocument();
   });
 
+  it("presents an approved technical reason term in business language", async () => {
+    fetchMock.mockResolvedValue(
+      successfulHistory(
+        [
+          {
+            ...currentItem,
+            recommendedActionReason:
+              "Histórico CRM encontrado: REENGAJAR_COM_HISTORICO. Revisão humana obrigatória.",
+          },
+        ],
+        { ...retainedMetadata, total: 1 },
+      ),
+    );
+
+    render(authorizedHistory(syntheticCnpj));
+
+    const item = await screen.findByTestId("lead-history-item");
+    expect(item).toHaveTextContent(
+      "Histórico CRM encontrado: Reengajar com histórico. Revisão humana obrigatória.",
+    );
+    expect(item).not.toHaveTextContent("REENGAJAR_COM_HISTORICO");
+  });
+
   it("preserves the exact retained-only label and caveat", async () => {
     fetchMock.mockResolvedValue(successfulHistory());
 
-    render(<LeadHistory cnpj={syntheticCnpj} />);
+    render(authorizedHistory(syntheticCnpj));
 
     expect(
       await screen.findByText("Análises retidas encontradas"),
@@ -260,7 +335,7 @@ describe("lead retained history", () => {
       ),
     );
 
-    render(<LeadHistory cnpj={syntheticCnpj} />);
+    render(authorizedHistory(syntheticCnpj));
 
     const item = await screen.findByTestId("lead-history-item");
     expect(within(item).getAllByText("Não disponível")).toHaveLength(4);
@@ -272,7 +347,7 @@ describe("lead retained history", () => {
       successfulHistory([], { ...retainedMetadata, total: 0 }),
     );
 
-    render(<LeadHistory cnpj={syntheticCnpj} />);
+    render(authorizedHistory(syntheticCnpj));
 
     const emptyState = await screen.findByRole("status", {
       name: "Nenhuma análise retida disponível",
@@ -303,7 +378,7 @@ describe("lead retained history", () => {
       ),
     );
 
-    render(<LeadHistory cnpj={syntheticCnpj} />);
+    render(authorizedHistory(syntheticCnpj));
 
     const unavailable = await screen.findByRole("status", {
       name: "Histórico indisponível",
@@ -330,7 +405,7 @@ describe("lead retained history", () => {
       ),
     );
 
-    render(<LeadHistory cnpj={syntheticCnpj} />);
+    render(authorizedHistory(syntheticCnpj));
 
     const alert = await screen.findByRole("alert", {
       name: "Erro ao carregar histórico",
@@ -361,7 +436,7 @@ describe("lead retained history", () => {
   ])("fails safely for $name", async ({ response }) => {
     fetchMock.mockResolvedValue(respondWithJson(response));
 
-    render(<LeadHistory cnpj={syntheticCnpj} />);
+    render(authorizedHistory(syntheticCnpj));
 
     const alert = await screen.findByRole("alert", {
       name: "Resposta de histórico inválida",
@@ -388,7 +463,7 @@ describe("lead retained history", () => {
       }),
     );
 
-    render(<LeadHistory cnpj={syntheticCnpj} />);
+    render(authorizedHistory(syntheticCnpj));
 
     await screen.findByText("decision-synthetic-history-current");
     expect(document.body).not.toHaveTextContent("PRIVATE_EVENT_CANARY");
@@ -411,4 +486,17 @@ describe("lead retained history", () => {
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
   });
+  it("keeps confirmed history after a refresh failure and offers a manual GET recovery", async () => {
+    fetchMock.mockResolvedValueOnce(successfulHistory()).mockRejectedValueOnce(new Error("private read failure")).mockResolvedValueOnce(successfulHistory());
+    render(authorizedHistory(syntheticCnpj));
+    await screen.findByText(currentItem.decision_id);
+    fireEvent.click(screen.getByRole("button", { name: "Atualizar histórico" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("última consulta confirmada");
+    expect(screen.getByText(currentItem.decision_id)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Atualizar histórico" }));
+    await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+    expect(fetchMock.mock.calls.every(([, init]) => init.method === "GET")).toBe(true);
+    expect(document.body).not.toHaveTextContent("private read failure");
+  });
+
 });

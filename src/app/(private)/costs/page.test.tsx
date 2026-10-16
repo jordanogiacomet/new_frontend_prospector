@@ -1,12 +1,18 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const { navigationState } = vi.hoisted(() => ({
-  navigationState: { query: "" },
+  navigationState: { query: "", canReadCosts: true },
 }));
 
 vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(navigationState.query),
+}));
+
+vi.mock("../../../components/auth/private-capabilities", () => ({
+  usePrivateCapabilities: () => ({
+    hasPermission: (permission: string) => permission === "costs:read" && navigationState.canReadCosts,
+  }),
 }));
 
 import CostOverviewPage from "./page";
@@ -67,9 +73,44 @@ function firstFetchCall(): readonly [string, RequestInit] {
 describe("cost overview page", () => {
   beforeEach(() => {
     navigationState.query = "";
+    navigationState.canReadCosts = true;
     fetchMock.mockReset();
     fetchMock.mockResolvedValue(apiResponse(costEnvelope()));
     vi.stubGlobal("fetch", fetchMock);
+  });
+
+  it("does not request costs without the independent read capability", () => {
+    navigationState.canReadCosts = false;
+
+    render(<CostOverviewPage />);
+
+    expect(screen.getByRole("alert")).toHaveTextContent("Você não tem acesso aos custos.");
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+  });
+
+  it("offers sign-in after session expiry without exposing cost data or diagnostics", async () => {
+    fetchMock.mockResolvedValue(apiResponse({ error: { message: "private diagnostics" } }, 401));
+
+    render(<CostOverviewPage />);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Sua sessão expirou");
+    expect(screen.getByRole("link", { name: "Entrar novamente" })).toHaveAttribute("href", "/login");
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent("private diagnostics");
+  });
+
+  it("removes confirmed costs when capability is withdrawn", async () => {
+    const view = render(<CostOverviewPage />);
+    await screen.findByRole("table", { name: "Custos por análise" });
+
+    navigationState.canReadCosts = false;
+    view.rerender(<CostOverviewPage />);
+
+    expect(screen.getByRole("alert")).toHaveTextContent("Você não tem acesso aos custos.");
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent("run-synthetic-001");
+    expect(fetchMock).toHaveBeenCalledOnce();
   });
 
   it("shows a loading state while the costs request is pending", () => {
@@ -98,9 +139,16 @@ describe("cost overview page", () => {
     expect(new Headers(init.headers).get("Accept")).toBe("application/json");
     expect(init.body).toBeUndefined();
 
-    expect(
-      await screen.findByRole("table", { name: "Custos por execução" }),
-    ).toBeInTheDocument();
+    const table = await screen.findByRole("table", { name: "Custos por análise" });
+    expect(table).toHaveClass("responsive-data-table");
+    expect(within(table).getByRole("columnheader", { name: "Análise" })).toBeInTheDocument();
+    expect(within(table).getAllByRole("cell").map((cell) => cell.getAttribute("data-label"))).toEqual(["Análise", "Disponibilidade", "Custo estimado"]);
+    const identifier = within(table).getByText("run-synthetic-001");
+    expect(identifier.closest("details")).not.toHaveAttribute("open");
+    expect(identifier).not.toBeVisible();
+    fireEvent.click(within(table).getByText("Ver identificação"));
+    expect(identifier).toBeVisible();
+    expect(fetchMock).toHaveBeenCalledOnce();
     expect(screen.getAllByText("Custo estimado")).toHaveLength(2);
     expect(screen.getAllByText(/US\$\s+12,3456789/)).toHaveLength(2);
     expect(screen.getByText("Disponível")).toBeInTheDocument();
@@ -334,4 +382,44 @@ describe("cost overview page", () => {
       within(pagination).getByRole("link", { name: "Próxima página" }),
     ).toHaveAttribute("href", "/costs?page=3&pageSize=10");
   });
+  it("refreshes costs with immediate feedback, no duplicate request and retained confirmed data after failure", async () => {
+    let rejectRefresh: ((error: Error) => void) | undefined;
+    fetchMock.mockResolvedValueOnce(apiResponse(costEnvelope())).mockImplementationOnce(() => new Promise((_resolve, reject) => { rejectRefresh = reject; }))
+      .mockResolvedValueOnce(apiResponse(costEnvelope()));
+    render(<CostOverviewPage />);
+    await screen.findByRole("table", { name: "Custos por análise" });
+    const refresh = screen.getByRole("button", { name: "Atualizar custos" });
+    fireEvent.click(refresh);
+    fireEvent.click(refresh);
+    expect(screen.getByRole("button", { name: "Atualizando custos…" })).toBeDisabled();
+    expect(screen.getByRole("table", { name: "Custos por análise" })).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    rejectRefresh?.(new Error("private detail"));
+    expect(await screen.findByRole("alert")).toHaveTextContent("última consulta confirmada");
+    expect(screen.getByRole("table", { name: "Custos por análise" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Atualizar custos" }));
+    expect(await screen.findByText("Custos atualizados.")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(fetchMock.mock.calls.every(([, init]) => init.method === "GET")).toBe(true);
+  });
+
+  it("releases a pending refresh after leaving and returning to the same query", async () => {
+    fetchMock.mockResolvedValueOnce(apiResponse(costEnvelope()))
+      .mockImplementationOnce(() => new Promise<Response>(() => {}))
+      .mockResolvedValueOnce(apiResponse(costEnvelope(undefined, { page: 2 })))
+      .mockResolvedValueOnce(apiResponse(costEnvelope()));
+    const view = render(<CostOverviewPage />);
+    await screen.findByRole("table", { name: "Custos por análise" });
+    fireEvent.click(screen.getByRole("button", { name: "Atualizar custos" }));
+    expect(screen.getByRole("button", { name: "Atualizando custos…" })).toBeDisabled();
+    navigationState.query = "page=2";
+    view.rerender(<CostOverviewPage />);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+    navigationState.query = "";
+    view.rerender(<CostOverviewPage />);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Atualizar custos" })).toBeEnabled());
+    expect(screen.queryByRole("button", { name: "Atualizando custos…" })).not.toBeInTheDocument();
+  });
+
 });

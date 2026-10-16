@@ -4,8 +4,8 @@ import { redirect } from "next/navigation";
 import { getServerAuthorization, signIn } from "../../server/auth";
 
 export const metadata: Metadata = {
-  title: "Acesso corporativo | Inteligência comercial",
-  description: "Acesso privado ao painel de inteligência comercial.",
+  title: "Entrar | Prospecta",
+  description: "Acesso privado ao Prospecta.",
 };
 
 interface LoginPageProps {
@@ -18,7 +18,7 @@ async function startCorporateSignIn() {
   "use server";
 
   await signIn("organization-oidc", {
-    redirectTo: "/leads",
+    redirectTo: "/inicio",
   });
 }
 
@@ -26,7 +26,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
   const authorization = await getServerAuthorization();
 
   if (authorization.status === "authorized") {
-    redirect("/leads");
+    redirect("/inicio");
   }
 
   const { error } = await searchParams;
@@ -79,7 +79,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
             <span className="lg:hidden">
               <BrandMark />
             </span>
-            <span>Painel interno</span>
+            <span>Prospecta · painel interno</span>
           </div>
 
           <div className="flex flex-1 items-center py-14 sm:py-20">

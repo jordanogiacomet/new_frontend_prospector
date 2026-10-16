@@ -1,15 +1,170 @@
 # State
 
-**Last Updated:** 2026-08-06
-**Current Work:** Contact-enrichment v2 is active only on the governed Demo 3
+**Last Updated:** 2026-10-06
+**Follow-up in progress:** Closing the presentation MVP and factual contact
+search feedback. The owner subsequently requested finishing the contact front
+end and publishing the app to the exact Demo 3 HTTPS NodePort30443 target.
+Release `demo3-preprod-20261006-mvp-feedback-001` published after exact
+cluster/TLS preflight; migration017, rollout and 26 HTTPS postflight checks
+passed. Workflows n8n remain at their installed version. The subsequent request
+for a sales-oriented company assessment is implemented (101 focal tests);
+the owner now also requested a simpler, pleasant manager pipeline. Both UI
+changes will ship together in the second verified release.
+Details: `.specs/features/demo3-mvp-readiness-v1/` and
+`.specs/features/contact-search-feedback-v1/`.
+
+**Prior application work:** Manager MVP focused on importing and reviewing companies,
+as clarified by the owner. `/inicio`, exact-priority review shortcuts,
+honest unknown upload responses, progressive disclosure and visible mobile
+upload results are implemented. Final lint, strict typecheck, 2,377 tests in
+129 files, sanitized production build and 132 synthetic browser checks passed.
+Infrastructure and Demo 3 publication were explicitly deferred by the owner
+during this turn. No new release was published.
+Details: `.specs/features/manager-import-analysis-mvp-v1/`.
+
+**Previous delivery context:** Contact-enrichment v2 is active only on the governed Demo 3
 HTTPS profile. The commercial queue prefills one exact valid producer domain;
 when none exists, it now offers an explicit company-name lookup with an
-allowlisted firmographic preview and human confirmation before Decision Makers.
+allowlisted firmographic preview and human confirmation before the contact
+preview. The approved Lusha credential does not include Contacts Prospecting,
+so new Demo 3 previews make one exact-company Decision Makers request for up to
+100 free previews and locally retain at most 10 versioned finance/accounting
+title matches; there is no second page, second operation or automatic retry.
 The queue now uses one responsive opportunity sheet per company and gives
-contacts a dedicated full-width workspace. The rollout made no real Lusha
-request. A real-contact UAT still requires one selected queue company, relevant
-candidate and immediate suppression/erasure; production remains separately
-gated.
+contacts a dedicated full-width workspace. A real-contact UAT still requires
+one selected queue company, relevant candidate and immediate
+suppression/erasure; production remains separately gated.
+The live 29-node `contact-provider-fallback-v1` workflow now uses Apollo only
+after a structurally valid empty Lusha sample. When its exact-domain Apollo
+People sample is also empty, it may reuse one sanitized corporate number from
+the already completed Apollo Organization Enrichment response. Release
+`demo3-preprod-20260811-company-phone-fallback-001` and app-owned migration
+012 are active on Demo 3. The number is encrypted, retained for 30 days,
+suppression-aware, shown separately with unknown contactability, and never
+affects the commercial score. The rollout made no webhook or provider request;
+runtime provider access remains an explicit operator UAT.
+Release `demo3-preprod-20260811-lead-location-map-001` adds an approximate
+company-location section to lead detail using only the existing company name,
+city and UF. The map opens on explicit operator action, sends no CNPJ and loads
+no third-party content with the private page itself.
+Release `demo3-preprod-20260813-registered-address-map-003` upgrades that map
+to a server-resolved registered-address point, an explicitly labeled
+registered-CEP fallback, and finally the existing municipality fallback. The
+browser never calls the registry or geocoders directly; only coordinate cache
+fields are retained app-owned.
+Release `demo3-preprod-20260813-registered-address-map-004` keeps the marker
+coordinate and precision contract intact while tightening registered-reference
+framing to approximately 330 × 220 metres; municipality framing is unchanged.
+Release `demo3-preprod-20260813-outside-analysis-detail-001` gives every current
+“Fora da análise” CRM decision a dedicated, read-only page. It reuses the exact
+list eligibility and organization visibility, exposes no new producer field and
+offers no analysis, contact or mutation action.
+Release `demo3-preprod-20260814-all-current-001` publishes the complete current
+worktree requested by the owner. It presents uppercase underscore terms in
+decision reasons as readable business text while preserving API/producer
+values. Exact target/TLS preflights, all local build gates, disposable
+PostgreSQL integration, local contracts and value-safe authenticated smoke
+passed; both pods are Ready with zero restarts.
+Release `demo3-preprod-20260817-lead-approach-001` adds the editable lead-detail
+approach draft from approved report context. Fresh local gates and value-free
+postflight passed; the app and PostgreSQL pods are Ready with zero restarts.
+The feature has no send or persistence path and the rollout called no n8n or
+contact provider.
+Release `demo3-preprod-20260817-lead-problem-001` refines that draft to require
+an explicit company problem from the approved report; sector is supporting
+context only and generic opportunity/qualification fields no longer produce a
+message. Exact preflights, 115 files / 2,118 tests, build and value-safe
+postflight passed. Both pods are Ready with zero restarts, and the rollout made
+no producer write, n8n call or provider request.
+Release `demo3-preprod-20260817-all-report-approach-001` publishes the owner's
+correction: every identified company with an available report receives a draft
+from its best approved context. Problems remain first priority, but opportunity,
+differential, asset, signal, summary, safe prose and sector are valid bases; an
+identity-only neutral draft covers reports with no customer-facing fact. Lint,
+typecheck, 115 files / 2,126 tests, sanitized build, exact preflights and
+value-safe postflight passed with both pods Ready and zero restarts.
+Release `demo3-preprod-20260817-ai-approach-001` activates lead approach AI v1
+on Demo 3 with the owner-selected `gpt-5.6-terra` model and a server-only key.
+The PLASFORT research-quality sentence is denied from deterministic customer
+copy. “Gerar com IA” re-reads the sanitized selected report server-side,
+requires `leads:read` plus `sensitive:read`, and makes one OpenAI Responses
+request with `store:false`, structured output, bounded timeout, no tools and no
+retry. Prior full lint/typecheck, 117 files / 2,151 tests, 54 local contracts
+and sanitized build passed; the release build, exact target/TLS preflights and
+value-free route postflight also passed. Both workloads are Ready with zero
+restarts. No OpenAI request was made during rollout or postflight.
+Release `demo3-preprod-20260817-ai-proposal-001` makes every accepted AI draft
+present Apollo Gestão, explain a relevant approved asset-management capability
+and formulate a concrete initial proposal tied to the target report. Full
+lint/typecheck, 117 files / 2,154 tests, sanitized build, exact target/TLS
+preflights and value-free route smoke passed. Both workloads are Ready with
+zero restarts; rollout and postflight made no OpenAI request.
+Release `demo3-preprod-20260817-commercial-queue-approach-001` publishes the
+approved commercial-queue approach v1 implementation. Visible exact-priority
+`B` and `C` companies receive a review-only personalized draft through a
+durable organization/CNPJ/run/version claim cache; refreshes reuse ready copy
+and concurrent requests do not duplicate provider calls. The independent
+automatic-queue flag is default-off outside the configured local Demo 3
+profile. Full lint/typecheck, 119 files / 2,175 tests, 103 disposable PostgreSQL
+integrations, 54 local contracts and production build passed. Exact preflights,
+app-owned migration/grant verification and value-safe queue smoke passed; all
+workloads are Ready with zero restarts. Rollout/postflight made no OpenAI, n8n,
+producer-write or outreach call.
+Release `demo3-preprod-20260818-qualification-cadence-001` publishes the
+app-owned four-contact qualification cadence in the commercial workspace. The
+manager chooses a start date and interval, records the current result, and the
+sequence advances, reschedules or ends without automatic sending or reply
+detection. Full lint/typecheck, 123 files / 2,259 unit tests, 106 disposable
+PostgreSQL integrations, 54 local contracts and sanitized production build
+passed. Exact target/TLS preflight, migration/index/grant checks and value-safe
+authenticated route/workspace smoke passed; app and PostgreSQL workloads are
+Ready on the immutable release with zero restarts. Rollout/postflight made no
+OpenAI, n8n, contact-provider or producer-write call.
+Release `demo3-preprod-20260818-operational-ux-001` publishes the
+`operational-ux-flow-v1` pass. It preserves exact lead and queue context across
+detail/workspace navigation, adds direct workspace task shortcuts, connects
+copied approach text to the qualification section and warns before abandoning
+changed commercial drafts through links or browser reload/close. The pass
+changed no API, database or integration. Full lint/typecheck, 124 files / 2,267
+tests and sanitized production build passed. Exact target/TLS preflights,
+immutable rollout and value-safe postflight passed; app and PostgreSQL are
+`1/1` Ready, all containers have zero restarts, and rollout-window logs have
+zero sanitized error markers. No OpenAI, n8n, contact-provider or
+producer-write call occurred.
+Release `demo3-preprod-20260818-executive-reason-001` publishes the bounded
+executive presentation for the known CRM/public-validation recommendation.
+The UI now states the CRM history, pending public confirmation and any
+unconfirmed debt indication in plain business language, then gives the manager
+the next review action; stored/API producer text remains exact. Full lint,
+typecheck, 124 files / 2,270 tests and sanitized build passed. Exact target/TLS
+preflight and immutable rollout passed; workloads are `1/1` Ready with zero
+restarts. Value-safe postflight found one live matching case, confirmed the
+executive copy in the active client bundle and recorded no identifier, reason
+body or company value. Logs had zero sanitized error markers, and no OpenAI,
+n8n, contact-provider or producer-write call occurred.
+Release `demo3-preprod-20260818-risk-original-001` publishes the approved risk
+fallback: exact known tokens keep their friendly descriptions, while an
+unknown sanitized risk item is displayed unchanged instead of collapsing into
+the repeated no-description sentence. Full lint/typecheck, 124 files / 2,270
+tests and sanitized build passed. Exact target/TLS preflight and immutable
+rollout passed; workloads are `1/1` Ready with zero restarts. Value-safe
+postflight observed seven unknown live risk items without recording their
+values, confirmed the generic copy absent and known copy present in the active
+bundle, and found zero sanitized error markers. No OpenAI, n8n,
+contact-provider or producer-write call occurred.
+Release `demo3-preprod-20260818-report-preservation-001` publishes the
+strategic-report preservation fix. A valid oversized report remains available
+through a displayed copy reduced to 12,000 characters with a visible notice;
+phone-like content is replaced with an explicit privacy marker before response
+mapping. The stored producer report is unchanged; e-mail, active HTML, unsafe
+schemes, ambiguous matches and failed integrity remain unavailable. Full
+lint/typecheck, 124 files / 2,271 tests and sanitized production build passed.
+Exact target/TLS preflights and immutable rollout passed; workloads are `1/1`
+Ready with zero restarts and rollout-window logs have zero sanitized error
+markers. Anonymous Leads returned `401`, authenticated Leads returned `200`,
+and a value-safe live check found the targeted report available, reduced,
+within the limit and without phone-like content. No OpenAI, n8n,
+contact-provider or producer-write call occurred.
 
 ---
 
@@ -246,13 +401,110 @@ appear solely to demonstrate this feature.
 current live queue had no correlated domain, and n8n retained zero v2 execution
 rows; no Lusha request was made.
 
+### AD-016: Contact fit is a separate derived commercial score (2026-08-10)
+
+**Decision:** Render only the policy-approved factual LinkedIn profile and
+calculate `contact-commercial-score-v1` on explicit user action from the best
+available priority accounting title. Add the approved bonus to the immutable
+producer score, cap at 100, and label the result as a separate commercial
+indicator.
+**Reason:** The operator needs a concise signal that a requested accounting
+decision maker was found, while the producer score and recommendation remain
+outside the Prospecta mutation boundary.
+**Trade-off:** The derived score is intentionally non-persistent and must be
+recalculated after a page reload. Missing provider LinkedIn data remains
+missing rather than becoming a fabricated search link.
+**Impact:** No route, migration, provider request or producer write is added.
+The rule is covered with synthetic Portuguese and English titles, unavailable
+contacts, missing producer score and the 100-point cap.
+
+### AD-017: Priority titles are constrained in the provider query (2026-08-10)
+
+**Decision:** Replace the generic Decision Makers preview with one Lusha
+Contacts Prospecting request constrained by the human-confirmed company and
+the exact Portuguese/English title aliases versioned by
+`contact-commercial-score-v1`. Do not issue a table/reveal operation, generic
+fallback, automatic retry or second provider request.
+**Reason:** A generic ten-contact preview did not establish that the requested
+finance/accounting profiles had actually been searched, so local filtering
+could report no match even when a relevant employee existed outside that
+sample.
+**Trade-off:** The provider may return fewer or no profiles, and each explicit
+new search may consume Lusha search credits. An empty result describes only
+that query and is not proof that the company has no relevant employee.
+**Impact:** Demo 3 release
+`demo3-preprod-20260810-priority-profile-search-001` updated the UI and exact
+published v2 workflow without changing routes, migrations, storage, the
+producer score or producer data. Rollout and postflight made no provider
+request and retained zero saved or active workflow executions.
+
+### AD-018: Demo 3 uses a one-sample Decision Makers fallback (2026-08-10)
+
+**Decision:** Because the approved Demo 3 Lusha credential returns `403` for
+Contacts Prospecting, use one exact-company Decision Makers request with page
+0 and size 100. Filter that provider-ranked sample locally with the same
+versioned title aliases and expose at most 10 matching candidates. Do not
+request another page, retry or call another provider operation.
+**Reason:** Company Prospecting and Decision Makers both succeed with the same
+credential, isolating the failure to the account's Contacts Prospecting
+entitlement. The fallback restores a functional Demo 3 without weakening
+secret, callback, storage or producer boundaries.
+**Trade-off:** Decision Makers does not perform an exhaustive title-filtered
+directory search. An empty priority result means only that none appeared in
+the returned sample; it cannot prove employee absence.
+**Impact:** Release `demo3-preprod-20260810-decision-makers-fallback-001`
+completed a synthetic end-to-end request as `PREVIEW_EMPTY`, with zero contact
+values and zero saved/active n8n executions. Production should prefer upstream
+title filtering after its separately approved credential has the necessary
+entitlement.
+
+### AD-019: Decision Makers uses relevant tiers before generic fallback (2026-08-10)
+
+**Decision:** Within the same exact-company sample, return exact priority
+profiles first, adjacent finance/accounting roles second and, only when both
+relevant tiers are empty, the provider's first valid decision makers. Preserve
+provider order inside each tier and keep the total at 10.
+**Reason:** The available Decision Makers sample may omit the narrow approved
+profiles while still returning useful contacts. Showing nearby or generic
+decision makers is more useful than reporting an empty preview and requires no
+second provider call.
+**Trade-off:** Adjacent and generic contacts establish neither target-role fit
+nor employee completeness. They may be displayed and explicitly revealed, but
+only exact priority aliases remain eligible for `contact-commercial-score-v1`.
+**Impact:** The callback schema, app-owned storage, provider request count,
+reveal boundary and producer facts remain unchanged. Contract tests execute all
+three selection tiers with synthetic contacts.
+
+### AD-020: Apollo fallback resolves an exact organization before people (2026-08-10)
+
+**Decision:** Only after a structurally valid empty Lusha sample, enrich the
+confirmed domain as one Apollo organization. Require exact returned
+`primary_domain` before a single People Search using the returned organization
+ID. Preview remains masked; a human-selected work-email reveal may update only
+that contact's encrypted factual name and approved LinkedIn. Apollo phone,
+personal email and waterfall remain disabled.
+**Reason:** Apollo's free People Search can filter by a domain that was a
+current or previous employer and does not return a verifiable current-employer
+domain. The exact organization step prevents accepting an unverified company.
+**Trade-off:** Organization Enrichment consumes one credit when a company is
+found; People Search itself is free, and selected People Enrichment may consume
+additional credits. The preview has no LinkedIn until human selection.
+**Impact:** Repository contracts, server mapping, encrypted provider identity
+and UI are verified. On 2026-08-11 the exact native Apollo credential metadata
+passed the guarded preflight; workflow `PCEv2Demo3b8L3nR` was rollback-exported,
+replaced under the same ID and published with 29 nodes. Release
+`demo3-preprod-20260811-apollo-fallback-001` is Ready. Rollout made no provider
+request and final n8n state was one webhook with zero saved/active executions.
+
 ---
 
 ## Active Blockers
 
 - **CONTACT-V2-UAT:** Select one current queue company and one professionally
-  relevant candidate for the authorized real-contact test, then suppress and
-  erase the result without recording contact values in evidence.
+  relevant candidate for the authorized real-contact test. The first explicit
+  preview must also validate the operator-reported Apollo API access if Lusha
+  returns an empty sample; then suppress and erase any revealed result without
+  recording contact values in evidence.
 - **CONTACT-V2-03:** Identify the production hostname/namespace, individual
   OIDC and remotely verified HMAC timestamp/nonce/replay plus durable rate
   limit before production import or rollout.
@@ -314,6 +566,13 @@ never consumed.
 | # | Description | Date | Commit | Status |
 | --- | --- | --- | --- | --- |
 | 001 | Link upload result to evidence-based batch progress | 2026-07-15 | `feat(imports): link upload result to batch progress` | ✅ Done |
+| 002 | Make pending/unknown company-search reads visible without automatic retry | 2026-08-11 | Not committed in the existing dirty feature worktree | ✅ Done |
+| 003 | Embed an approximate municipality map in lead detail | 2026-08-12 | Not committed in the existing dirty feature worktree | ✅ Done |
+| 004 | Add a read-only page for each current outside-analysis CRM decision | 2026-08-13 | Not committed in the existing dirty feature worktree | ✅ Done |
+| 005 | Improve strategic-report readability and withhold technical metadata | 2026-08-13 | Not committed in the existing dirty feature worktree | ✅ Done |
+| 006 | Recognize and filter the exact producer priority `D` without inferring rank | 2026-08-14 | Not committed in the existing dirty feature worktree | ✅ Done |
+| 007 | Add a report-grounded editable approach draft to lead detail without sending | 2026-08-14 | Not committed in the existing dirty feature worktree | ✅ Done |
+| 008 | Generate a safe report-grounded approach draft for every identified company | 2026-08-17 | Not committed in the existing dirty feature worktree | ✅ Done |
 
 ---
 

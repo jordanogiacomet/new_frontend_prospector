@@ -15,30 +15,47 @@
       "name": "Webhook Contact Enrichment v2",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2.1,
-      "position": [0, 0],
+      "position": [
+        0,
+        0
+      ],
       "webhookId": "5d2b52ca-9714-41a1-bce2-b83475dbe201"
     },
     {
       "parameters": {
         "mode": "runOnceForEachItem",
-        "jsCode": "const body = $json.body && typeof $json.body === 'object' && !Array.isArray($json.body) ? $json.body : $json;\nconst uuid = value => typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);\nconst text = (value, max) => typeof value === 'string' && value.length > 0 && value.length <= max && value.trim() === value && !/[\\u0000-\\u001f\\u007f<>]/.test(value);\nconst nullableText = (value, max) => value === null || text(value, max);\nconst state = value => value === null || (typeof value === 'string' && /^[A-Z]{2}$/.test(value));\nconst cnpj = value => typeof value === 'string' && /^[0-9]{14}$/.test(value);\nconst domain = value => typeof value === 'string' && value === value.toLowerCase() && /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$/.test(value);\nconst sameFields = expected => { const actual = Object.keys(body).sort(); return actual.length === expected.length && actual.every((field, index) => field === expected[index]); };\nconst invalid = () => ({ json: { valid: false } });\nif (body.action === 'COMPANY_SEARCH') {\n  const expected = ['action','cnpj_normalizado','company_city','company_country_iso2','company_name','company_state','contract_version','idempotency_key','search_request_id'];\n  if (!sameFields(expected) || body.contract_version !== 'prospecta-contact-company-search-v2' || !uuid(body.search_request_id) || !text(body.idempotency_key, 128) || !cnpj(body.cnpj_normalizado) || !text(body.company_name, 200) || !nullableText(body.company_city, 100) || !state(body.company_state) || body.company_country_iso2 !== 'BR') return invalid();\n  return { json: { valid: true, action: 'COMPANY_SEARCH', search_request_id: body.search_request_id, company_name: body.company_name, company_city: body.company_city, company_state: body.company_state, company_country_iso2: body.company_country_iso2, response_contract_version: 'prospecta-contact-company-search-v2', response_status: 'SEARCH_DISPATCHED' } };\n}\nif (body.action === 'PREVIEW') {\n  const expected = ['action','cnpj_normalizado','company_domain','contract_version','idempotency_key','request_id'];\n  if (!sameFields(expected) || body.contract_version !== 'prospecta-contact-enrichment-preview-v2' || !uuid(body.request_id) || !text(body.idempotency_key, 128) || !cnpj(body.cnpj_normalizado) || !domain(body.company_domain)) return invalid();\n  return { json: { valid: true, action: 'PREVIEW', request_id: body.request_id, company_domain: body.company_domain, response_contract_version: 'prospecta-contact-enrichment-preview-v2', response_status: 'PREVIEW_DISPATCHED' } };\n}\nif (body.action === 'PREVIEW_BY_COMPANY_ID') {\n  const expected = ['action','cnpj_normalizado','contract_version','idempotency_key','provider_company_id','request_id'];\n  if (!sameFields(expected) || body.contract_version !== 'prospecta-contact-enrichment-preview-by-company-id-v1' || !uuid(body.request_id) || !text(body.idempotency_key, 128) || !cnpj(body.cnpj_normalizado) || !text(body.provider_company_id, 256)) return invalid();\n  return { json: { valid: true, action: 'PREVIEW_BY_COMPANY_ID', request_id: body.request_id, provider_company_id: body.provider_company_id, response_contract_version: 'prospecta-contact-enrichment-preview-by-company-id-v1', response_status: 'PREVIEW_DISPATCHED' } };\n}\nif (body.action === 'REVEAL') {\n  const expected = ['action','contract_version','idempotency_key','provider_contact_id','request_id','reveal','reveal_request_id'];\n  const channels = Array.isArray(body.reveal) ? body.reveal : [];\n  if (!sameFields(expected) || body.contract_version !== 'prospecta-contact-enrichment-reveal-v2' || !uuid(body.request_id) || !uuid(body.reveal_request_id) || !text(body.idempotency_key, 128) || !text(body.provider_contact_id, 256) || channels.length < 1 || channels.length > 2 || new Set(channels).size !== channels.length || channels.some(channel => channel !== 'emails' && channel !== 'phones')) return invalid();\n  return { json: { valid: true, action: 'REVEAL', request_id: body.request_id, reveal_request_id: body.reveal_request_id, provider_contact_id: body.provider_contact_id, reveal: channels, response_contract_version: 'prospecta-contact-enrichment-reveal-v2', response_status: 'REVEAL_DISPATCHED' } };\n}\nreturn invalid();"
+        "jsCode": "const body = $json.body && typeof $json.body === 'object' && !Array.isArray($json.body) ? $json.body : $json;\nconst uuid = value => typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);\nconst text = (value, max) => typeof value === 'string' && value.length > 0 && value.length <= max && value.trim() === value && !/[\\u0000-\\u001f\\u007f<>]/.test(value);\nconst nullableText = (value, max) => value === null || text(value, max);\nconst state = value => value === null || (typeof value === 'string' && /^[A-Z]{2}$/.test(value));\nconst cnpj = value => typeof value === 'string' && /^[0-9]{14}$/.test(value);\nconst domain = value => typeof value === 'string' && value === value.toLowerCase() && /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$/.test(value);\nconst sameFields = expected => { const actual = Object.keys(body).sort(); return actual.length === expected.length && actual.every((field, index) => field === expected[index]); };\nconst invalid = () => ({ json: { valid: false } });\nif (body.action === 'COMPANY_SEARCH') {\n  const expected = ['action','cnpj_normalizado','company_city','company_country_iso2','company_name','company_state','contract_version','idempotency_key','search_request_id'];\n  if (!sameFields(expected) || body.contract_version !== 'prospecta-contact-company-search-v2' || !uuid(body.search_request_id) || !text(body.idempotency_key, 128) || !cnpj(body.cnpj_normalizado) || !text(body.company_name, 200) || !nullableText(body.company_city, 100) || !state(body.company_state) || body.company_country_iso2 !== 'BR') return invalid();\n  return { json: { valid: true, action: 'COMPANY_SEARCH', search_request_id: body.search_request_id, company_name: body.company_name, company_city: body.company_city, company_state: body.company_state, company_country_iso2: body.company_country_iso2, response_contract_version: 'prospecta-contact-company-search-v2', response_status: 'SEARCH_DISPATCHED' } };\n}\nif (body.action === 'PREVIEW') {\n  const expected = ['action','cnpj_normalizado','company_domain','contract_version','idempotency_key','request_id'];\n  if (!sameFields(expected) || body.contract_version !== 'prospecta-contact-enrichment-preview-v2' || !uuid(body.request_id) || !text(body.idempotency_key, 128) || !cnpj(body.cnpj_normalizado) || !domain(body.company_domain)) return invalid();\n  return { json: { valid: true, action: 'PREVIEW', request_id: body.request_id, company_domain: body.company_domain, fallback_company_domain: body.company_domain, response_contract_version: 'prospecta-contact-enrichment-preview-v2', response_status: 'PREVIEW_DISPATCHED' } };\n}\nif (body.action === 'PREVIEW_BY_COMPANY_ID') {\n  const expected = ['action','cnpj_normalizado','contract_version','fallback_company_domain','idempotency_key','provider_company_id','request_id'];\n  if (!sameFields(expected) || body.contract_version !== 'prospecta-contact-enrichment-preview-by-company-id-v1' || !uuid(body.request_id) || !text(body.idempotency_key, 128) || !cnpj(body.cnpj_normalizado) || !text(body.provider_company_id, 256) || (body.fallback_company_domain !== null && !domain(body.fallback_company_domain))) return invalid();\n  return { json: { valid: true, action: 'PREVIEW_BY_COMPANY_ID', request_id: body.request_id, provider_company_id: body.provider_company_id, fallback_company_domain: body.fallback_company_domain, response_contract_version: 'prospecta-contact-enrichment-preview-by-company-id-v1', response_status: 'PREVIEW_DISPATCHED' } };\n}\nif (body.action === 'REVEAL') {\n  const expected = ['action','contract_version','idempotency_key','provider_contact_id','provider_source','request_id','reveal','reveal_request_id'];\n  const channels = Array.isArray(body.reveal) ? body.reveal : [];\n  const providerSource = body.provider_source === 'LUSHA' || body.provider_source === 'APOLLO' ? body.provider_source : null;\n  const apolloChannelsValid = providerSource !== 'APOLLO' || (channels.length === 1 && channels[0] === 'emails');\n  if (!sameFields(expected) || body.contract_version !== 'prospecta-contact-enrichment-reveal-v2' || !uuid(body.request_id) || !uuid(body.reveal_request_id) || !text(body.idempotency_key, 128) || !text(body.provider_contact_id, 256) || providerSource === null || channels.length < 1 || channels.length > 2 || new Set(channels).size !== channels.length || channels.some(channel => channel !== 'emails' && channel !== 'phones') || !apolloChannelsValid) return invalid();\n  return { json: { valid: true, action: 'REVEAL', request_id: body.request_id, reveal_request_id: body.reveal_request_id, provider_contact_id: body.provider_contact_id, provider_source: providerSource, reveal: channels, response_contract_version: 'prospecta-contact-enrichment-reveal-v2', response_status: 'REVEAL_DISPATCHED' } };\n}\nreturn invalid();"
       },
       "id": "fe44ffba-70fb-4fdb-8d6a-f49642741002",
       "name": "Validate v2 Request",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [240, 0]
+      "position": [
+        240,
+        0
+      ]
     },
     {
       "parameters": {
         "conditions": {
-          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2 },
-          "conditions": [{
-            "id": "fe44ffba-70fb-4fdb-8d6a-f49642741003",
-            "leftValue": "={{ $json.valid }}",
-            "rightValue": "",
-            "operator": { "type": "boolean", "operation": "true", "singleValue": true }
-          }],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "fe44ffba-70fb-4fdb-8d6a-f49642741003",
+              "leftValue": "={{ $json.valid }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
           "combinator": "and"
         },
         "options": {}
@@ -47,30 +64,48 @@
       "name": "IF Valid v2 Request",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.3,
-      "position": [480, 0]
+      "position": [
+        480,
+        0
+      ]
     },
     {
       "parameters": {
         "respondWith": "json",
         "responseBody": "={{ $json.action === 'COMPANY_SEARCH' ? { contract_version: $json.response_contract_version, search_request_id: $json.search_request_id, status: $json.response_status } : $json.action === 'REVEAL' ? { contract_version: $json.response_contract_version, reveal_request_id: $json.reveal_request_id, status: $json.response_status } : { contract_version: $json.response_contract_version, request_id: $json.request_id, status: $json.response_status } }}",
-        "options": { "responseCode": 202 }
+        "options": {
+          "responseCode": 202
+        }
       },
       "id": "fe44ffba-70fb-4fdb-8d6a-f49642741005",
       "name": "Respond v2 Accepted",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.4,
-      "position": [720, -80]
+      "position": [
+        720,
+        -80
+      ]
     },
     {
       "parameters": {
         "conditions": {
-          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2 },
-          "conditions": [{
-            "id": "fe44ffba-70fb-4fdb-8d6a-f49642741017",
-            "leftValue": "={{ $json.action }}",
-            "rightValue": "COMPANY_SEARCH",
-            "operator": { "type": "string", "operation": "equals" }
-          }],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "fe44ffba-70fb-4fdb-8d6a-f49642741017",
+              "leftValue": "={{ $json.action }}",
+              "rightValue": "COMPANY_SEARCH",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
           "combinator": "and"
         },
         "options": {}
@@ -79,18 +114,24 @@
       "name": "IF Company Search",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.3,
-      "position": [960, -80]
+      "position": [
+        960,
+        -80
+      ]
     },
     {
       "parameters": {
         "mode": "runOnceForEachItem",
-        "jsCode": "const request = $('Validate v2 Request').first().json;\nconst location = { country: 'Brazil' };\nif (request.company_city !== null) location.city = request.company_city;\nif (request.company_state !== null) location.state = request.company_state;\nreturn { json: { lusha_request_body: { pagination: { page: 0, size: 10 }, filters: { companies: { include: { names: [request.company_name], locations: [location] } } }, options: { includePartialProfiles: true } } } };"
+        "jsCode": "const request = $('Validate v2 Request').first().json;\nconst location = { country: 'Brazil' };\nreturn { json: { lusha_request_body: { pagination: { page: 0, size: 10 }, filters: { companies: { include: { names: [request.company_name], locations: [location] } } }, options: { includePartialProfiles: true } } } };"
       },
       "id": "fe44ffba-70fb-4fdb-8d6a-f49642741019",
       "name": "Prepare Company Search",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1200, -420]
+      "position": [
+        1200,
+        -420
+      ]
     },
     {
       "parameters": {
@@ -101,26 +142,153 @@
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify($json.lusha_request_body) }}",
-        "options": { "timeout": 30000, "response": { "response": { "fullResponse": true, "neverError": true } } }
+        "options": {
+          "timeout": 30000,
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
       },
       "id": "fe44ffba-70fb-4fdb-8d6a-f49642741020",
       "name": "Lusha Prospecting Companies v2",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1440, -420],
+      "position": [
+        1440,
+        -420
+      ],
+      "retryOnFail": false,
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "fe44ffba-70fb-4fdb-8d6a-f49642741032",
+              "leftValue": "={{ $json.provider_source }}",
+              "rightValue": "APOLLO",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "fe44ffba-70fb-4fdb-8d6a-f49642741033",
+      "name": "IF Apollo Reveal",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1200,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const request = $('Validate v2 Request').first().json;\nreturn { json: { apollo_query: { id: request.provider_contact_id, reveal_personal_emails: false, reveal_phone_number: false, run_waterfall_email: false, run_waterfall_phone: false } } };"
+      },
+      "id": "fe44ffba-70fb-4fdb-8d6a-f49642741034",
+      "name": "Prepare Apollo Contact Reveal",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1440,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.apollo.io/api/v1/people/match",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "id",
+              "value": "={{ $json.apollo_query.id }}"
+            },
+            {
+              "name": "reveal_personal_emails",
+              "value": "={{ $json.apollo_query.reveal_personal_emails }}"
+            },
+            {
+              "name": "reveal_phone_number",
+              "value": "={{ $json.apollo_query.reveal_phone_number }}"
+            },
+            {
+              "name": "run_waterfall_email",
+              "value": "={{ $json.apollo_query.run_waterfall_email }}"
+            },
+            {
+              "name": "run_waterfall_phone",
+              "value": "={{ $json.apollo_query.run_waterfall_phone }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000,
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "fe44ffba-70fb-4fdb-8d6a-f49642741035",
+      "name": "Apollo Enrich Selected Contact v1",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1680,
+        180
+      ],
       "retryOnFail": false,
       "continueOnFail": true
     },
     {
       "parameters": {
         "mode": "runOnceForEachItem",
-        "jsCode": "const request = $('Validate v2 Request').first().json;\nconst envelope = $json && typeof $json === 'object' && !Array.isArray($json) ? $json : {};\nconst statusCode = Number.isInteger(envelope.statusCode) ? envelope.statusCode : 200;\nconst body = envelope.body && typeof envelope.body === 'object' && !Array.isArray(envelope.body) ? envelope.body : envelope;\nconst safeText = (value, max) => typeof value === 'string' && value.length > 0 && value.length <= max && value.trim() === value && !/[\\u0000-\\u001f\\u007f<>]/.test(value) ? value : null;\nconst safeDomain = value => typeof value === 'string' && value === value.toLowerCase() && /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$/.test(value) ? value : null;\nlet status = statusCode >= 400 && statusCode < 500 ? 'SEARCH_FAILED' : 'PROVIDER_OUTCOME_UNKNOWN';\nlet matches = [];\nif (statusCode >= 200 && statusCode < 300 && Array.isArray(body.results)) {\n  matches = body.results.slice(0, 5).map(company => {\n    if (!company || typeof company !== 'object' || company.error) return null;\n    const providerCompanyId = safeText(company.id, 256);\n    const companyName = safeText(company.name, 200);\n    if (!providerCompanyId || !companyName) return null;\n    const location = company.location && typeof company.location === 'object' && !Array.isArray(company.location) ? company.location : {};\n    return {\n      provider_company_id: providerCompanyId,\n      company_name: companyName,\n      company_domain: safeDomain(company.domain),\n      industry: safeText(company.industry, 200),\n      location: { city: safeText(location.city, 100), state: safeText(location.state, 100), country: safeText(location.country, 100) }\n    };\n  }).filter(Boolean);\n  if (matches.length > 0) status = 'SEARCH_AVAILABLE';\n  else if (body.results.length === 0) status = 'SEARCH_EMPTY';\n  else status = 'SEARCH_FAILED';\n}\nreturn { json: { contract_version: 'prospecta-contact-company-search-v2', search_request_id: request.search_request_id, status, occurred_at: new Date().toISOString(), matches } };"
+        "jsCode": "const request = $('Validate v2 Request').first().json;\nconst envelope = $json && typeof $json === 'object' && !Array.isArray($json) ? $json : {};\nconst statusCode = Number.isInteger(envelope.statusCode) ? envelope.statusCode : 200;\nconst body = envelope.body && typeof envelope.body === 'object' && !Array.isArray(envelope.body) ? envelope.body : envelope;\nconst person = body.person && typeof body.person === 'object' && !Array.isArray(body.person) ? body.person : {};\nconst safeText = (value, max) => typeof value === 'string' && value.length > 0 && value.length <= max && value.trim() === value && !/[\\u0000-\\u001f\\u007f<>]/.test(value) ? value : null;\nconst safeEmail = value => typeof value === 'string' && value.length <= 320 && /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(value) ? value : null;\nconst safeLinkedin = value => { try { const url = new URL(value); const hostname = url.hostname.toLowerCase(); if ((url.protocol !== 'https:' && url.protocol !== 'http:') || (hostname !== 'linkedin.com' && hostname !== 'www.linkedin.com') || url.username || url.password || url.search || url.hash || !url.pathname.startsWith('/in/')) return null; url.protocol = 'https:'; return url.toString(); } catch { return null; } };\nlet status = statusCode >= 400 && statusCode < 500 ? 'REVEAL_FAILED' : 'PROVIDER_OUTCOME_UNKNOWN';\nlet emails = [];\nlet profileUpdate = null;\nif (statusCode >= 200 && statusCode < 300 && (safeText(person.id, 256) === request.provider_contact_id || safeText(person.person_id, 256) === request.provider_contact_id)) {\n  const email = request.reveal.includes('emails') ? safeEmail(person.email) : null;\n  emails = email === null ? [] : [{ email, type: 'work', confidence: safeText(person.email_status, 32), update_date: null }];\n  const fullName = safeText(person.name, 200) || [safeText(person.first_name, 100), safeText(person.last_name, 100)].filter(Boolean).join(' ');\n  profileUpdate = fullName ? { full_name: fullName, linkedin_url: safeLinkedin(person.linkedin_url) } : null;\n  status = emails.length > 0 ? 'REVEAL_AVAILABLE' : 'REVEAL_EMPTY';\n}\nreturn { json: { contract_version: 'prospecta-contact-enrichment-reveal-v2', request_id: request.request_id, reveal_request_id: request.reveal_request_id, status, occurred_at: new Date().toISOString(), provider_contact_id: request.provider_contact_id, provider_source: 'APOLLO', profile_update: profileUpdate, emails, phones: [] } };"
+      },
+      "id": "fe44ffba-70fb-4fdb-8d6a-f49642741036",
+      "name": "Map Apollo Reveal Callback",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1920,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const request = $('Validate v2 Request').first().json;\nconst envelope = $json && typeof $json === 'object' && !Array.isArray($json) ? $json : {};\nconst statusCode = Number.isInteger(envelope.statusCode) ? envelope.statusCode : null;\nconst body = envelope.body && typeof envelope.body === 'object' && !Array.isArray(envelope.body) ? envelope.body : envelope;\nconst error = envelope.error && typeof envelope.error === 'object' ? envelope.error : {};\nconst cause = error.cause && typeof error.cause === 'object' ? error.cause : {};\nconst transportCode = error.code || cause.code;\nconst diagnosticFailure = statusCode === 401 || statusCode === 403 ? 'ACCESS_DENIED' : statusCode === 429 ? 'RATE_LIMITED' : statusCode >= 400 ? 'PROVIDER_ERROR' : envelope.error ? (transportCode === 'ETIMEDOUT' || transportCode === 'ESOCKETTIMEDOUT' ? 'TIMEOUT' : 'OUTCOME_UNKNOWN') : statusCode >= 200 && statusCode < 300 ? (body.error ? 'PROVIDER_ERROR' : 'INVALID_RESPONSE') : 'OUTCOME_UNKNOWN';\nconst safeText = (value, max) => typeof value === 'string' && value.length > 0 && value.length <= max && value.trim() === value && !/[\\u0000-\\u001f\\u007f<>]/.test(value) ? value : null;\nconst safeDomain = value => typeof value === 'string' && value === value.toLowerCase() && /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$/.test(value) ? value : null;\nconst comparable = value => { const text = safeText(value, 100); return text === null ? null : text.normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').toUpperCase().replace(/\\s+/g, ' '); };\nlet status = statusCode >= 400 && statusCode < 500 ? 'SEARCH_FAILED' : 'PROVIDER_OUTCOME_UNKNOWN';\nlet matches = [];\nlet diagnosticCode = diagnosticFailure;\nif (statusCode >= 200 && statusCode < 300 && !envelope.error && !body.error && Array.isArray(body.results)) {\n  const mapped = body.results.slice(0, 10).map(company => {\n    if (!company || typeof company !== 'object' || company.error) return null;\n    const providerCompanyId = safeText(company.id, 256);\n    const companyName = safeText(company.name, 200);\n    if (!providerCompanyId || !companyName) return null;\n    const location = company.location && typeof company.location === 'object' && !Array.isArray(company.location) ? company.location : {};\n    return {\n      provider_company_id: providerCompanyId,\n      company_name: companyName,\n      company_domain: safeDomain(company.domain),\n      industry: safeText(company.industry, 200),\n      location: { city: safeText(location.city, 100), state: safeText(location.state, 100), country: safeText(location.country, 100) }\n    };\n  }).filter(Boolean);\n  const requestedCity = comparable(request.company_city);\n  const requestedState = comparable(request.company_state);\n  const isLocalMatch = company => requestedCity !== null ? comparable(company.location.city) === requestedCity : requestedState !== null && comparable(company.location.state) === requestedState;\n  const localMatches = mapped.filter(isLocalMatch);\n  matches = (localMatches.length > 0 ? [...localMatches, ...mapped.filter(company => !isLocalMatch(company))] : mapped).slice(0, 5);\n  if (matches.length > 0) status = 'SEARCH_AVAILABLE';\n  else if (body.results.length === 0) status = 'SEARCH_EMPTY';\n  else status = 'SEARCH_FAILED';\n  diagnosticCode = matches.length > 0 ? 'RESULTS_FOUND' : body.results.length === 0 ? 'NO_MATCHES' : 'INVALID_RESPONSE';\n}\nreturn { json: { contract_version: 'prospecta-contact-company-search-v2', search_request_id: request.search_request_id, status, occurred_at: new Date().toISOString(), matches, search_diagnostics: [{ provider: 'LUSHA', stage: 'COMPANY_SEARCH', code: diagnosticCode }] } };"
       },
       "id": "fe44ffba-70fb-4fdb-8d6a-f49642741021",
       "name": "Map Company Search Callback",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1680, -420]
+      "position": [
+        1680,
+        -420
+      ]
     },
     {
       "parameters": {
@@ -131,13 +299,23 @@
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify($json) }}",
-        "options": { "timeout": 30000, "response": { "response": { "neverError": true } } }
+        "options": {
+          "timeout": 30000,
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
       },
       "id": "fe44ffba-70fb-4fdb-8d6a-f49642741022",
       "name": "Callback Prospecta Company Search v2",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1920, -420],
+      "position": [
+        1920,
+        -420
+      ],
       "retryOnFail": false,
       "continueOnFail": true
     },
@@ -145,24 +323,40 @@
       "parameters": {
         "respondWith": "json",
         "responseBody": "={{ { error: { code: 'INVALID_CONTACT_ENRICHMENT_V2_REQUEST', message: 'Invalid contact enrichment request.' } } }}",
-        "options": { "responseCode": 400 }
+        "options": {
+          "responseCode": 400
+        }
       },
       "id": "fe44ffba-70fb-4fdb-8d6a-f49642741006",
       "name": "Respond v2 Invalid",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.4,
-      "position": [720, 160]
+      "position": [
+        720,
+        160
+      ]
     },
     {
       "parameters": {
         "conditions": {
-          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2 },
-          "conditions": [{
-            "id": "fe44ffba-70fb-4fdb-8d6a-f49642741007",
-            "leftValue": "={{ $json.action === 'PREVIEW' || $json.action === 'PREVIEW_BY_COMPANY_ID' }}",
-            "rightValue": "",
-            "operator": { "type": "boolean", "operation": "true", "singleValue": true }
-          }],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "fe44ffba-70fb-4fdb-8d6a-f49642741007",
+              "leftValue": "={{ $json.action === 'PREVIEW' || $json.action === 'PREVIEW_BY_COMPANY_ID' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
           "combinator": "and"
         },
         "options": {}
@@ -171,18 +365,24 @@
       "name": "IF Preview",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.3,
-      "position": [1200, 40]
+      "position": [
+        1200,
+        40
+      ]
     },
     {
       "parameters": {
         "mode": "runOnceForEachItem",
-        "jsCode": "const request = $('Validate v2 Request').first().json;\nconst company = request.action === 'PREVIEW' ? { domain: request.company_domain, clientReferenceId: request.request_id } : { id: request.provider_company_id, clientReferenceId: request.request_id };\nreturn { json: { lusha_request_body: { companies: [company], pagination: { page: 0, size: 10 } } } };"
+        "jsCode": "const request = $('Validate v2 Request').first().json;\nconst company = request.action === 'PREVIEW' ? { domain: request.company_domain } : { id: request.provider_company_id };\nreturn { json: { lusha_request_body: { companies: [{ ...company, clientReferenceId: request.request_id }], pagination: { page: 0, size: 100 } } } };"
       },
       "id": "fe44ffba-70fb-4fdb-8d6a-f49642741009",
-      "name": "Prepare Decision Makers",
+      "name": "Prepare Priority Decision Makers",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1200, -180]
+      "position": [
+        1200,
+        -180
+      ]
     },
     {
       "parameters": {
@@ -193,26 +393,220 @@
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify($json.lusha_request_body) }}",
-        "options": { "timeout": 30000, "response": { "response": { "fullResponse": true, "neverError": true } } }
+        "options": {
+          "timeout": 30000,
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
       },
       "id": "fe44ffba-70fb-4fdb-8d6a-f49642741010",
-      "name": "Lusha Decision Makers v2",
+      "name": "Lusha Decision Makers Priority Fallback v2",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1440, -180],
+      "position": [
+        1440,
+        -180
+      ],
       "retryOnFail": false,
       "continueOnFail": true
     },
     {
       "parameters": {
         "mode": "runOnceForEachItem",
-        "jsCode": "const request = $('Validate v2 Request').first().json;\nconst envelope = $json && typeof $json === 'object' && !Array.isArray($json) ? $json : {};\nconst statusCode = Number.isInteger(envelope.statusCode) ? envelope.statusCode : 200;\nconst body = envelope.body && typeof envelope.body === 'object' && !Array.isArray(envelope.body) ? envelope.body : envelope;\nconst safeText = (value, max) => typeof value === 'string' && value.length > 0 && value.length <= max && value.trim() === value && !/[\\u0000-\\u001f\\u007f<>]/.test(value) ? value : null;\nlet status = 'PROVIDER_OUTCOME_UNKNOWN';\nlet candidates = [];\nif (statusCode >= 200 && statusCode < 300 && Array.isArray(body.results)) {\n  const company = body.results.find(result => result && result.clientReferenceId === request.request_id);\n  if (company && !company.error && Array.isArray(company.decisionMakers)) {\n    candidates = company.decisionMakers.slice(0, 10).map(person => {\n      if (!person || typeof person !== 'object') return null;\n      const id = safeText(person.id, 256);\n      const firstName = safeText(person.firstName, 100);\n      const lastName = safeText(person.lastName, 100);\n      const fullName = safeText(person.fullName, 200) || [firstName, lastName].filter(Boolean).join(' ');\n      if (!id || !fullName) return null;\n      const job = person.jobTitle && typeof person.jobTitle === 'object' ? person.jobTitle : {};\n      const location = person.location && typeof person.location === 'object' ? person.location : {};\n      const social = person.socialLinks && typeof person.socialLinks === 'object' ? person.socialLinks : {};\n      const reveal = Array.isArray(person.canReveal) ? person.canReveal : [];\n      const fields = new Set(reveal.filter(item => item && typeof item === 'object' && (item.field === 'emails' || item.field === 'phones')).map(item => item.field));\n      return {\n        provider_contact_id: id,\n        full_name: fullName,\n        job_title: safeText(job.title, 200),\n        departments: Array.isArray(job.departments) ? [...new Set(job.departments.map(value => safeText(value, 100)).filter(Boolean))].slice(0, 5) : [],\n        seniority: safeText(job.seniority, 100),\n        location: { city: safeText(location.city, 100), state: safeText(location.state, 100), country: safeText(location.country, 100) },\n        linkedin_url: safeText(social.linkedin, 500),\n        can_reveal_work_email: fields.has('emails'),\n        can_reveal_business_phone: fields.has('phones')\n      };\n    }).filter(Boolean);\n    status = candidates.length > 0 ? 'PREVIEW_AVAILABLE' : 'PREVIEW_EMPTY';\n  } else if (company && company.error && company.error.code === 'NOT_FOUND') { status = 'PREVIEW_EMPTY'; }\n}\nreturn { json: { contract_version: 'prospecta-contact-enrichment-preview-v2', request_id: request.request_id, status, occurred_at: new Date().toISOString(), candidates } };"
+        "jsCode": "const request = $('Validate v2 Request').first().json;\nconst envelope = $json && typeof $json === 'object' && !Array.isArray($json) ? $json : {};\nconst statusCode = Number.isInteger(envelope.statusCode) ? envelope.statusCode : null;\nconst body = envelope.body && typeof envelope.body === 'object' && !Array.isArray(envelope.body) ? envelope.body : envelope;\nconst error = envelope.error && typeof envelope.error === 'object' ? envelope.error : {};\nconst cause = error.cause && typeof error.cause === 'object' ? error.cause : {};\nconst transportCode = error.code || cause.code;\nconst diagnosticFailure = statusCode === 401 || statusCode === 403 ? 'ACCESS_DENIED' : statusCode === 429 ? 'RATE_LIMITED' : statusCode >= 400 ? 'PROVIDER_ERROR' : envelope.error ? (transportCode === 'ETIMEDOUT' || transportCode === 'ESOCKETTIMEDOUT' ? 'TIMEOUT' : 'OUTCOME_UNKNOWN') : statusCode >= 200 && statusCode < 300 ? (body.error ? 'PROVIDER_ERROR' : 'INVALID_RESPONSE') : 'OUTCOME_UNKNOWN';\nconst assetTitles = [\"diretor de patrimonio\",\"diretor patrimonial\",\"gerente de patrimonio\",\"gerente patrimonial\",\"gestor de patrimonio\",\"coordenador de patrimonio\",\"coordenador patrimonial\",\"supervisor de patrimonio\",\"supervisor patrimonial\",\"analista de patrimonio\",\"analista patrimonial\",\"assistente de patrimonio\",\"assistente patrimonial\",\"responsavel pelo patrimonio\",\"gerente de ativo imobilizado\",\"coordenador de ativo imobilizado\",\"supervisor de ativo imobilizado\",\"analista de ativo imobilizado\",\"assistente de ativo imobilizado\",\"fixed asset director\",\"fixed assets director\",\"director of fixed assets\",\"head of fixed assets\",\"fixed asset manager\",\"fixed assets manager\",\"fixed asset coordinator\",\"fixed assets coordinator\",\"fixed asset supervisor\",\"fixed assets supervisor\",\"fixed asset analyst\",\"fixed assets analyst\",\"fixed asset assistant\",\"fixed assets assistant\",\"fixed asset accountant\",\"fixed assets accountant\",\"asset accounting manager\",\"asset accounting analyst\",\"asset accounting assistant\"];\nconst financeTitles = [\"diretor financeiro\",\"finance director\",\"financial director\",\"director of finance\",\"controller\",\"comptroller\",\"gerente contabil\",\"accounting manager\",\"manager of accounting\",\"coordenador contabil\",\"accounting coordinator\",\"coordinator of accounting\",\"supervisor contabil\",\"accounting supervisor\",\"supervisor of accounting\",\"analista contabil\",\"assistente contabil\",\"accounting analyst\",\"accounting assistant\",\"chief financial officer\",\"cfo\",\"vice president finance\",\"vice president of finance\",\"vp finance\",\"vp of finance\",\"head of finance\",\"head finance\",\"diretor administrativo financeiro\",\"diretor administrativo e financeiro\",\"administrative financial director\",\"finance and administration director\",\"gerente financeiro\",\"finance manager\",\"financial manager\",\"coordenador financeiro\",\"finance coordinator\",\"financial coordinator\",\"supervisor financeiro\",\"finance supervisor\",\"financial supervisor\",\"analista financeiro\",\"assistente financeiro\",\"finance analyst\",\"financial analyst\",\"finance assistant\",\"financial assistant\",\"finance business partner\",\"accounting director\",\"director of accounting\",\"head of accounting\",\"chief accounting officer\",\"lider contabil\",\"accounting lead\",\"accounting team lead\",\"diretor de tesouraria\",\"gerente de tesouraria\",\"treasury director\",\"director of treasury\",\"treasury manager\",\"diretor fiscal\",\"gerente fiscal\",\"coordenador fiscal\",\"tax director\",\"director of tax\",\"tax manager\",\"diretor de planejamento financeiro\",\"gerente de planejamento financeiro\",\"fp a director\",\"fp a manager\",\"contador\",\"contadora\",\"accountant\",\"diretor de controladoria\",\"gerente de controladoria\",\"coordenador de controladoria\",\"supervisor de controladoria\",\"analista de controladoria\"];\nconst assetOperationsTitles = [\"gerente de inventario\",\"coordenador de inventario\",\"supervisor de inventario\",\"analista de inventario\",\"gerente de estoques\",\"gerente de estoque\",\"coordenador de estoques\",\"coordenador de estoque\",\"supervisor de estoques\",\"supervisor de estoque\",\"analista de estoques\",\"analista de estoque\",\"gerente de ativos fisicos\",\"coordenador de ativos fisicos\",\"physical asset manager\",\"physical assets manager\",\"physical asset coordinator\",\"physical assets coordinator\",\"inventory manager\",\"inventory coordinator\",\"inventory supervisor\",\"inventory analyst\",\"stock control manager\",\"stock control coordinator\",\"stock control analyst\"];\nconst excludedTitles = [\"patrimonio pessoal\",\"gestao de fortunas\",\"wealth management\",\"wealth manager\",\"wealth advisor\",\"private wealth\",\"private banker\"];\nconst safeText = (value, max) => typeof value === 'string' && value.length > 0 && value.length <= max && value.trim() === value && !/[\\u0000-\\u001f\\u007f<>]/.test(value) ? value : null;\nconst normalizeTitle = value => typeof value === 'string' ? value.normalize('NFKD').replace(/[\\u0300-\\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim() : '';\nconst titleMatches = (value, titles) => { const title = normalizeTitle(value); return title !== '' && titles.some(candidate => ` ${title} `.includes(` ${candidate} `)); };\nconst profileTier = value => titleMatches(value, excludedTitles) ? null : titleMatches(value, assetTitles) ? 0 : titleMatches(value, financeTitles) ? 1 : titleMatches(value, assetOperationsTitles) ? 2 : null;\nlet status = statusCode >= 400 && statusCode < 500 ? 'PREVIEW_FAILED' : 'PROVIDER_OUTCOME_UNKNOWN';\nlet candidates = [];\nlet diagnosticCode = diagnosticFailure;\nif (statusCode >= 200 && statusCode < 300 && !envelope.error && !body.error && Array.isArray(body.results)) {\n  const singleton = body.results.length === 1 ? body.results[0] : null;\n  const result = body.results.find(item => item && item.clientReferenceId === request.request_id) || (singleton && !singleton.clientReferenceId ? singleton : null);\n  if (result && result.error) diagnosticCode = 'PROVIDER_ERROR';\n  if (result && !result.error && Array.isArray(result.decisionMakers)) {\n    const decisionMakers = result.decisionMakers;\n    const validCandidates = decisionMakers.map(person => {\n      if (!person || typeof person !== 'object' || person.error) return null;\n      const id = safeText(person.id, 256);\n      const firstName = safeText(person.firstName, 100);\n      const lastName = safeText(person.lastName, 100);\n      const fullName = safeText(person.fullName, 200) || [firstName, lastName].filter(Boolean).join(' ');\n      if (!id || !fullName) return null;\n      const job = person.jobTitle && typeof person.jobTitle === 'object' ? person.jobTitle : {};\n      const location = person.location && typeof person.location === 'object' ? person.location : {};\n      const social = person.socialLinks && typeof person.socialLinks === 'object' ? person.socialLinks : {};\n      const reveal = Array.isArray(person.canReveal) ? person.canReveal : [];\n      const fields = new Set(reveal.filter(item => item && typeof item === 'object' && (item.field === 'emails' || item.field === 'phones')).map(item => item.field));\n      return {\n        jobTitle: safeText(job.title, 200),\n        candidate: {\n          provider_contact_id: id,\n          provider_source: 'LUSHA',\n          full_name: fullName,\n          job_title: safeText(job.title, 200),\n          departments: Array.isArray(job.departments) ? [...new Set(job.departments.map(value => safeText(value, 100)).filter(Boolean))].slice(0, 5) : [],\n          seniority: safeText(job.seniority, 100),\n          location: { city: safeText(location.city, 100), state: safeText(location.state, 100), country: safeText(location.country, 100) },\n          linkedin_url: safeText(social.linkedin, 500),\n          can_reveal_work_email: fields.has('emails'),\n          can_reveal_business_phone: fields.has('phones')\n        }\n      };\n    }).filter(Boolean);\n    const relevantCandidates = validCandidates.map(item => ({ ...item, tier: profileTier(item.jobTitle) })).filter(item => item.tier !== null).sort((left, right) => left.tier - right.tier);\n    const seenProviderIds = new Set();\n    candidates = relevantCandidates.filter(item => {\n      const id = item.candidate.provider_contact_id;\n      if (seenProviderIds.has(id)) return false;\n      seenProviderIds.add(id);\n      return true;\n    }).slice(0, 10).map(item => item.candidate);\n    if (candidates.length > 0) { status = 'PREVIEW_AVAILABLE'; diagnosticCode = 'RESULTS_FOUND'; }\n    else if (decisionMakers.length === 0) { status = 'PREVIEW_EMPTY'; diagnosticCode = 'NO_MATCHES'; }\n    else if (validCandidates.length > 0) { status = 'PREVIEW_EMPTY'; diagnosticCode = 'NO_RELEVANT_MATCHES'; }\n  }\n}\nconst searchDiagnostics = [{ provider: 'LUSHA', stage: 'CONTACT_PREVIEW', code: diagnosticCode }];\nif (status === 'PREVIEW_EMPTY' && diagnosticCode === 'NO_MATCHES' && !request.fallback_company_domain) searchDiagnostics.push({ provider: 'APOLLO', stage: 'COMPANY_MATCH', code: 'DOMAIN_UNAVAILABLE' });\nelse if (diagnosticCode === 'NO_RELEVANT_MATCHES' || (status !== 'PREVIEW_AVAILABLE' && status !== 'PREVIEW_EMPTY')) searchDiagnostics.push({ provider: 'APOLLO', stage: 'CONTACT_PREVIEW', code: 'NOT_ATTEMPTED' });\nreturn { json: { contract_version: 'prospecta-contact-enrichment-preview-v2', request_id: request.request_id, status, occurred_at: new Date().toISOString(), candidates, search_diagnostics: searchDiagnostics } };"
       },
       "id": "fe44ffba-70fb-4fdb-8d6a-f49642741011",
       "name": "Map Preview Callback",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1680, -180]
+      "position": [
+        1680,
+        -180
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "fe44ffba-70fb-4fdb-8d6a-f49642741023",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "PREVIEW_EMPTY",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "fe44ffba-70fb-4fdb-8d6a-f49642741031",
+              "leftValue": "={{ Array.isArray($json.search_diagnostics) && $json.search_diagnostics.some(item => item.provider === 'LUSHA' && item.stage === 'CONTACT_PREVIEW' && item.code === 'NO_MATCHES') }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "fe44ffba-70fb-4fdb-8d6a-f49642741024",
+              "leftValue": "={{ $('Validate v2 Request').first().json.fallback_company_domain || '' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "fe44ffba-70fb-4fdb-8d6a-f49642741025",
+      "name": "IF Lusha Preview Empty",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1920,
+        -260
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://api.apollo.io/api/v1/organizations/enrich",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "domain",
+              "value": "={{ $('Validate v2 Request').first().json.fallback_company_domain }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000,
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "fe44ffba-70fb-4fdb-8d6a-f49642741026",
+      "name": "Apollo Organization Enrichment v1",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2160,
+        -300
+      ],
+      "retryOnFail": false,
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const request = $('Validate v2 Request').first().json;\nconst preview = $('Map Preview Callback').first().json;\nconst envelope = $json && typeof $json === 'object' && !Array.isArray($json) ? $json : {};\nconst statusCode = Number.isInteger(envelope.statusCode) ? envelope.statusCode : null;\nconst body = envelope.body && typeof envelope.body === 'object' && !Array.isArray(envelope.body) ? envelope.body : envelope;\nconst error = envelope.error && typeof envelope.error === 'object' ? envelope.error : {};\nconst cause = error.cause && typeof error.cause === 'object' ? error.cause : {};\nconst transportCode = error.code || cause.code;\nconst diagnosticFailure = statusCode === 401 || statusCode === 403 ? 'ACCESS_DENIED' : statusCode === 429 ? 'RATE_LIMITED' : statusCode >= 400 ? 'PROVIDER_ERROR' : envelope.error ? (transportCode === 'ETIMEDOUT' || transportCode === 'ESOCKETTIMEDOUT' ? 'TIMEOUT' : 'OUTCOME_UNKNOWN') : statusCode >= 200 && statusCode < 300 ? (body.error ? 'PROVIDER_ERROR' : 'INVALID_RESPONSE') : 'OUTCOME_UNKNOWN';\nconst organization = body.organization && typeof body.organization === 'object' && !Array.isArray(body.organization) ? body.organization : {};\nconst safeText = (value, max) => typeof value === 'string' && value.length > 0 && value.length <= max && value.trim() === value && !/[\\u0000-\\u001f\\u007f<>]/.test(value) ? value : null;\nconst safeDomain = value => typeof value === 'string' && value === value.toLowerCase() && /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$/.test(value) ? value : null;\nconst safePhone = value => typeof value === 'string' && /^\\+[1-9][0-9]{7,14}$/.test(value) ? value : null;\nconst providerOrganizationId = safeText(organization.id, 256);\nconst providerDomain = safeDomain(organization.primary_domain);\nconst structurallyValidOrganization = providerOrganizationId !== null && providerDomain !== null;\nconst successfulResponse = statusCode >= 200 && statusCode < 300 && !envelope.error && !body.error;\nconst matched = successfulResponse && structurallyValidOrganization && providerDomain === request.fallback_company_domain;\nconst primaryPhone = organization.primary_phone && typeof organization.primary_phone === 'object' && !Array.isArray(organization.primary_phone) ? organization.primary_phone : {};\nconst companyPhone = matched ? (safePhone(primaryPhone.sanitized_number) || safePhone(organization.sanitized_phone)) : null;\nlet status = statusCode >= 400 && statusCode < 500 ? 'PREVIEW_FAILED' : 'PROVIDER_OUTCOME_UNKNOWN';\nif (successfulResponse) status = 'PREVIEW_EMPTY';\nconst diagnosticCode = successfulResponse ? (matched ? 'RESULTS_FOUND' : 'COMPANY_NOT_CONFIRMED') : diagnosticFailure;\nconst searchDiagnostics = [...(Array.isArray(preview.search_diagnostics) ? preview.search_diagnostics : []), { provider: 'APOLLO', stage: 'COMPANY_MATCH', code: diagnosticCode }];\nif (!matched) searchDiagnostics.push({ provider: 'APOLLO', stage: 'CONTACT_PREVIEW', code: 'NOT_ATTEMPTED' });\nconst apolloRequestBody = matched ? { organization_ids: [providerOrganizationId], person_seniorities: ['owner','founder','c_suite','vp','head','director','manager'], page: 1, per_page: 10 } : null;\nreturn { json: { contract_version: 'prospecta-contact-enrichment-preview-v2', request_id: request.request_id, status, occurred_at: new Date().toISOString(), candidates: [], apollo_organization_matched: matched, apollo_request_body: apolloRequestBody, apollo_company_phone: companyPhone, search_diagnostics: searchDiagnostics } };"
+      },
+      "id": "fe44ffba-70fb-4fdb-8d6a-f49642741027",
+      "name": "Prepare Apollo People Fallback",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2400,
+        -300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "fe44ffba-70fb-4fdb-8d6a-f49642741028",
+              "leftValue": "={{ $json.apollo_organization_matched }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "fe44ffba-70fb-4fdb-8d6a-f49642741029",
+      "name": "IF Apollo Organization Match",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        2640,
+        -300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.apollo.io/api/v1/mixed_people/api_search",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.apollo_request_body) }}",
+        "options": {
+          "timeout": 30000,
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "fe44ffba-70fb-4fdb-8d6a-f49642741030",
+      "name": "Apollo People Search Fallback v1",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2880,
+        -360
+      ],
+      "retryOnFail": false,
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const request = $('Validate v2 Request').first().json;\nconst preparation = $('Prepare Apollo People Fallback').first().json;\nconst envelope = $json && typeof $json === 'object' && !Array.isArray($json) ? $json : {};\nconst statusCode = Number.isInteger(envelope.statusCode) ? envelope.statusCode : null;\nconst body = envelope.body && typeof envelope.body === 'object' && !Array.isArray(envelope.body) ? envelope.body : envelope;\nconst error = envelope.error && typeof envelope.error === 'object' ? envelope.error : {};\nconst cause = error.cause && typeof error.cause === 'object' ? error.cause : {};\nconst transportCode = error.code || cause.code;\nconst diagnosticFailure = statusCode === 401 || statusCode === 403 ? 'ACCESS_DENIED' : statusCode === 429 ? 'RATE_LIMITED' : statusCode >= 400 ? 'PROVIDER_ERROR' : envelope.error ? (transportCode === 'ETIMEDOUT' || transportCode === 'ESOCKETTIMEDOUT' ? 'TIMEOUT' : 'OUTCOME_UNKNOWN') : statusCode >= 200 && statusCode < 300 ? (body.error ? 'PROVIDER_ERROR' : 'INVALID_RESPONSE') : 'OUTCOME_UNKNOWN';\nconst assetTitles = [\"diretor de patrimonio\",\"diretor patrimonial\",\"gerente de patrimonio\",\"gerente patrimonial\",\"gestor de patrimonio\",\"coordenador de patrimonio\",\"coordenador patrimonial\",\"supervisor de patrimonio\",\"supervisor patrimonial\",\"analista de patrimonio\",\"analista patrimonial\",\"assistente de patrimonio\",\"assistente patrimonial\",\"responsavel pelo patrimonio\",\"gerente de ativo imobilizado\",\"coordenador de ativo imobilizado\",\"supervisor de ativo imobilizado\",\"analista de ativo imobilizado\",\"assistente de ativo imobilizado\",\"fixed asset director\",\"fixed assets director\",\"director of fixed assets\",\"head of fixed assets\",\"fixed asset manager\",\"fixed assets manager\",\"fixed asset coordinator\",\"fixed assets coordinator\",\"fixed asset supervisor\",\"fixed assets supervisor\",\"fixed asset analyst\",\"fixed assets analyst\",\"fixed asset assistant\",\"fixed assets assistant\",\"fixed asset accountant\",\"fixed assets accountant\",\"asset accounting manager\",\"asset accounting analyst\",\"asset accounting assistant\"];\nconst financeTitles = [\"diretor financeiro\",\"finance director\",\"financial director\",\"director of finance\",\"controller\",\"comptroller\",\"gerente contabil\",\"accounting manager\",\"manager of accounting\",\"coordenador contabil\",\"accounting coordinator\",\"coordinator of accounting\",\"supervisor contabil\",\"accounting supervisor\",\"supervisor of accounting\",\"analista contabil\",\"assistente contabil\",\"accounting analyst\",\"accounting assistant\",\"chief financial officer\",\"cfo\",\"vice president finance\",\"vice president of finance\",\"vp finance\",\"vp of finance\",\"head of finance\",\"head finance\",\"diretor administrativo financeiro\",\"diretor administrativo e financeiro\",\"administrative financial director\",\"finance and administration director\",\"gerente financeiro\",\"finance manager\",\"financial manager\",\"coordenador financeiro\",\"finance coordinator\",\"financial coordinator\",\"supervisor financeiro\",\"finance supervisor\",\"financial supervisor\",\"analista financeiro\",\"assistente financeiro\",\"finance analyst\",\"financial analyst\",\"finance assistant\",\"financial assistant\",\"finance business partner\",\"accounting director\",\"director of accounting\",\"head of accounting\",\"chief accounting officer\",\"lider contabil\",\"accounting lead\",\"accounting team lead\",\"diretor de tesouraria\",\"gerente de tesouraria\",\"treasury director\",\"director of treasury\",\"treasury manager\",\"diretor fiscal\",\"gerente fiscal\",\"coordenador fiscal\",\"tax director\",\"director of tax\",\"tax manager\",\"diretor de planejamento financeiro\",\"gerente de planejamento financeiro\",\"fp a director\",\"fp a manager\",\"contador\",\"contadora\",\"accountant\",\"diretor de controladoria\",\"gerente de controladoria\",\"coordenador de controladoria\",\"supervisor de controladoria\",\"analista de controladoria\"];\nconst assetOperationsTitles = [\"gerente de inventario\",\"coordenador de inventario\",\"supervisor de inventario\",\"analista de inventario\",\"gerente de estoques\",\"gerente de estoque\",\"coordenador de estoques\",\"coordenador de estoque\",\"supervisor de estoques\",\"supervisor de estoque\",\"analista de estoques\",\"analista de estoque\",\"gerente de ativos fisicos\",\"coordenador de ativos fisicos\",\"physical asset manager\",\"physical assets manager\",\"physical asset coordinator\",\"physical assets coordinator\",\"inventory manager\",\"inventory coordinator\",\"inventory supervisor\",\"inventory analyst\",\"stock control manager\",\"stock control coordinator\",\"stock control analyst\"];\nconst excludedTitles = [\"patrimonio pessoal\",\"gestao de fortunas\",\"wealth management\",\"wealth manager\",\"wealth advisor\",\"private wealth\",\"private banker\"];\nconst safeText = (value, max) => typeof value === 'string' && value.length > 0 && value.length <= max && value.trim() === value && !/[\\u0000-\\u001f\\u007f<>]/.test(value) ? value : null;\nconst safePhone = value => typeof value === 'string' && /^\\+[1-9][0-9]{7,14}$/.test(value) ? value : null;\nconst normalizeTitle = value => typeof value === 'string' ? value.normalize('NFKD').replace(/[\\u0300-\\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim() : '';\nconst titleMatches = (value, titles) => { const title = normalizeTitle(value); return title !== '' && titles.some(candidate => ` ${title} `.includes(` ${candidate} `)); };\nconst profileTier = value => titleMatches(value, excludedTitles) ? null : titleMatches(value, assetTitles) ? 0 : titleMatches(value, financeTitles) ? 1 : titleMatches(value, assetOperationsTitles) ? 2 : null;\nlet status = statusCode >= 400 && statusCode < 500 ? 'PREVIEW_FAILED' : 'PROVIDER_OUTCOME_UNKNOWN';\nlet candidates = [];\nlet companyPhone = null;\nlet diagnosticCode = diagnosticFailure;\nif (statusCode >= 200 && statusCode < 300 && !envelope.error && !body.error && Array.isArray(body.people)) {\n  const validCandidates = body.people.map(person => {\n    if (!person || typeof person !== 'object' || person.error) return null;\n    const id = safeText(person.id, 256) || safeText(person.person_id, 256);\n    const fullName = safeText(person.name, 200) || [safeText(person.first_name, 100), safeText(person.last_name_obfuscated, 100)].filter(Boolean).join(' ');\n    const jobTitle = safeText(person.title, 200);\n    if (!id || !fullName) return null;\n    return {\n      jobTitle,\n      candidate: {\n        provider_contact_id: id,\n        provider_source: 'APOLLO',\n        full_name: fullName,\n        job_title: jobTitle,\n        departments: Array.isArray(person.departments) ? [...new Set(person.departments.map(value => safeText(value, 100)).filter(Boolean))].slice(0, 5) : [],\n        seniority: safeText(person.seniority, 100),\n        location: { city: null, state: null, country: null },\n        linkedin_url: null,\n        can_reveal_work_email: person.has_email === true,\n        can_reveal_business_phone: false\n      }\n    };\n  }).filter(Boolean);\n  const relevantCandidates = validCandidates.map(item => ({ ...item, tier: profileTier(item.jobTitle) })).filter(item => item.tier !== null).sort((left, right) => left.tier - right.tier);\n  const seenProviderIds = new Set();\n  candidates = relevantCandidates.filter(item => {\n    const id = item.candidate.provider_contact_id;\n    if (seenProviderIds.has(id)) return false;\n    seenProviderIds.add(id);\n    return true;\n  }).slice(0, 10).map(item => item.candidate);\n  const fallbackPhone = safePhone(preparation.apollo_company_phone);\n  if (body.people.length === 0 && fallbackPhone) companyPhone = { number: fallbackPhone, provider_source: 'APOLLO', contactability: 'UNKNOWN' };\n  if (candidates.length > 0) { status = 'PREVIEW_AVAILABLE'; diagnosticCode = 'RESULTS_FOUND'; }\n  else if (body.people.length === 0) { status = companyPhone !== null ? 'PREVIEW_AVAILABLE' : 'PREVIEW_EMPTY'; diagnosticCode = 'NO_MATCHES'; }\n  else if (validCandidates.length > 0) { status = 'PREVIEW_EMPTY'; diagnosticCode = 'NO_RELEVANT_MATCHES'; }\n}\nconst searchDiagnostics = [...(Array.isArray(preparation.search_diagnostics) ? preparation.search_diagnostics : []), { provider: 'APOLLO', stage: 'CONTACT_PREVIEW', code: diagnosticCode }];\nreturn { json: { contract_version: 'prospecta-contact-enrichment-preview-v2', request_id: request.request_id, status, occurred_at: new Date().toISOString(), candidates, company_phone: companyPhone, search_diagnostics: searchDiagnostics } };"
+      },
+      "id": "fe44ffba-70fb-4fdb-8d6a-f49642741031",
+      "name": "Map Apollo Preview Callback",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3120,
+        -360
+      ]
     },
     {
       "parameters": {
@@ -222,14 +616,24 @@
         "genericAuthType": "httpHeaderAuth",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify($json) }}",
-        "options": { "timeout": 30000, "response": { "response": { "neverError": true } } }
+        "jsonBody": "={{ JSON.stringify({ contract_version: $json.contract_version, request_id: $json.request_id, status: $json.status, occurred_at: $json.occurred_at, candidates: $json.candidates, company_phone: $json.company_phone ?? null, search_diagnostics: $json.search_diagnostics }) }}",
+        "options": {
+          "timeout": 30000,
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
       },
       "id": "fe44ffba-70fb-4fdb-8d6a-f49642741012",
       "name": "Callback Prospecta Preview v2",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1920, -180],
+      "position": [
+        1920,
+        -180
+      ],
       "retryOnFail": false,
       "continueOnFail": true
     },
@@ -242,7 +646,10 @@
       "name": "Prepare Contact Reveal",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1200, 80]
+      "position": [
+        1200,
+        80
+      ]
     },
     {
       "parameters": {
@@ -253,26 +660,40 @@
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify($json.lusha_request_body) }}",
-        "options": { "timeout": 30000, "response": { "response": { "fullResponse": true, "neverError": true } } }
+        "options": {
+          "timeout": 30000,
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
       },
       "id": "fe44ffba-70fb-4fdb-8d6a-f49642741014",
       "name": "Lusha Enrich Selected Contact v2",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1440, 80],
+      "position": [
+        1440,
+        80
+      ],
       "retryOnFail": false,
       "continueOnFail": true
     },
     {
       "parameters": {
         "mode": "runOnceForEachItem",
-        "jsCode": "const request = $('Validate v2 Request').first().json;\nconst envelope = $json && typeof $json === 'object' && !Array.isArray($json) ? $json : {};\nconst statusCode = Number.isInteger(envelope.statusCode) ? envelope.statusCode : 200;\nconst body = envelope.body && typeof envelope.body === 'object' && !Array.isArray(envelope.body) ? envelope.body : envelope;\nlet status = 'PROVIDER_OUTCOME_UNKNOWN';\nlet emails = [];\nlet phones = [];\nif (statusCode >= 200 && statusCode < 300 && Array.isArray(body.results)) {\n  const contact = body.results.find(result => result && result.id === request.provider_contact_id);\n  if (contact && !contact.error) {\n    emails = Array.isArray(contact.emails) ? contact.emails.filter(item => item && item.type === 'work' && typeof item.email === 'string').slice(0, 2).map(item => ({ email: item.email, type: 'work', confidence: typeof item.confidence === 'string' ? item.confidence : null, update_date: typeof item.updateDate === 'string' ? item.updateDate : null })) : [];\n    phones = Array.isArray(contact.phones) ? contact.phones.filter(item => item && (item.type === 'work' || item.type === 'direct') && typeof item.number === 'string' && typeof item.doNotCall === 'boolean').slice(0, 2).map(item => ({ number: item.number, type: item.type, do_not_call: item.doNotCall, update_date: typeof item.updateDate === 'string' ? item.updateDate : null })) : [];\n    status = emails.length > 0 || phones.length > 0 ? 'REVEAL_AVAILABLE' : 'REVEAL_EMPTY';\n  } else if (contact && contact.error && (contact.error.code === 'NOT_FOUND' || contact.error.code === 'COMPLIANCE_RESTRICTED')) { status = 'REVEAL_EMPTY'; }\n}\nreturn { json: { contract_version: 'prospecta-contact-enrichment-reveal-v2', request_id: request.request_id, reveal_request_id: request.reveal_request_id, status, occurred_at: new Date().toISOString(), provider_contact_id: request.provider_contact_id, emails, phones } };"
+        "jsCode": "const request = $('Validate v2 Request').first().json;\nconst envelope = $json && typeof $json === 'object' && !Array.isArray($json) ? $json : {};\nconst statusCode = Number.isInteger(envelope.statusCode) ? envelope.statusCode : 200;\nconst body = envelope.body && typeof envelope.body === 'object' && !Array.isArray(envelope.body) ? envelope.body : envelope;\nlet status = 'PROVIDER_OUTCOME_UNKNOWN';\nlet emails = [];\nlet phones = [];\nif (statusCode >= 200 && statusCode < 300 && Array.isArray(body.results)) {\n  const contact = body.results.find(result => result && result.id === request.provider_contact_id);\n  if (contact && !contact.error) {\n    emails = Array.isArray(contact.emails) ? contact.emails.filter(item => item && item.type === 'work' && typeof item.email === 'string').slice(0, 2).map(item => ({ email: item.email, type: 'work', confidence: typeof item.confidence === 'string' ? item.confidence : null, update_date: typeof item.updateDate === 'string' ? item.updateDate : null })) : [];\n    phones = Array.isArray(contact.phones) ? contact.phones.filter(item => item && (item.type === 'work' || item.type === 'direct') && typeof item.number === 'string' && typeof item.doNotCall === 'boolean').slice(0, 2).map(item => ({ number: item.number, type: item.type, do_not_call: item.doNotCall, update_date: typeof item.updateDate === 'string' ? item.updateDate : null })) : [];\n    status = emails.length > 0 || phones.length > 0 ? 'REVEAL_AVAILABLE' : 'REVEAL_EMPTY';\n  } else if (contact && contact.error && (contact.error.code === 'NOT_FOUND' || contact.error.code === 'COMPLIANCE_RESTRICTED')) { status = 'REVEAL_EMPTY'; }\n}\nreturn { json: { contract_version: 'prospecta-contact-enrichment-reveal-v2', request_id: request.request_id, reveal_request_id: request.reveal_request_id, status, occurred_at: new Date().toISOString(), provider_contact_id: request.provider_contact_id, provider_source: 'LUSHA', emails, phones } };"
       },
       "id": "fe44ffba-70fb-4fdb-8d6a-f49642741015",
       "name": "Map Reveal Callback",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1680, 80]
+      "position": [
+        1680,
+        80
+      ]
     },
     {
       "parameters": {
@@ -283,33 +704,345 @@
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify($json) }}",
-        "options": { "timeout": 30000, "response": { "response": { "neverError": true } } }
+        "options": {
+          "timeout": 30000,
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
       },
       "id": "fe44ffba-70fb-4fdb-8d6a-f49642741016",
       "name": "Callback Prospecta Reveal v2",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1920, 80],
+      "position": [
+        1920,
+        80
+      ],
       "retryOnFail": false,
       "continueOnFail": true
     }
   ],
   "connections": {
-    "Webhook Contact Enrichment v2": { "main": [[{ "node": "Validate v2 Request", "type": "main", "index": 0 }]] },
-    "Validate v2 Request": { "main": [[{ "node": "IF Valid v2 Request", "type": "main", "index": 0 }]] },
-    "IF Valid v2 Request": { "main": [[{ "node": "Respond v2 Accepted", "type": "main", "index": 0 }], [{ "node": "Respond v2 Invalid", "type": "main", "index": 0 }]] },
-    "Respond v2 Accepted": { "main": [[{ "node": "IF Company Search", "type": "main", "index": 0 }]] },
-    "IF Company Search": { "main": [[{ "node": "Prepare Company Search", "type": "main", "index": 0 }], [{ "node": "IF Preview", "type": "main", "index": 0 }]] },
-    "Prepare Company Search": { "main": [[{ "node": "Lusha Prospecting Companies v2", "type": "main", "index": 0 }]] },
-    "Lusha Prospecting Companies v2": { "main": [[{ "node": "Map Company Search Callback", "type": "main", "index": 0 }]] },
-    "Map Company Search Callback": { "main": [[{ "node": "Callback Prospecta Company Search v2", "type": "main", "index": 0 }]] },
-    "IF Preview": { "main": [[{ "node": "Prepare Decision Makers", "type": "main", "index": 0 }], [{ "node": "Prepare Contact Reveal", "type": "main", "index": 0 }]] },
-    "Prepare Decision Makers": { "main": [[{ "node": "Lusha Decision Makers v2", "type": "main", "index": 0 }]] },
-    "Lusha Decision Makers v2": { "main": [[{ "node": "Map Preview Callback", "type": "main", "index": 0 }]] },
-    "Map Preview Callback": { "main": [[{ "node": "Callback Prospecta Preview v2", "type": "main", "index": 0 }]] },
-    "Prepare Contact Reveal": { "main": [[{ "node": "Lusha Enrich Selected Contact v2", "type": "main", "index": 0 }]] },
-    "Lusha Enrich Selected Contact v2": { "main": [[{ "node": "Map Reveal Callback", "type": "main", "index": 0 }]] },
-    "Map Reveal Callback": { "main": [[{ "node": "Callback Prospecta Reveal v2", "type": "main", "index": 0 }]] }
+    "Webhook Contact Enrichment v2": {
+      "main": [
+        [
+          {
+            "node": "Validate v2 Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate v2 Request": {
+      "main": [
+        [
+          {
+            "node": "IF Valid v2 Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Valid v2 Request": {
+      "main": [
+        [
+          {
+            "node": "Respond v2 Accepted",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond v2 Invalid",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond v2 Accepted": {
+      "main": [
+        [
+          {
+            "node": "IF Company Search",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Company Search": {
+      "main": [
+        [
+          {
+            "node": "Prepare Company Search",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "IF Preview",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Company Search": {
+      "main": [
+        [
+          {
+            "node": "Lusha Prospecting Companies v2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lusha Prospecting Companies v2": {
+      "main": [
+        [
+          {
+            "node": "Map Company Search Callback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Map Company Search Callback": {
+      "main": [
+        [
+          {
+            "node": "Callback Prospecta Company Search v2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Preview": {
+      "main": [
+        [
+          {
+            "node": "Prepare Priority Decision Makers",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "IF Apollo Reveal",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Priority Decision Makers": {
+      "main": [
+        [
+          {
+            "node": "Lusha Decision Makers Priority Fallback v2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lusha Decision Makers Priority Fallback v2": {
+      "main": [
+        [
+          {
+            "node": "Map Preview Callback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Map Preview Callback": {
+      "main": [
+        [
+          {
+            "node": "IF Lusha Preview Empty",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Lusha Preview Empty": {
+      "main": [
+        [
+          {
+            "node": "Apollo Organization Enrichment v1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Callback Prospecta Preview v2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Apollo Organization Enrichment v1": {
+      "main": [
+        [
+          {
+            "node": "Prepare Apollo People Fallback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Apollo People Fallback": {
+      "main": [
+        [
+          {
+            "node": "IF Apollo Organization Match",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Apollo Organization Match": {
+      "main": [
+        [
+          {
+            "node": "Apollo People Search Fallback v1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Callback Prospecta Preview v2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Apollo People Search Fallback v1": {
+      "main": [
+        [
+          {
+            "node": "Map Apollo Preview Callback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Map Apollo Preview Callback": {
+      "main": [
+        [
+          {
+            "node": "Callback Prospecta Preview v2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Apollo Reveal": {
+      "main": [
+        [
+          {
+            "node": "Prepare Apollo Contact Reveal",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Contact Reveal",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Apollo Contact Reveal": {
+      "main": [
+        [
+          {
+            "node": "Apollo Enrich Selected Contact v1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Apollo Enrich Selected Contact v1": {
+      "main": [
+        [
+          {
+            "node": "Map Apollo Reveal Callback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Map Apollo Reveal Callback": {
+      "main": [
+        [
+          {
+            "node": "Callback Prospecta Reveal v2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Contact Reveal": {
+      "main": [
+        [
+          {
+            "node": "Lusha Enrich Selected Contact v2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lusha Enrich Selected Contact v2": {
+      "main": [
+        [
+          {
+            "node": "Map Reveal Callback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Map Reveal Callback": {
+      "main": [
+        [
+          {
+            "node": "Callback Prospecta Reveal v2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
   },
   "settings": {
     "executionOrder": "v1",

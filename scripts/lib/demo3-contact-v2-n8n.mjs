@@ -19,6 +19,7 @@ export const demo3ContactV2N8n = Object.freeze({
   callbackCredentialName:
     "Prospecta Contact Enrichment v2 Callback Demo3",
   lushaCredentialName: "Lusha API V3 Demo3",
+  apolloCredentialName: "Apollo API Demo3",
   credentialType: "httpHeaderAuth",
   previewCallbackUrl:
     `${demo3ContactV2BaseUrl}/api/contact-enrichment/v2/callback`,
@@ -31,8 +32,11 @@ export const demo3ContactV2N8n = Object.freeze({
 const nodeBindings = Object.freeze({
   "Webhook Contact Enrichment v2": "ingress",
   "Lusha Prospecting Companies v2": "lusha",
-  "Lusha Decision Makers v2": "lusha",
+  "Lusha Decision Makers Priority Fallback v2": "lusha",
   "Lusha Enrich Selected Contact v2": "lusha",
+  "Apollo Organization Enrichment v1": "apollo",
+  "Apollo People Search Fallback v1": "apollo",
+  "Apollo Enrich Selected Contact v1": "apollo",
   "Callback Prospecta Preview v2": "callback",
   "Callback Prospecta Company Search v2": "callback",
   "Callback Prospecta Reveal v2": "callback",
@@ -104,9 +108,14 @@ export function renderDemo3ContactV2Credentials(material) {
   ];
 }
 
-export function renderDemo3ContactV2Workflow(referenceWorkflow, lushaCredential) {
+export function renderDemo3ContactV2Workflow(
+  referenceWorkflow,
+  lushaCredential,
+  apolloCredential,
+) {
   object(referenceWorkflow, "reference workflow");
   object(lushaCredential, "Lusha credential metadata");
+  object(apolloCredential, "Apollo credential metadata");
 
   if (
     lushaCredential.type !== demo3ContactV2N8n.credentialType ||
@@ -115,6 +124,14 @@ export function renderDemo3ContactV2Workflow(referenceWorkflow, lushaCredential)
     lushaCredential.name !== demo3ContactV2N8n.lushaCredentialName
   ) {
     fail("Lusha credential metadata does not match the approved binding");
+  }
+  if (
+    apolloCredential.type !== demo3ContactV2N8n.credentialType ||
+    typeof apolloCredential.id !== "string" ||
+    apolloCredential.id === "" ||
+    apolloCredential.name !== demo3ContactV2N8n.apolloCredentialName
+  ) {
+    fail("Apollo credential metadata does not match the approved binding");
   }
 
   const workflow = structuredClone(referenceWorkflow);
@@ -143,6 +160,7 @@ export function renderDemo3ContactV2Workflow(referenceWorkflow, lushaCredential)
       demo3ContactV2N8n.callbackCredentialName,
     ),
     lusha: credentialBinding(lushaCredential.id, lushaCredential.name),
+    apollo: credentialBinding(apolloCredential.id, apolloCredential.name),
   };
 
   for (const [name, binding] of Object.entries(nodeBindings)) {
@@ -170,7 +188,10 @@ export function renderDemo3ContactV2Workflow(referenceWorkflow, lushaCredential)
   return workflow;
 }
 
-export function expectedDemo3ContactV2Bindings(lushaCredential) {
+export function expectedDemo3ContactV2Bindings(
+  lushaCredential,
+  apolloCredential,
+) {
   return [
     [
       "Webhook Contact Enrichment v2",
@@ -179,7 +200,7 @@ export function expectedDemo3ContactV2Bindings(lushaCredential) {
       demo3ContactV2N8n.ingressCredentialName,
     ],
     [
-      "Lusha Decision Makers v2",
+      "Lusha Decision Makers Priority Fallback v2",
       demo3ContactV2N8n.credentialType,
       lushaCredential.id,
       lushaCredential.name,
@@ -195,6 +216,24 @@ export function expectedDemo3ContactV2Bindings(lushaCredential) {
       demo3ContactV2N8n.credentialType,
       lushaCredential.id,
       lushaCredential.name,
+    ],
+    [
+      "Apollo Organization Enrichment v1",
+      demo3ContactV2N8n.credentialType,
+      apolloCredential.id,
+      apolloCredential.name,
+    ],
+    [
+      "Apollo People Search Fallback v1",
+      demo3ContactV2N8n.credentialType,
+      apolloCredential.id,
+      apolloCredential.name,
+    ],
+    [
+      "Apollo Enrich Selected Contact v1",
+      demo3ContactV2N8n.credentialType,
+      apolloCredential.id,
+      apolloCredential.name,
     ],
     [
       "Callback Prospecta Preview v2",

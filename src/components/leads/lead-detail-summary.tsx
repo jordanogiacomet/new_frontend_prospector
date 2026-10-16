@@ -6,7 +6,9 @@ import {
 } from "../../lib/formatters";
 import {
   UNKNOWN_DOMAIN_LABEL,
+  formatDecisionReason,
   getLeadActionLabel,
+  getLeadCommercialAssessment,
   getPriorityLabel,
   getTrustStatusLabel,
   getVerdictLabel,
@@ -61,7 +63,7 @@ function ConfidenceNotice({ indicator }: ConfidenceNoticeProps) {
       >
         <p className="text-sm font-bold">Baixa confiança</p>
         <p className="mt-1 text-xs leading-5">
-          Considere validar os dados antes da abordagem.
+          Valide os dados e os pontos de atenção antes de decidir pela abordagem.
         </p>
       </div>
     );
@@ -75,8 +77,7 @@ function ConfidenceNotice({ indicator }: ConfidenceNoticeProps) {
       >
         <p className="text-sm font-bold">Confiança não mapeada</p>
         <p className="mt-1 text-xs leading-5">
-          Não foi possível classificar a confiança com os valores
-          armazenados.
+          A confiança desta análise não está classificada. Revise os fundamentos disponíveis antes de decidir.
         </p>
       </div>
     );
@@ -86,17 +87,26 @@ function ConfidenceNotice({ indicator }: ConfidenceNoticeProps) {
     <div className="border border-[oklch(72%_0.075_174)] bg-[oklch(94%_0.035_174)] px-4 py-4 text-[oklch(32%_0.09_174)]">
       <p className="text-sm font-bold">Confiança normal</p>
       <p className="mt-1 text-xs leading-5">
-        Classificação apresentada conforme a análise armazenada.
+        Indicador registrado na análise. Revise os fundamentos da recomendação comercial.
       </p>
     </div>
   );
 }
 
 export function LeadDetailSummary({ lead }: LeadDetailSummaryProps) {
+  const assessment = getLeadCommercialAssessment(lead.recommendedAction);
+  const assessmentAppearance = {
+    proceed: "text-[oklch(32%_0.09_174)]",
+    review: "text-[oklch(35%_0.08_62)]",
+    hold: "text-[oklch(36%_0.05_247)]",
+    decline: "text-[oklch(38%_0.10_32)]",
+    unavailable: "text-[oklch(43%_0.025_252)]",
+  }[assessment.emphasis];
   const actionLabel = getLeadActionLabel(lead.recommendedAction);
   const priorityLabel = getPriorityLabel(lead.priority);
   const verdictLabel = getVerdictLabel(lead.finalVerdict);
   const trustLabel = getTrustStatusLabel(lead.trustStatus);
+  const hasReason = lead.recommendedActionReason !== null && lead.recommendedActionReason.trim().length > 0;
 
   return (
     <section
@@ -146,16 +156,42 @@ export function LeadDetailSummary({ lead }: LeadDetailSummaryProps) {
         <div className="grid gap-7 lg:grid-cols-[minmax(0,1.4fr)_minmax(17rem,0.6fr)] lg:gap-10">
           <div>
             <p className="text-xs font-bold tracking-[0.16em] text-[oklch(45%_0.105_174)] uppercase">
-              Decisão armazenada
+              Decisão de prospecção
             </p>
             <h2
               id="lead-decision-heading"
               className="mt-2 font-serif text-3xl tracking-[-0.03em]"
             >
-              Recomendação da análise
+              Avaliação comercial
             </h2>
 
-            <dl className="mt-6 grid gap-x-7 gap-y-6 sm:grid-cols-2">
+            <h3 className={`mt-6 max-w-[26ch] font-serif text-[clamp(1.8rem,3.2vw,2.5rem)] leading-tight tracking-[-0.035em] ${assessmentAppearance}`}>
+              {assessment.conclusion}
+            </h3>
+            <p className="mt-3 max-w-3xl text-sm leading-6 text-[oklch(43%_0.03_252)]">
+              {assessment.guidance}
+            </p>
+            <p className="mt-4 text-xs font-semibold text-[oklch(48%_0.025_252)]">
+              Data da análise: {formatBrazilianDate(lead.lastAnalysisAt)}
+            </p>
+
+            <dl className="mt-6">
+              <div>
+                <dt className="text-xs font-bold tracking-[0.09em] text-[oklch(48%_0.025_252)] uppercase">
+                  Motivo da recomendação
+                </dt>
+                <dd
+                  data-testid="lead-recommendation-reason"
+                  className="mt-2 max-w-3xl text-sm leading-6"
+                >
+                  {hasReason
+                    ? formatDecisionReason(lead.recommendedActionReason)
+                    : "O motivo da recomendação não está disponível nesta consulta."}
+                </dd>
+              </div>
+            </dl>
+
+            <dl className="mt-7 grid gap-x-7 gap-y-5 border-t border-[oklch(82%_0.025_82)] pt-5 sm:grid-cols-2">
               <div>
                 <dt className="text-xs font-bold tracking-[0.09em] text-[oklch(48%_0.025_252)] uppercase">
                   Ação recomendada
@@ -170,19 +206,22 @@ export function LeadDetailSummary({ lead }: LeadDetailSummaryProps) {
 
               <div>
                 <dt className="text-xs font-bold tracking-[0.09em] text-[oklch(48%_0.025_252)] uppercase">
-                  Pontuação
+                  Pontuação da análise
                 </dt>
                 <dd
                   data-testid="lead-score"
                   className="mt-1 font-serif text-4xl leading-none tracking-[-0.035em] tabular-nums"
                 >
                   {formatScore(lead.score)}
+                  {lead.score === null ? null : (
+                    <span className="ml-1 font-sans text-sm tracking-normal text-[oklch(43%_0.03_252)]">/100</span>
+                  )}
                 </dd>
               </div>
 
               <div>
                 <dt className="text-xs font-bold tracking-[0.09em] text-[oklch(48%_0.025_252)] uppercase">
-                  Prioridade
+                  Prioridade registrada
                 </dt>
                 <dd className="mt-2">
                   <DecisionBadge>{priorityLabel}</DecisionBadge>
@@ -191,24 +230,13 @@ export function LeadDetailSummary({ lead }: LeadDetailSummaryProps) {
 
               <div>
                 <dt className="text-xs font-bold tracking-[0.09em] text-[oklch(48%_0.025_252)] uppercase">
-                  Veredito
+                  Resultado da análise
                 </dt>
                 <dd className="mt-2">
                   <DecisionBadge>{verdictLabel}</DecisionBadge>
                 </dd>
               </div>
 
-              <div className="sm:col-span-2">
-                <dt className="text-xs font-bold tracking-[0.09em] text-[oklch(48%_0.025_252)] uppercase">
-                  Motivo da recomendação
-                </dt>
-                <dd
-                  data-testid="lead-recommendation-reason"
-                  className="mt-2 max-w-3xl text-sm leading-6"
-                >
-                  {lead.recommendedActionReason ?? UNAVAILABLE_LABEL}
-                </dd>
-              </div>
             </dl>
           </div>
 
